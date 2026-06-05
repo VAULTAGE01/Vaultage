@@ -1,0 +1,49 @@
+appId: com.eden.vaultage
+productName: Vaultage
+
+publish:
+  provider: github
+  owner: eden
+  repo: vaultapp
+
+directories:
+  buildResources: build
+  output: dist
+
+files:
+  - out/**/*
+  - "!**/*.map"
+
+# ── macOS ──────────────────────────────────────────────────────────────────────
+mac:
+  category: public.app-category.productivity
+  icon: resources/icon.icns
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.inherit.plist
+  notarize: true
+  extraResources:
+    - from: resources/vault-keychain
+      to: vault-keychain
+  target:
+    - target: dmg
+      arch: universal
+
+dmg:
+  sign: false
+  title: Vaultage
+
+# ── Windows ────────────────────────────────────────────────────────────────────
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch: x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  installerIcon: resources/icon.ico
+  uninstallerIcon: resources/icon.ico
+  shortcutName: Vaultage

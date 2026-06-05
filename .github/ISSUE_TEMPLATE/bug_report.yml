@@ -1,0 +1,59 @@
+name: Bug report
+description: Report a reproducible Vaultage bug without sharing secrets.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach real vault files, `.env` files, provider tokens, or screenshots containing secret values.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: What happened?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction Steps
+      description: Use a test vault and throwaway secrets.
+      placeholder: |
+        1. ...
+        2. ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Vaultage Version Or Commit
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: Operating System
+      placeholder: macOS 15.5, Windows 11, etc.
+    validations:
+      required: true
+  - type: checkboxes
+    id: sensitive-data
+    attributes:
+      label: Sensitive Data Check
+      options:
+        - label: I did not include real secrets, provider tokens, vault files, `.env` contents, or screenshots of secret values.
+          required: true

@@ -1,0 +1,162 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vaultage.dev/schemas/vault-root.v2.schema.json",
+  "title": "Vaultage Decrypted Vault Root v2",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["version", "root"],
+  "properties": {
+    "version": {
+      "type": "integer",
+      "const": 2
+    },
+    "root": {
+      "$ref": "#/$defs/folder"
+    },
+    "providers": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/provider" },
+      "default": []
+    },
+    "envProjects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/envProject" },
+      "default": []
+    }
+  },
+  "$defs": {
+    "isoDateTime": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "uuidLike": {
+      "type": "string",
+      "minLength": 1
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["key", "value", "sensitive"],
+      "properties": {
+        "key": { "type": "string", "minLength": 1 },
+        "value": { "type": "string" },
+        "sensitive": { "type": "boolean" }
+      }
+    },
+    "providerLink": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["providerId", "remoteName", "createdInVaultage"],
+      "properties": {
+        "providerId": { "$ref": "#/$defs/uuidLike" },
+        "remoteName": { "type": "string" },
+        "createdInVaultage": { "type": "boolean" },
+        "scopes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "remoteId": { "type": "string" },
+        "lastVerifiedAt": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "secret": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name", "type", "fields", "notes", "createdAt", "updatedAt"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuidLike" },
+        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "enum": ["password", "apiKey", "sshKey", "secureNote", "custom", "image"]
+        },
+        "fields": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/field" }
+        },
+        "notes": { "type": "string" },
+        "createdAt": { "$ref": "#/$defs/isoDateTime" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" },
+        "description": { "type": "string" },
+        "scope": { "type": "string" },
+        "tags": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "expiresAt": { "$ref": "#/$defs/isoDateTime" },
+        "usedIn": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "lastUsedAt": { "$ref": "#/$defs/isoDateTime" },
+        "usageCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "providerLink": { "$ref": "#/$defs/providerLink" }
+      }
+    },
+    "folder": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name", "children", "secrets"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuidLike" },
+        "name": { "type": "string", "minLength": 1 },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/folder" }
+        },
+        "secrets": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/secret" }
+        }
+      }
+    },
+    "provider": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name", "type", "config"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuidLike" },
+        "name": { "type": "string" },
+        "type": {
+          "enum": ["doppler", "vercel", "cloudflare", "custom"]
+        },
+        "config": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "lastSyncAt": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "envEntry": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["secretId", "fieldKey", "envKey"],
+      "properties": {
+        "secretId": { "$ref": "#/$defs/uuidLike" },
+        "fieldKey": { "type": "string" },
+        "envKey": {
+          "type": "string",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+        }
+      }
+    },
+    "envProject": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name", "path", "entries", "addToGitignore"],
+      "properties": {
+        "id": { "$ref": "#/$defs/uuidLike" },
+        "name": { "type": "string" },
+        "path": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/envEntry" }
+        },
+        "addToGitignore": { "type": "boolean" },
+        "lastExportAt": { "$ref": "#/$defs/isoDateTime" }
+      }
+    }
+  }
+}

@@ -1,0 +1,61 @@
+{
+  "extends": "@electron-toolkit/tsconfig/tsconfig.web.json",
+  "include": [
+    "src/renderer/**/*",
+    "src/shared/**/*"
+  ],
+  "compilerOptions": {
+    "composite": true,
+    "baseUrl": ".",
+    "paths": {
+      "@renderer/*": [
+        "src/renderer/src/*"
+      ],
+      "@/*": [
+        "src/renderer/src/*"
+      ],
+      "#add-secret-modal": [
+        "src/renderer/src/components/AddSecretModal.open.tsx"
+      ],
+      "#add-provider-modal": [
+        "src/renderer/src/components/AddProviderModal.disabled.tsx"
+      ],
+      "#create-cloudflare-token-modal": [
+        "src/renderer/src/components/CreateCloudflareTokenModal.disabled.tsx"
+      ],
+      "#integrations-view": [
+        "src/renderer/src/components/IntegrationsView.disabled.tsx"
+      ],
+      "#main-layout": [
+        "src/renderer/src/components/MainLayout.open.tsx"
+      ],
+      "#mode-context": [
+        "src/renderer/src/modeContext.open.tsx"
+      ],
+      "#mode-switcher": [
+        "src/renderer/src/components/ModeSwitcher.open.tsx"
+      ],
+      "#projects-view": [
+        "src/renderer/src/components/ProjectsView.open.tsx"
+      ],
+      "#provider-icons": [
+        "src/renderer/src/components/ProviderIcons.disabled.tsx"
+      ],
+      "#secret-detail": [
+        "src/renderer/src/components/SecretDetail.open.tsx"
+      ],
+      "#secret-request-panel": [
+        "src/renderer/src/components/SecretRequestPanel.disabled.tsx"
+      ],
+      "#service-categories": [
+        "src/renderer/src/lib/serviceCategories.disabled.ts"
+      ],
+      "#service-category-icons": [
+        "src/renderer/src/components/serviceCategoryIcons.disabled.tsx"
+      ],
+      "#sidebar": [
+        "src/renderer/src/components/Sidebar.open.tsx"
+      ]
+    }
+  }
+}
