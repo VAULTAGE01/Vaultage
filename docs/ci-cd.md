@@ -26,6 +26,12 @@ and closed-feature leakage scans.
 
 Workflow actions are pinned to immutable commit SHAs instead of moving tags.
 
+## Dependency Automation
+
+`.github/dependabot.yml` asks Dependabot to check root npm/pnpm dependencies
+and GitHub Actions weekly. Security alerts and security updates should remain
+enabled in GitHub repository settings.
+
 ## Local Checks
 
 Run the full Community gate:

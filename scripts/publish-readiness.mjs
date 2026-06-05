@@ -24,6 +24,10 @@ if (!existsSync('TRADEMARK.md')) {
   blockers.push('TRADEMARK.md is missing. Public source drops must document brand and official-build boundaries.')
 }
 
+if (!existsSync('.github/dependabot.yml')) {
+  blockers.push('.github/dependabot.yml is missing. Public Community source drops should keep dependency update automation configured.')
+}
+
 if (!existsSync('DISCLAIMER.md')) {
   blockers.push('DISCLAIMER.md is missing. Public source drops must document warranty, liability, and misuse boundaries.')
 }
