@@ -1,0 +1,134 @@
+name: Community Desktop Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag, for example v1.0.0'
+        required: true
+        type: string
+      draft:
+        description: 'Create or update the release as a draft'
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  macos-release:
+    name: Signed macOS DMG
+    runs-on: macos-latest
+    env:
+      CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+      CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      NOTARY_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+      NOTARY_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      NOTARY_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1
+        with:
+          version: 10
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Resolve release tag
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            TAG_NAME="${{ inputs.tag }}"
+            DRAFT_FLAG="${{ inputs.draft }}"
+          else
+            TAG_NAME="${GITHUB_REF_NAME}"
+            DRAFT_FLAG="true"
+          fi
+          if [[ ! "${TAG_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([.-][A-Za-z0-9._-]+)?$ ]]; then
+            echo "::error::Release tag must look like v1.0.0 or v1.0.0-beta.1"
+            exit 1
+          fi
+          PACKAGE_VERSION="$(node -p "require('./package.json').version")"
+          if [[ "${TAG_NAME#v}" != "${PACKAGE_VERSION}" ]]; then
+            echo "::error::Release tag ${TAG_NAME} does not match package.json version ${PACKAGE_VERSION}"
+            exit 1
+          fi
+          echo "TAG_NAME=${TAG_NAME}" >> "${GITHUB_ENV}"
+          echo "DRAFT_FLAG=${DRAFT_FLAG}" >> "${GITHUB_ENV}"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify Community source
+        run: pnpm verify:release
+
+      - name: Prepare Apple signing credentials
+        run: |
+          set -euo pipefail
+          for name in CERTIFICATE_P12_BASE64 CERTIFICATE_PASSWORD NOTARY_API_KEY_BASE64 NOTARY_API_KEY_ID NOTARY_API_ISSUER; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "::error::Missing required GitHub secret env ${name}"
+              exit 1
+            fi
+          done
+          CERT_PATH="${RUNNER_TEMP}/vaultage-community-developer-id.p12"
+          API_KEY_PATH="${RUNNER_TEMP}/AuthKey_${NOTARY_API_KEY_ID}.p8"
+          printf '%s' "${CERTIFICATE_P12_BASE64}" | base64 --decode > "${CERT_PATH}"
+          printf '%s' "${NOTARY_API_KEY_BASE64}" | base64 --decode > "${API_KEY_PATH}"
+          chmod 600 "${CERT_PATH}" "${API_KEY_PATH}"
+          {
+            echo "CSC_LINK=${CERT_PATH}"
+            echo "CSC_KEY_PASSWORD=${CERTIFICATE_PASSWORD}"
+            echo "APPLE_API_KEY=${API_KEY_PATH}"
+            echo "APPLE_API_KEY_ID=${NOTARY_API_KEY_ID}"
+            echo "APPLE_API_ISSUER=${NOTARY_API_ISSUER}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Build signed and notarized macOS artifacts
+        run: pnpm dist:mac:signed
+
+      - name: Assert signed macOS app
+        run: pnpm release:assert-mac
+
+      - name: Create checksums
+        run: pnpm release:checksums
+
+      - name: Write release notes
+        run: |
+          set -euo pipefail
+          cat > dist/RELEASE_NOTES.md <<EOF
+          # Vaultage Community ${TAG_NAME}
+
+          This release publishes the Apache-2.0 Community source and the official signed/notarized macOS desktop build.
+
+          Download the DMG for normal installation. GitHub also provides source archives for this exact tag.
+
+          Verify downloads with \`SHASUMS256.txt\`.
+          EOF
+
+      - name: Publish GitHub release
+        run: |
+          set -euo pipefail
+          release_args=(--title "Vaultage Community ${TAG_NAME}" --notes-file dist/RELEASE_NOTES.md)
+          if [[ "${DRAFT_FLAG}" == "true" ]]; then
+            release_args+=(--draft)
+          fi
+          if [[ "${TAG_NAME}" == *-* ]]; then
+            release_args+=(--prerelease)
+          fi
+          if gh release view "${TAG_NAME}" >/dev/null 2>&1; then
+            gh release edit "${TAG_NAME}" "${release_args[@]}"
+            gh release upload "${TAG_NAME}" dist/*.dmg dist/*.zip dist/latest-mac.yml dist/*.blockmap dist/SHASUMS256.txt --clobber
+          else
+            gh release create "${TAG_NAME}" dist/*.dmg dist/*.zip dist/latest-mac.yml dist/*.blockmap dist/SHASUMS256.txt --target "${GITHUB_SHA}" "${release_args[@]}"
+          fi

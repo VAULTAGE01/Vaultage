@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 
 const blockers = []
 const warnings = []
@@ -96,7 +96,7 @@ const forbiddenFeatureFiles = [
   ['docs/design-system.md', 'Public Community source drops should not include private full-product design-system docs.'],
   ['docs/feedback.md', 'Public Community source drops should not include private feedback/provider-roadmap intake docs.'],
   ['docs/onboarding-research.md', 'Public Community source drops should not include private product-research docs.'],
-  ['.github/workflows/release.yml', 'Public Community source drops must not include private signing/notarization release workflows.'],
+  ['.github/workflows/release.yml', 'Use .github/workflows/release-community.yml for public Community desktop releases.'],
 ]
 
 for (const [path, message] of forbiddenFeatureFiles) {
@@ -124,14 +124,10 @@ if (fileContains('.github/workflows/ci.yml', 'verify:open-source-stage')) {
 }
 
 if (
-  fileContains('.github/workflows/ci.yml', 'APPLE_ID') ||
-  fileContains('.github/workflows/ci.yml', 'CSC_LINK') ||
   fileContains('README.md', 'vaultage-security-remediation-roadmap') ||
   fileContains('README.md', 'vaultage-release-security-checklist') ||
   fileContains('README.md', 'vaultage-publishing-readiness-assessment') ||
   fileContains('README.md', 'smoke:provider-worker') ||
-  fileContains('docs/ci-cd.md', 'APPLE_ID') ||
-  fileContains('docs/ci-cd.md', 'CSC_LINK') ||
   fileContains('docs/ci-cd.md', 'release-gates') ||
   fileContains('docs/ci-cd.md', 'open-source-gates') ||
   fileContains('docs/repo-structure.md', 'prepare:public-repo') ||
@@ -146,6 +142,43 @@ if (
   fileContains('package.json', '"smoke:provider-worker"')
 ) {
   blockers.push('Public Community docs/CI still contain private release, staging, or provider-worker references.')
+}
+
+if (!existsSync('.github/workflows/release-community.yml')) {
+  blockers.push('Public Community desktop releases need .github/workflows/release-community.yml.')
+}
+
+if (!fileContains('electron-builder.yml', 'appId: xyz.arcalab.vaultage.community')) {
+  blockers.push('electron-builder.yml must use the public Community bundle id.')
+}
+
+if (!fileContains('electron-builder.yml', 'owner: arcalab-xyz') || !fileContains('electron-builder.yml', 'repo: Vaultage')) {
+  blockers.push('electron-builder.yml must publish official Community artifacts to arcalab-xyz/Vaultage.')
+}
+
+function walkFiles(dir, files = []) {
+  if (!existsSync(dir)) return files
+  for (const entry of readdirSync(dir)) {
+    if (entry === '.git' || entry === 'node_modules' || entry === 'dist' || entry === 'out') continue
+    const path = `${dir}/${entry}`
+    const stat = statSync(path)
+    if (stat.isDirectory()) walkFiles(path, files)
+    else files.push(path)
+  }
+  return files
+}
+
+for (const path of walkFiles('.')) {
+  if (path.endsWith('.p12')) {
+    blockers.push(`${path} looks like PKCS#12 signing certificate material. Do not commit signing certificates.`)
+  }
+  if (path.endsWith('.p8')) {
+    blockers.push(`${path} looks like Apple notarization API key material. Do not commit Apple API keys.`)
+  }
+  const privateKeyMarker = ['BEGIN', 'PRIVATE', 'KEY'].join(' ')
+  if (fileContains(path, privateKeyMarker)) {
+    blockers.push(`${path} contains private key material. Do not commit private keys.`)
+  }
 }
 
 const forbiddenPreloadTerms = [

@@ -14,7 +14,7 @@ product and implementation details.
 | [features.md](./features.md) | Current feature inventory, status, and source pointers. |
 | [architecture.md](./architecture.md) | Processes, trust boundaries, IPC, data model, and file map. |
 | [governance.md](./governance.md) | Public contribution, maintainer, source-boundary, and issue-handling policy. |
-| [release-provenance.md](./release-provenance.md) | Release artifact verification, checksums, provenance, and SBOM expectations. |
+| [release-provenance.md](./release-provenance.md) | Release artifact verification, signing/notarization, checksums, provenance, and SBOM expectations. |
 | [changelog.md](./changelog.md) | Chronological shipped-work log. |
 | [ci-cd.md](./ci-cd.md) | CI, release protocol, and production deploy notes. |
 | [repo-structure.md](./repo-structure.md) | Private/public source layout and open-core boundaries. |

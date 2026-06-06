@@ -98,7 +98,7 @@ export default function AuthScreen() {
         opacity={0.74}
         className="absolute inset-0 pointer-events-none"
       />
-      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(180deg,rgba(2,8,6,0.56)_0%,rgba(2,8,6,0.34)_45%,rgba(2,8,6,0.68)_100%)]" />
+      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(180deg,rgba(8,9,10,0.50)_0%,rgba(8,9,10,0.26)_45%,rgba(8,9,10,0.62)_100%)]" />
       <div className="liquid-noise absolute inset-0 pointer-events-none opacity-30" />
 
       {isTouchIDPromptOpen ? (

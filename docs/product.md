@@ -13,7 +13,9 @@ workflows.
 
 Vaultage Community does not require an account. The public source distribution
 does not include closed commercial automation, hosted account features, browser
-extension code, signing identities, or private release-channel modules.
+extension code, signing credentials, or private paid modules. Official
+Community binaries may still be signed and notarized by the project owner for
+safe desktop distribution.
 
 ## Principles
 

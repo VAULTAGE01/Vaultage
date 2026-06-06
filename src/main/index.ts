@@ -220,7 +220,7 @@ function createWindow(): void {
 
 app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return
-  app.setName('Vaultage')
+  app.setName('Vaultage Community')
   agentApiToken = await ensureAgentApiToken()
   installRendererCsp(session.defaultSession)
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {

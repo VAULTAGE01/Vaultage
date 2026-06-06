@@ -13,7 +13,7 @@ export interface KeychainResult {
 
 export function helperPath(): string {
   return app.isPackaged
-    ? join(process.resourcesPath, 'Vaultage Keychain')
+    ? join(process.resourcesPath, 'Vaultage Community Keychain')
     : join(app.getAppPath(), 'resources', 'vault-keychain')
 }
 
@@ -51,7 +51,7 @@ export function keychainRemove(): boolean {
   return result.status === 0
 }
 
-export function keychainRetrieve(prompt = 'unlock Vaultage'): KeychainResult {
+export function keychainRetrieve(prompt = 'unlock Vaultage Community'): KeychainResult {
   if (!IS_MAC) {
     return { key: null, cancelled: false, authFailed: false, notFound: true }
   }

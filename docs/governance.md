@@ -15,7 +15,7 @@ Contributions are welcome for:
 - tests, docs, and release hardening.
 
 Do not submit real secrets, vault files, provider credentials, private planning
-notes, signing identities, or closed commercial modules.
+notes, signing credentials, or closed commercial modules.
 
 ## Issue Handling
 

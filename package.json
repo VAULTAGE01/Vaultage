@@ -1,8 +1,8 @@
 {
-  "name": "vaultage-open-local",
+  "name": "vaultage-community",
   "version": "1.0.0",
   "description": "Encrypted key/secret vault with Touch ID",
-  "productName": "Vaultage",
+  "productName": "Vaultage Community",
   "main": "out/main/index.js",
   "scripts": {
     "build:helper": "bash build-helper.sh",
@@ -20,9 +20,12 @@
     "smoke:mac-entitlements": "node scripts/smoke-mac-entitlements.mjs",
     "verify:release": "node scripts/release-gates.open.mjs",
     "start": "electron-vite dev",
-    "dist:mac": "bash build-helper.sh && VAULTAGE_OPEN_CORE=1 electron-vite build && electron-builder --mac --universal",
+    "dist:mac": "bash build-helper.sh && VAULTAGE_OPEN_CORE=1 electron-vite build && electron-builder --mac --universal --publish never",
+    "dist:mac:signed": "bash build-helper.sh && VAULTAGE_OPEN_CORE=1 electron-vite build && electron-builder --mac --universal --publish never",
     "dist:win": "VAULTAGE_OPEN_CORE=1 electron-vite build && electron-builder --win --x64",
-    "dist:all": "pnpm dist:mac && pnpm dist:win"
+    "dist:all": "pnpm dist:mac && pnpm dist:win",
+    "release:assert-mac": "node scripts/assert-mac-release.mjs",
+    "release:checksums": "node scripts/create-release-checksums.mjs"
   },
   "pnpm": {
     "overrides": {

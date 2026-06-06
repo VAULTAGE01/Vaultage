@@ -1,10 +1,11 @@
-appId: com.eden.vaultage
-productName: Vaultage
+appId: xyz.arcalab.vaultage.community
+productName: Vaultage Community
+artifactName: Vaultage-Community-${version}-${os}-${arch}.${ext}
 
 publish:
   provider: github
-  owner: eden
-  repo: vaultapp
+  owner: arcalab-xyz
+  repo: Vaultage
 
 directories:
   buildResources: build
@@ -25,14 +26,16 @@ mac:
   notarize: true
   extraResources:
     - from: resources/vault-keychain
-      to: vault-keychain
+      to: Vaultage Community Keychain
   target:
     - target: dmg
+      arch: universal
+    - target: zip
       arch: universal
 
 dmg:
   sign: false
-  title: Vaultage
+  title: Vaultage Community
 
 # ── Windows ────────────────────────────────────────────────────────────────────
 win:
@@ -46,4 +49,4 @@ nsis:
   allowToChangeInstallationDirectory: true
   installerIcon: resources/icon.ico
   uninstallerIcon: resources/icon.ico
-  shortcutName: Vaultage
+  shortcutName: Vaultage Community

@@ -3,7 +3,7 @@ import { join } from 'path'
 import { spawnSync } from 'child_process'
 
 const appPathArg = process.argv.slice(2).find(arg => arg !== '--')
-const appPath = appPathArg || join(process.cwd(), 'dist/mac-universal/Vaultage.app')
+const appPath = appPathArg || join(process.cwd(), 'dist/mac-universal/Vaultage Community.app')
 const forbiddenKeys = [
   'com.apple.security.cs.allow-unsigned-executable-memory',
   'com.apple.security.cs.disable-library-validation',

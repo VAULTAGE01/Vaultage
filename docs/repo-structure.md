@@ -16,7 +16,7 @@ This repository contains the Apache-2.0 Vaultage Community source surface:
 It intentionally does not contain Agent workflows, CLI helpers,
 Services/provider connectors, managed OAuth, scoped-token creation,
 rotation/revocation, browser extension code, cloud sync/audit, spend
-dashboards, signing identities, private planning reports, or paid overlay
+dashboards, signing credentials, private planning reports, or paid overlay
 modules.
 
 ## Important Paths
@@ -43,7 +43,7 @@ modules.
 - Private/Pro surface: Agent workflows, CLI helpers, Services/provider
   connectors, managed OAuth, scoped-token creation, rotation/revocation,
   premium service catalog, browser extension, hosted sync/cloud audit tier,
-  spend dashboards, signing identities, and brand assets unless explicitly
+  spend dashboards, signing credentials, and brand assets unless explicitly
   licensed separately.
 - Community builds must not import paid overlay modules.
 

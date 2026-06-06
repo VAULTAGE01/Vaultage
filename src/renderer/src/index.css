@@ -12,16 +12,16 @@
     --input:                  0 0% 9%;
     --ring:                   150 100% 50%;
     --radius:                 0.75rem;
-    --liquid-bg:              rgba(2, 8, 6, 0.24);
-    --liquid-sidebar:         rgba(3, 10, 7, 0.16);
+    --liquid-bg:              rgba(9, 10, 11, 0.24);
+    --liquid-sidebar:         rgba(10, 11, 12, 0.16);
     --liquid-surface:         rgba(255, 255, 255, 0.048);
     --liquid-surface-strong:  rgba(255, 255, 255, 0.078);
     --liquid-border:          rgba(255, 255, 255, 0.105);
-    --liquid-border-strong:   rgba(179, 255, 218, 0.24);
+    --liquid-border-strong:   rgba(229, 231, 235, 0.22);
     --liquid-highlight:       rgba(255, 255, 255, 0.18);
     --liquid-shadow:          rgba(0, 0, 0, 0.42);
     --glass-border-strong:    rgba(255, 255, 255, 0.18);
-    --orb-1:                  rgba(0, 255, 127, 0.42);
+    --orb-1:                  rgba(209, 213, 219, 0.34);
   }
 
   *, *::before, *::after {
@@ -114,7 +114,7 @@
     background-image:
       linear-gradient(135deg, rgba(255,255,255,0.05), transparent 34%),
       radial-gradient(circle at 24% 18%, rgba(255,255,255,0.045), transparent 22%),
-      radial-gradient(circle at 82% 12%, rgba(0,255,127,0.055), transparent 24%);
+      radial-gradient(circle at 82% 12%, rgba(229,231,235,0.060), transparent 24%);
     mix-blend-mode: screen;
   }
 

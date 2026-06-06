@@ -4,7 +4,7 @@ Status: owner-approved pre-public policy as of 2026-05-20.
 
 The Apache-2.0 license for the public Community source distribution grants
 rights to use, copy, modify, and distribute the covered source code. It does not
-grant trademark rights in the Vaultage name, logos, icons, signing identities,
+grant trademark rights in the Vaultage name, logos, icons, signing credentials,
 domains, app-store listings, or official release channels.
 
 ## Goals
@@ -28,7 +28,7 @@ These uses must not imply endorsement, sponsorship, or official release status.
 Without prior written permission, you may not:
 
 - Publish modified builds as "Vaultage" or "official Vaultage" builds.
-- Use Vaultage logos, icons, app names, signing identities, or confusingly
+- Use Vaultage logos, icons, app names, signing credentials, or confusingly
   similar branding for a fork, paid service, hosted/sync service, or extension.
 - Register domains, package names, social accounts, or app-store listings that
   imply official Vaultage control.
@@ -43,7 +43,7 @@ state that they are based on Vaultage.
 Official builds are only those distributed through release channels controlled
 by the Vaultage project owner. Future paid Agent workflows, Services/provider
 automation, managed OAuth, hosted/sync services, premium connectors, signing
-identities, and brand assets remain separate from the Apache-2.0 Community
+credentials, and brand assets remain separate from the Apache-2.0 Community
 source license unless they are explicitly released under their own license.
 
 ## Permission Requests

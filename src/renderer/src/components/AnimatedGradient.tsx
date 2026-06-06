@@ -87,19 +87,19 @@ const VORTEX_SHADER = `
     float f = fbm(r);
     float contour = sin(f * 18.0 - t * 1.2);
 
-    vec3 bgColor = vec3(0.003, 0.020, 0.013);
-    vec3 deepGreen = vec3(0.000, 0.090, 0.050);
-    vec3 lineColor = vec3(0.120, 0.820, 0.430);
-    vec3 softMint = vec3(0.500, 1.000, 0.720);
+    vec3 bgColor = vec3(0.020, 0.022, 0.024);
+    vec3 smokeGrey = vec3(0.130, 0.138, 0.148);
+    vec3 lineColor = vec3(0.760, 0.780, 0.800);
+    vec3 softGrey = vec3(0.940, 0.950, 0.960);
 
     float line = smoothstep(0.960, 0.986, abs(contour));
     float centerGlow = 1.0 - smoothstep(0.0, 0.62, dist);
     float mist = smoothstep(0.24, 0.82, f) * centerGlow;
 
-    vec3 col = mix(bgColor, deepGreen, mist * 0.42);
-    col = mix(col, lineColor, line * 0.72);
-    col += softMint * centerGlow * 0.055;
-    col += lineColor * line * centerGlow * 0.12;
+    vec3 col = mix(bgColor, smokeGrey, mist * 0.46);
+    col = mix(col, lineColor, line * 0.64);
+    col += softGrey * centerGlow * 0.042;
+    col += lineColor * line * centerGlow * 0.08;
 
     gl_FragColor = vec4(col, 1.0);
   }
@@ -254,7 +254,7 @@ export function AnimatedGradient({
   }, [variant, speed])
 
   return (
-    <div className={cn('relative overflow-hidden bg-[#020806]', className)}>
+    <div className={cn('relative overflow-hidden bg-[#070809]', className)}>
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ opacity }} />
       {children && <div className="relative z-10 h-full w-full">{children}</div>}
     </div>

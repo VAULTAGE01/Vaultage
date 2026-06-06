@@ -3,10 +3,10 @@ import Security
 import LocalAuthentication
 import Carbon
 
-// Keychain coordinates. Keep legacy services readable across app renames.
-let PRIMARY_SERVICE = "com.eden.vaultage.masterkey"
-let LEGACY_SERVICES = ["dev.vault.app.masterkey"]
-let MIGRATION_SERVICE = "com.eden.vaultage.masterkey.migration"
+// Community builds use a separate Keychain namespace from paid/pro editions.
+let PRIMARY_SERVICE = "xyz.arcalab.vaultage.community.masterkey"
+let LEGACY_SERVICES: [String] = []
+let MIGRATION_SERVICE = "xyz.arcalab.vaultage.community.masterkey.migration"
 let READ_SERVICES = [PRIMARY_SERVICE] + LEGACY_SERVICES + [MIGRATION_SERVICE]
 let ACCOUNT = "vault-key"
 
@@ -284,7 +284,7 @@ case "store":
     exit(storeKey(args[2]))
 
 case "retrieve":
-    let prompt = args.count >= 3 ? args[2] : "unlock Vaultage"
+    let prompt = args.count >= 3 ? args[2] : "unlock Vaultage Community"
     exit(retrieveKey(prompt: prompt))
 
 case "remove":

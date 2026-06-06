@@ -21,7 +21,8 @@ leak checks.
 
 Public desktop builds should publish:
 
-- signed/notarized macOS artifact when available,
+- signed/notarized macOS DMG for normal installation,
+- signed/notarized macOS zip for official update metadata,
 - SHA-256 checksums,
 - updater metadata for official builds,
 - build provenance attestation where the hosting platform supports it,
@@ -34,7 +35,7 @@ production-ready.
 
 Users should verify:
 
-- the download comes from an official Vaultage release channel,
+- the download comes from the official `arcalab-xyz/Vaultage` release channel,
 - the checksum matches `SHASUMS256.txt`,
 - macOS Gatekeeper/notarization identifies the expected signing identity,
 - the source tag or commit matches the published release notes.
@@ -47,3 +48,10 @@ planning reports, or generated helper binaries in the source tree.
 
 The release gate enforces this through boundary checks, source-drop secret
 scanning, open artifact scanning, and publish-readiness checks.
+
+## Official Build Coordinates
+
+- Product name: `Vaultage Community`
+- Bundle ID: `xyz.arcalab.vaultage.community`
+- Keychain service: `xyz.arcalab.vaultage.community.masterkey`
+- Release channel: GitHub Releases in `arcalab-xyz/Vaultage`

@@ -338,14 +338,16 @@ export default function SetupScreen() {
         variant="vortex"
         speed={0.18}
         opacity={0.74}
-        className="absolute inset-0 pointer-events-none"
+        className="absolute inset-0 z-0 pointer-events-none"
       />
-      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(180deg,rgba(2,8,6,0.56)_0%,rgba(2,8,6,0.34)_45%,rgba(2,8,6,0.68)_100%)]" />
-      <div className="liquid-noise absolute inset-0 pointer-events-none opacity-30" />
+      <div className="absolute inset-0 z-0 pointer-events-none bg-[linear-gradient(180deg,rgba(8,9,10,0.50)_0%,rgba(8,9,10,0.26)_45%,rgba(8,9,10,0.62)_100%)]" />
+      <div className="liquid-noise absolute inset-0 z-0 pointer-events-none opacity-30" />
 
-      {step === 'welcome'
-        ? <WelcomeStep onContinueLocal={() => setStep('password')} />
-        : <PasswordStep onBack={() => setStep('welcome')} />}
+      <div className="relative z-10">
+        {step === 'welcome'
+          ? <WelcomeStep onContinueLocal={() => setStep('password')} />
+          : <PasswordStep onBack={() => setStep('welcome')} />}
+      </div>
     </div>
   )
 }
