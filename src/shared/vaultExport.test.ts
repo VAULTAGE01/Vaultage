@@ -71,6 +71,26 @@ const vault = {
 }
 
 describe('vault scoped exports', () => {
+  it('preserves every saved Project and the active selection in full-vault export', () => {
+    const projects = ['project-a', 'project-b', 'project-c'].map(id => ({
+      id,
+      name: id,
+      path: `/${id}`,
+      entries: [],
+      addToGitignore: true,
+    }))
+    const exported = serializeScopedVaultExportJson({
+      ...vault,
+      envProjects: projects,
+      preferences: { activeEnvProjectIds: ['project-a', 'project-b'] },
+    }, { kind: 'vault' }, '2026-05-31T12:00:00.000Z')
+    const parsed = JSON.parse(exported.content)
+
+    expect(parsed.vault.envProjects.map((project: { id: string }) => project.id))
+      .toEqual(['project-a', 'project-b', 'project-c'])
+    expect(parsed.vault.preferences.activeEnvProjectIds).toEqual(['project-a', 'project-b'])
+  })
+
   it('exports a folder subtree and only linked provider/project metadata', () => {
     const exported = serializeScopedVaultExportJson(vault, { kind: 'folder', id: 'api-folder' }, '2026-05-31T12:00:00.000Z')
     const parsed = JSON.parse(exported.content)

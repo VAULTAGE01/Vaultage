@@ -647,6 +647,13 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
     state.vault?.preferences?.activeEnvProjectIds ?? [],
     createReplacementProjectId,
   )
+  const selectedProjectEditable = !baseProject || creationPolicy.activeProjectIds.has(baseProject.id)
+
+  const requireEditableProject = (action: string): boolean => {
+    if (selectedProjectEditable) return true
+    setCreateError(`Make this Project active before ${action}. Saved data remains unchanged.`)
+    return false
+  }
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
@@ -753,6 +760,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   }
 
   const handlePickFolder = async () => {
+    if (!requireEditableProject('changing its local folder')) return
     const path = await window.vault.pickFolder({
       purpose: 'project-local-path',
       ...(!isCreating && baseProject ? { projectId: baseProject.id } : {}),
@@ -765,6 +773,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
       setCreateError(creationPolicy.blockedMessage ?? 'Choose an active Project slot to replace before scanning.')
       return
     }
+    if (!isCreating && !requireEditableProject('scanning it')) return
     setScanning(true)
     setCreateError(null)
     try {
@@ -835,6 +844,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   const handleSave = async () => {
     if (!baseProject) return
+    if (!requireEditableProject('saving changes')) return
     setSaving(true)
     try {
       await updateEnvProject(withLocalProjectEnvironment({
@@ -852,6 +862,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   const handleExport = async () => {
     if (!baseProject || !localPath) return
+    if (!requireEditableProject('writing an .env file')) return
     if (!confirmExport) {
       setConfirmExport(true)
       setConfirmText('')
@@ -928,14 +939,20 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
     }
   }
 
-  const addEntry = () =>
+  const addEntry = () => {
+    if (!requireEditableProject('changing mappings')) return
     setLocalEntries(prev => [...prev, { envKey: '', secretId: '', fieldKey: '' }])
+  }
 
-  const updateEntry = (i: number, e: EnvEntry) =>
+  const updateEntry = (i: number, e: EnvEntry) => {
+    if (!requireEditableProject('changing mappings')) return
     setLocalEntries(prev => prev.map((x, j) => j === i ? e : x))
+  }
 
-  const removeEntry = (i: number) =>
+  const removeEntry = (i: number) => {
+    if (!requireEditableProject('changing mappings')) return
     setLocalEntries(prev => prev.filter((_, j) => j !== i))
+  }
 
   const envReviewGroups = useMemo(
     () => buildEnvReviewGroups(scanSummary, localEntries, allSecrets),
@@ -967,6 +984,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   const exportableEntryCount = localEntries.filter(e => e.envKey && e.secretId && e.fieldKey).length
   const canExport =
+    selectedProjectEditable &&
     !exporting &&
     Boolean(localPath) &&
     exportableEntryCount > 0 &&
@@ -1252,9 +1270,21 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                   className={cn('flex w-full items-start gap-1 px-4 py-2.5 transition-colors',
                     p.id === selectedId ? 'bg-accent/10' : 'hover:bg-white/5')}>
                   <button type="button" onClick={() => selectProject(p)} className="min-w-0 flex-1 text-left">
-                    <p className={cn('truncate text-xs font-medium', p.id === selectedId ? 'text-accent' : 'text-text')}>
-                      {p.name}
-                    </p>
+                    <span className="flex items-center gap-2">
+                      <span className={cn('min-w-0 flex-1 truncate text-xs font-medium', p.id === selectedId ? 'text-accent' : 'text-text')}>
+                        {p.name}
+                      </span>
+                      {creationPolicy.isLimited && (
+                        <span className={cn(
+                          'rounded-full border px-1.5 py-0.5 text-xs font-semibold',
+                          creationPolicy.activeProjectIds.has(p.id)
+                            ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-300'
+                            : 'border-warning/30 bg-warning/10 text-warning',
+                        )}>
+                          {creationPolicy.activeProjectIds.has(p.id) ? 'Active' : 'Read-only'}
+                        </span>
+                      )}
+                    </span>
                     <p className="mt-0.5 truncate text-[10px] text-muted">
                       {projectPrimaryLocalPath(p) ? projectPrimaryLocalPath(p).split('/').slice(-2).join('/') : 'No local folder'}
                     </p>
@@ -1472,7 +1502,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
               <>
                 {/* Project toolbar */}
                 <div className="flex items-center gap-2 px-5 py-3 border-b border-border flex-shrink-0">
-                  <input value={localName} onChange={e => setLocalName(e.target.value)}
+                  <input value={localName} onChange={e => setLocalName(e.target.value)} disabled={!selectedProjectEditable}
                     className="flex-1 bg-transparent text-sm font-medium text-text outline-none placeholder-muted"
                     placeholder="Project name" />
                   <Button
@@ -1486,6 +1516,11 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                   </Button>
                 </div>
 
+                <fieldset
+                  disabled={!selectedProjectEditable}
+                  aria-label={selectedProjectEditable ? 'Editable Project settings' : 'Read-only Project settings'}
+                  className="contents"
+                >
                 {/* Config */}
                 <div className="px-5 py-3 border-b border-border flex-shrink-0 space-y-3">
                   <ProjectEnvironmentRail project={projectPreview} providers={providers} />
@@ -1580,6 +1615,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                     {exporting ? 'Exporting…' : confirmExport ? 'Write .env Unencrypted' : 'Export .env'}
                   </Button>
                 </div>
+                </fieldset>
               </>
             )}
           </div>
