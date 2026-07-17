@@ -22,6 +22,9 @@ export function useCommercialProjectCreationPolicy(
 ) {
   return {
     activeProjectIds: new Set(projects.map(project => project.id)),
+    limit: null,
+    policyPending: false,
+    isLimited: false,
     requiresReplacement: false,
     canCreate: true,
     blockedMessage: null,
