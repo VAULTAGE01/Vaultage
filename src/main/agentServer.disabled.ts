@@ -3,6 +3,39 @@ import type { AppMode } from './security'
 import type { writeProjectEnvFile } from './envFile'
 type ProCapability = 'pro.agent' | 'pro.services' | 'pro.extension' | 'cloud.oauth' | 'cloud.sync' | 'cloud.audit' | 'cloud.spend'
 
+export interface AgentClientCredential {
+  id: string
+  label: string
+  tokenFingerprint: string
+  generation: number
+}
+
+export interface AgentAutoApprovalRequest {
+  token: string
+  clientId: string
+  projectPath: string
+  requestedKeys: readonly string[]
+  delivery: 'response'
+}
+
+export interface AgentAutoApprovalResolution {
+  grantId: string
+  clientId: string
+  clientLabel: string
+  projectId: string
+  environmentId: string
+  environmentScope: string
+  entries: Array<{ envKey: string; secretId: string; fieldId?: string; fieldKey: string; value: string; scope?: string }>
+  expiresAt: string
+}
+
+export interface AgentAutoApprovalGrantRequest {
+  clientId: string
+  projectPath: string
+  entries: readonly { envKey: string; secretId: string; fieldId?: string; fieldKey: string; value: string; scope?: string }[]
+  ttlMs: number
+}
+
 export const DEFAULT_SERVER_PORT = 43777
 export const SERVER_PORT = DEFAULT_SERVER_PORT
 
@@ -50,6 +83,9 @@ export interface AgentServerControllerDeps {
   publishDiscovery?: (port: number, listenerId: string, startedAt: string) => Promise<void>
   removeDiscovery?: () => Promise<void>
   getAuthToken: () => string | null
+  authenticateAgentClient?: (token: string) => Promise<AgentClientCredential | null>
+  tryAutoApproval?: (request: AgentAutoApprovalRequest) => Promise<AgentAutoApprovalResolution | null>
+  createAutoApprovalGrant?: (request: AgentAutoApprovalGrantRequest) => Promise<{ id: string }>
   getWindow: () => AgentServerWindow | null
   confirmUserPresence: (prompt: string, phrase?: string) => UserPresenceResult
   resolveReleaseSelections: (selections: unknown) => Promise<unknown[]> | unknown[]
@@ -60,6 +96,7 @@ export interface AgentServerControllerDeps {
   ) => Promise<{ secretId?: string }> | { secretId?: string }
   writeProjectEnvFile?: typeof writeProjectEnvFile
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void
+  recordAuditDurable?: (type: AuditEventType, details?: Record<string, unknown>) => Promise<void>
   authorizeCapability?: (capability: ProCapability) => Promise<void | { assertCurrent(): void }>
   host?: string
   port?: number

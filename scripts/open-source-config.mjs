@@ -19,6 +19,7 @@ const privateOverlaySourcePatterns = [
 // with a misleading suffix would then be copied into the Community source drop.
 export const reviewedDisabledSeamPaths = new Set([
   'src/main/agentAuthToken.disabled.ts',
+  'src/main/agentAutoApproval.disabled.ts',
   'src/main/agentDiscovery.disabled.ts',
   'src/main/agentIpc.disabled.ts',
   'src/main/agentRelease.disabled.ts',
@@ -83,6 +84,10 @@ export const privatePreloadIpcChannelTerms = Object.freeze([
   'provider:cf-roll-token-saved',
   'feedback:provider-vote',
   'vault:copy-agent-instructions',
+  'vault:get-agent-access-policy',
+  'vault:create-agent-client',
+  'vault:revoke-agent-client',
+  'vault:revoke-agent-auto-approval',
   'vault:get-agent-api-config',
   'vault:set-agent-api-port',
   'vault:set-api-enabled',
@@ -106,6 +111,7 @@ export function findPrivatePreloadIpcChannelLeaks(source) {
 }
 
 export const openNodeAliasPaths = {
+  '#agent-auto-approval': ['src/main/agentAutoApproval.disabled.ts'],
   '#agent-auth-token': ['src/main/agentAuthToken.disabled.ts'],
   '#agent-discovery': ['src/main/agentDiscovery.disabled.ts'],
   '#agent-ipc': ['src/main/agentIpc.disabled.ts'],
@@ -156,6 +162,7 @@ export const openNodeTypecheckExclude = [
   'src/cli/**/*',
   'src/main/**/*.test.ts',
   'src/main/agentAuthToken.ts',
+  'src/main/agentAutoApproval.ts',
   'src/main/agentDiscovery.ts',
   'src/main/agentIpc.ts',
   'src/main/agentRelease.ts',

@@ -9,6 +9,25 @@ export interface AgentIpcDeps {
   recordAudit?: (type: AuditEventType, details?: Record<string, unknown>) => void
   authorizeCapability?: (capability: 'pro.agent' | 'pro.services' | 'pro.extension') => Promise<void | { assertCurrent(): void }>
   verifyExtensionNativeHost?: () => Promise<void>
+  confirmUserPresence?: (prompt: string) => { success: boolean; error?: string; cancelled?: boolean; notFound?: boolean; authFailed?: boolean }
+  listAgentAccess?: () => Promise<{
+    clients: Array<{ id: string; label: string; tokenFingerprint: string; generation: number; createdAt: string }>
+    grants: Array<{
+      id: string
+      clientId: string
+      project: { realPath: string }
+      selections: Array<{ envKey: string }>
+      delivery: 'response'
+      createdAt: string
+      expiresAt: string
+    }>
+  }>
+  createAgentClient?: (label: string) => Promise<{
+    client: { id: string; label: string; tokenFingerprint: string; generation: number; createdAt: string }
+    token: string
+  }>
+  revokeAgentClient?: (clientId: string) => Promise<boolean>
+  revokeAgentAutoApproval?: (grantId: string) => Promise<boolean>
 }
 
 export function registerAgentIpc(ipcMain: IpcMain, agentServer: AgentServerController, deps: AgentIpcDeps): void {
@@ -17,6 +36,6 @@ export function registerAgentIpc(ipcMain: IpcMain, agentServer: AgentServerContr
   void deps
 }
 
-export function agentInstructionsSnippet(_token: string, _port: number): string {
+export function agentInstructionsSnippet(_token: string, _port: number, _scopedCredential = false): string {
   return ''
 }

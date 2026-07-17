@@ -28,6 +28,9 @@
       "#agent-server": [
         "src/main/agentServer.disabled.ts"
       ],
+      "#agent-auto-approval": [
+        "src/main/agentAutoApproval.disabled.ts"
+      ],
       "#extension-handoff": [
         "src/main/extensionHandoff.disabled.ts"
       ],
