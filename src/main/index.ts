@@ -3,19 +3,8 @@ import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { appendAuditEvent, deriveAuditMacKey, readVerifiedAuditLog, type AuditEventType } from './audit'
 import { AuditFailureGuard } from './auditFailureGuard'
-import { ensureAgentApiToken } from '#agent-auth-token'
-import { removeAgentDiscovery, writeAgentDiscovery } from '#agent-discovery'
-import { agentInstructionsSnippet, registerAgentIpc } from '#agent-ipc'
+import { registerAgentComposition } from '#agent-composition'
 import {
-  resolveAgentProjectRelease,
-  resolveAgentReleaseSelections,
-  type AgentReleaseEntry,
-} from '#agent-release'
-import { AgentAutoApprovalStore } from '#agent-auto-approval'
-import { AgentServerController, validateAgentApiPort } from '#agent-server'
-import {
-  findExtensionHandoffArg,
-  parseExtensionHandoffUrl,
   registerExtensionProtocol,
   sendExtensionHandoff,
   type ExtensionHandoff,
@@ -88,7 +77,6 @@ const providerClient = new ProviderWorkerClient()
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) app.quit()
 let idleAutoLock: IdleAutoLockController | null = null
-let agentApiToken: string | null = null
 let vaultRevision = 0
 let pendingExtensionHandoff: ExtensionHandoff | null = null
 let pendingExtensionHandoffUrls: string[] = []
@@ -97,8 +85,6 @@ let menuPanelWindow: BrowserWindow | null = null
 let quitPreparing = false
 let quitPrepared = false
 let commercialRuntime: CommercialRuntimeAccess | null = null
-const agentAutoApprovalStore = new AgentAutoApprovalStore()
-let agentAutoApprovalSessionId = randomUUID()
 const AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS = 30_000
 configureQuickRevealPinThrottleStore(
   new QuickRevealPinThrottleFileStore(join(VAULT_DIR, 'reveal-pin-throttle')),
@@ -166,7 +152,7 @@ const authController = new AuthController({
     installKey: (key, expectedEpoch) => {
       const installed = vaultSession.installKey(key, expectedEpoch)
       if (installed) {
-        agentAutoApprovalSessionId = randomUUID()
+        agentComposition.rotateSession()
         providerRuntime.clearSessionAuthorizations()
         syncWindowContentProtection()
         syncMenuBar()
@@ -192,8 +178,7 @@ const authController = new AuthController({
     createVaultState,
     commitAuthCredentials,
     commitRestoredVaultState: async (snapshot, key, assertCurrent) => {
-      await agentAutoApprovalStore.clear()
-      agentAutoApprovalSessionId = randomUUID()
+      await agentComposition.clearStoredAccess()
       await commitRestoredVaultState(snapshot, key, assertCurrent)
     },
   },
@@ -201,111 +186,16 @@ const authController = new AuthController({
   recordAudit,
 })
 
-const agentServer = new AgentServerController({
+const agentComposition = registerAgentComposition({
+  ipcMain: mainWindowIpc,
   getMode: () => appMode,
   hasVaultKey: () => vaultSession.isUnlocked(),
+  leaseVaultKey: () => vaultSession.leaseCurrentKey(),
+  readVault,
   shouldProtectContent: shouldUseContentProtection,
   onStateChanged: syncMenuBar,
-  publishDiscovery: async (port, listenerId, startedAt) => {
-    if (!agentApiToken) agentApiToken = await ensureAgentApiToken()
-    await writeAgentDiscovery(agentApiToken, port, listenerId, startedAt)
-  },
-  removeDiscovery: removeAgentDiscovery,
-  getAuthToken: () => agentApiToken,
-  authenticateAgentClient: async (token) => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) return null
-    try {
-      const client = await agentAutoApprovalStore.authenticateClient(lease.key, token)
-      lease.assertCurrent()
-      return client && {
-        id: client.id,
-        label: client.label,
-        tokenFingerprint: client.tokenFingerprint,
-        generation: client.generation,
-      }
-    } finally {
-      lease.release()
-    }
-  },
-  tryAutoApproval: async ({ token, clientId, projectPath, requestedKeys }) => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) return null
-    try {
-      const vault = await readVault(lease.key)
-      lease.assertCurrent()
-      const resolved = resolveAgentProjectRelease(vault, projectPath, requestedKeys)
-      const selections = resolved.entries.map(entry => ({
-        envKey: entry.envKey,
-        secretId: entry.secretId,
-        fieldId: entry.fieldId,
-        fieldKey: entry.fieldKey,
-        scope: entry.scope!.trim().toLowerCase(),
-      }))
-      const match = await agentAutoApprovalStore.match(lease.key, {
-        token,
-        projectId: resolved.projectId,
-        environmentId: resolved.environmentId,
-        environmentScope: resolved.environmentScope,
-        projectPath: resolved.projectPath,
-        selections,
-        delivery: 'response',
-        production: false,
-        sessionId: agentAutoApprovalSessionId,
-      })
-      lease.assertCurrent()
-      if (!match || match.client.id !== clientId) return null
-      return {
-        grantId: match.grant.id,
-        clientId: match.client.id,
-        clientLabel: match.client.label,
-        projectId: resolved.projectId,
-        environmentId: resolved.environmentId,
-        environmentScope: resolved.environmentScope,
-        entries: resolved.entries,
-        expiresAt: match.grant.expiresAt,
-      }
-    } finally {
-      lease.release()
-    }
-  },
-  createAutoApprovalGrant: async ({ clientId, projectPath, entries, ttlMs }) => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) throw new Error('Not authenticated')
-    try {
-      const vault = await readVault(lease.key)
-      lease.assertCurrent()
-      const resolved = resolveAgentProjectRelease(vault, projectPath, entries.map(entry => entry.envKey))
-      const expected = agentEntryIdentities(resolved.entries)
-      const approved = agentEntryIdentities(entries)
-      if (JSON.stringify(expected) !== JSON.stringify(approved)) {
-        throw new Error('Project mapping changed before scoped approval was stored')
-      }
-      const grant = await agentAutoApprovalStore.createGrant(lease.key, {
-        clientId,
-        projectId: resolved.projectId,
-        environmentId: resolved.environmentId,
-        environmentScope: resolved.environmentScope,
-        projectPath: resolved.projectPath,
-        selections: expected,
-        delivery: 'response',
-        production: false,
-        sessionId: agentAutoApprovalSessionId,
-        ttlMs,
-      })
-      lease.assertCurrent()
-      return { id: grant.id }
-    } finally {
-      lease.release()
-    }
-  },
   getWindow: () => mainWindow,
   confirmUserPresence: (prompt, phrase) => authController.confirmAgentApproval(prompt, phrase),
-  resolveReleaseSelections: async (selections) => {
-    const vaultKey = vaultSession.currentKey()
-    if (!vaultKey) throw new Error('Not authenticated')
-    return resolveAgentReleaseSelections(await readVault(vaultKey), selections)
-  },
   saveExtensionCandidate: async (candidate, signal, authorizeCommit) => {
     const assertNotCancelled = () => {
       if (signal.aborted) throw new Error('Browser token save was cancelled')
@@ -344,17 +234,12 @@ const agentServer = new AgentServerController({
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
     return commercialRuntime.acquireCapabilityLease(capability)
   },
+  verifyExtensionNativeHost: async () => {
+    if (!app.isPackaged) return
+    await requireInstalledExtensionNativeHost(extensionNativeHostRegistrar)
+  },
 })
-
-function agentEntryIdentities(entries: readonly AgentReleaseEntry[]) {
-  return entries.map(entry => ({
-    envKey: entry.envKey,
-    secretId: entry.secretId,
-    fieldId: entry.fieldId,
-    fieldKey: entry.fieldKey,
-    scope: entry.scope?.trim().toLowerCase() ?? '',
-  })).sort((left, right) => left.envKey.localeCompare(right.envKey))
-}
+const agentServer = agentComposition.server
 
 const auditFailureGuard = new AuditFailureGuard({
   lockVault: () => lockVault(true, 'audit-integrity-failure', false),
@@ -549,67 +434,6 @@ const extensionNativeHostRegistrar = createExtensionNativeHostRegistrar({
   packaged: app.isPackaged,
   appPath: app.getAppPath(),
 })
-registerAgentIpc(mainWindowIpc, agentServer, {
-  hasVaultKey: () => vaultSession.isUnlocked(),
-  confirmUserPresence: (prompt) => authController.confirmAgentApproval(prompt),
-  listAgentAccess: async () => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) throw new Error('Not authenticated')
-    try {
-      const inventory = await agentAutoApprovalStore.list(lease.key, agentAutoApprovalSessionId)
-      lease.assertCurrent()
-      return inventory
-    } finally {
-      lease.release()
-    }
-  },
-  createAgentClient: async (label) => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) throw new Error('Not authenticated')
-    try {
-      const issued = await agentAutoApprovalStore.createClient(lease.key, label)
-      lease.assertCurrent()
-      return issued
-    } finally {
-      lease.release()
-    }
-  },
-  revokeAgentClient: async (clientId) => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) throw new Error('Not authenticated')
-    try {
-      const revoked = await agentAutoApprovalStore.revokeClient(lease.key, clientId)
-      lease.assertCurrent()
-      return revoked
-    } finally {
-      lease.release()
-    }
-  },
-  revokeAgentAutoApproval: async (grantId) => {
-    const lease = vaultSession.leaseCurrentKey()
-    if (!lease) throw new Error('Not authenticated')
-    try {
-      const revoked = await agentAutoApprovalStore.revokeGrant(lease.key, grantId)
-      lease.assertCurrent()
-      return revoked
-    } finally {
-      lease.release()
-    }
-  },
-  getAgentApiToken: async () => {
-    if (!agentApiToken) agentApiToken = await ensureAgentApiToken()
-    return agentApiToken
-  },
-  recordAudit,
-  authorizeCapability: async capability => {
-    if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
-    return commercialRuntime.acquireCapabilityLease(capability)
-  },
-  verifyExtensionNativeHost: async () => {
-    if (!app.isPackaged) return
-    await requireInstalledExtensionNativeHost(extensionNativeHostRegistrar)
-  },
-})
 registerExtensionNativeHostIpc(mainWindowIpc, {
   getRegistrar: () => extensionNativeHostRegistrar,
   authorizeExtension: async () => {
@@ -657,7 +481,7 @@ async function lockVault(
   commercialRuntime?.suspend('Local vault locked')
   projectPathCapabilities.revokeAll()
   providerRuntime.clearSessionAuthorizations()
-  agentAutoApprovalSessionId = randomUUID()
+  agentComposition.rotateSession()
   const wasUnlocked = vaultSession.isUnlocked()
   await vaultSession.invalidate()
   disableSecureInput()
@@ -701,14 +525,11 @@ function syncAgentApiPortFromVault(vault: unknown): void {
   if (!preferences || typeof preferences !== 'object' || Array.isArray(preferences)) return
   const rawPort = (preferences as { agentApiPort?: unknown }).agentApiPort
   if (rawPort === undefined) return
-  try {
-    const port = validateAgentApiPort(rawPort)
-    void agentServer.configurePort(port).catch(err => {
-      console.warn('[vault-mode] Could not publish Agent port discovery:', err instanceof Error ? err.message : String(err))
-    })
-  } catch (err) {
-    console.warn('[vault-mode] Ignoring invalid saved local API port:', err instanceof Error ? err.message : String(err))
-  }
+  void agentComposition.configurePort(rawPort).then(result => {
+    if (!result.success) console.warn('[vault-mode] Ignoring invalid saved local API port:', result.error)
+  }).catch(err => {
+    console.warn('[vault-mode] Could not publish Agent port discovery:', err instanceof Error ? err.message : String(err))
+  })
 }
 
 function createWindow(): void {
@@ -836,7 +657,7 @@ async function startBrowserExtensionFromMenu(): Promise<void> {
     return
   }
   if (app.isPackaged) await requireInstalledExtensionNativeHost(extensionNativeHostRegistrar)
-  if (!agentApiToken) agentApiToken = await ensureAgentApiToken()
+  await agentComposition.ensureReady()
   const result = await agentServer.handleSetExtensionEnabled(true)
   if (!result.success) throw new Error(result.error ?? 'Could not enable browser extension')
 }
@@ -853,8 +674,7 @@ async function copyAgentInstructionsFromMenu(): Promise<void> {
     showMainWindow()
     return
   }
-  if (!agentApiToken) agentApiToken = await ensureAgentApiToken()
-  writeSensitiveClipboardText(agentInstructionsSnippet(agentApiToken, agentServer.configuredPort()))
+  writeSensitiveClipboardText(await agentComposition.instructionsSnippet())
   recordAudit('agent.instructions.copied', {
     source: 'menu-bar',
     port: agentServer.configuredPort(),
@@ -916,18 +736,19 @@ async function receiveExtensionHandoff(handoff: ExtensionHandoff | null): Promis
 }
 
 function receiveExtensionHandoffUrl(rawUrl: string): void {
-  if (!agentApiToken) {
+  if (!agentComposition.isReady()) {
     pendingExtensionHandoffUrls = [...pendingExtensionHandoffUrls, rawUrl].slice(-8)
     return
   }
-  void receiveExtensionHandoff(parseExtensionHandoffUrl(rawUrl, agentApiToken))
+  const handoff = agentComposition.parseHandoffUrl(rawUrl)
+  if (handoff) void receiveExtensionHandoff(handoff)
 }
 
 function flushExtensionHandoffUrls(): void {
-  if (!agentApiToken || pendingExtensionHandoffUrls.length === 0) return
+  if (!agentComposition.isReady() || pendingExtensionHandoffUrls.length === 0) return
   const urls = pendingExtensionHandoffUrls
   pendingExtensionHandoffUrls = []
-  for (const rawUrl of urls) void receiveExtensionHandoff(parseExtensionHandoffUrl(rawUrl, agentApiToken))
+  for (const rawUrl of urls) void receiveExtensionHandoff(agentComposition.parseHandoffUrl(rawUrl))
 }
 
 async function flushExtensionHandoff(): Promise<void> {
@@ -992,9 +813,8 @@ app.whenReady().then(async () => {
     },
   })
   registerExtensionProtocol()
-  agentApiToken = await ensureAgentApiToken()
-  await removeAgentDiscovery()
-  await receiveExtensionHandoff(findExtensionHandoffArg(process.argv, agentApiToken))
+  await agentComposition.initialize()
+  await receiveExtensionHandoff(agentComposition.findHandoffArg(process.argv))
   flushExtensionHandoffUrls()
   installRendererCsp(session.defaultSession, { allowDevelopmentWebSockets: !app.isPackaged })
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
@@ -1057,7 +877,7 @@ async function notifyExtensionNativeHostLaunchIssue(): Promise<void> {
 }
 
 app.on('second-instance', (_event, argv) => {
-  void receiveExtensionHandoff(findExtensionHandoffArg(argv, agentApiToken))
+  void receiveExtensionHandoff(agentComposition.findHandoffArg(argv))
   showMainWindow()
 })
 

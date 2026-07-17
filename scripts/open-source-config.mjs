@@ -18,12 +18,7 @@ const privateOverlaySourcePatterns = [
 // Never restore a blanket `*.disabled.*` exception: a closed implementation
 // with a misleading suffix would then be copied into the Community source drop.
 export const reviewedDisabledSeamPaths = new Set([
-  'src/main/agentAuthToken.disabled.ts',
-  'src/main/agentAutoApproval.disabled.ts',
-  'src/main/agentDiscovery.disabled.ts',
-  'src/main/agentIpc.disabled.ts',
-  'src/main/agentRelease.disabled.ts',
-  'src/main/agentServer.disabled.ts',
+  'src/main/agentComposition.disabled.ts',
   'src/main/commercialRuntime.disabled.ts',
   'src/main/commercialStateStore.disabled.ts',
   'src/main/extensionCandidateVault.disabled.ts',
@@ -110,13 +105,34 @@ export function findPrivatePreloadIpcChannelLeaks(source) {
   ].filter((term, index, terms) => source.includes(term) && terms.indexOf(term) === index)
 }
 
+// These names describe the private standing-grant trust boundary. Community
+// may expose a fail-closed operational registrar, but must not publish or emit
+// the authentication, mapping, policy, or auto-release composition itself.
+export const privateAgentCompositionTerms = Object.freeze([
+  'AgentAutoApprovalStore',
+  'authenticateAgentClient',
+  'tryAutoApproval',
+  'createAutoApprovalGrant',
+  'tokenFingerprint',
+  'requestedKeys',
+  'environmentScope',
+  'grantId',
+  'resolveAgentProjectRelease',
+  'resolveAgentReleaseSelections',
+  'agentEntryIdentities',
+  'registerAgentIpc',
+  'listAgentAccess',
+  'createAgentClient',
+  'revokeAgentClient',
+  'revokeAgentAutoApproval',
+])
+
+export function findPrivateAgentCompositionLeaks(source) {
+  return privateAgentCompositionTerms.filter(term => source.includes(term))
+}
+
 export const openNodeAliasPaths = {
-  '#agent-auto-approval': ['src/main/agentAutoApproval.disabled.ts'],
-  '#agent-auth-token': ['src/main/agentAuthToken.disabled.ts'],
-  '#agent-discovery': ['src/main/agentDiscovery.disabled.ts'],
-  '#agent-ipc': ['src/main/agentIpc.disabled.ts'],
-  '#agent-release': ['src/main/agentRelease.disabled.ts'],
-  '#agent-server': ['src/main/agentServer.disabled.ts'],
+  '#agent-composition': ['src/main/agentComposition.disabled.ts'],
   '#extension-handoff': ['src/main/extensionHandoff.disabled.ts'],
   '#extension-candidate-vault': ['src/main/extensionCandidateVault.disabled.ts'],
   '#extension-native-host-composition': ['src/main/extensionNativeHostComposition.disabled.ts'],
@@ -161,6 +177,7 @@ export const openNodeTypecheckInclude = [
 export const openNodeTypecheckExclude = [
   'src/cli/**/*',
   'src/main/**/*.test.ts',
+  'src/main/agentComposition.ts',
   'src/main/agentAuthToken.ts',
   'src/main/agentAutoApproval.ts',
   'src/main/agentDiscovery.ts',

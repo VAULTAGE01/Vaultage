@@ -13,23 +13,8 @@
     ],
     "baseUrl": ".",
     "paths": {
-      "#agent-auth-token": [
-        "src/main/agentAuthToken.disabled.ts"
-      ],
-      "#agent-discovery": [
-        "src/main/agentDiscovery.disabled.ts"
-      ],
-      "#agent-ipc": [
-        "src/main/agentIpc.disabled.ts"
-      ],
-      "#agent-release": [
-        "src/main/agentRelease.disabled.ts"
-      ],
-      "#agent-server": [
-        "src/main/agentServer.disabled.ts"
-      ],
-      "#agent-auto-approval": [
-        "src/main/agentAutoApproval.disabled.ts"
+      "#agent-composition": [
+        "src/main/agentComposition.disabled.ts"
       ],
       "#extension-handoff": [
         "src/main/extensionHandoff.disabled.ts"

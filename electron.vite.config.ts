@@ -25,24 +25,9 @@ export default defineConfig({
     },
     resolve: {
       alias: {
-        '#agent-auth-token': openCoreBuild
-          ? resolve('src/main/agentAuthToken.disabled.ts')
-          : resolve('src/main/agentAuthToken.ts'),
-        '#agent-discovery': openCoreBuild
-          ? resolve('src/main/agentDiscovery.disabled.ts')
-          : resolve('src/main/agentDiscovery.ts'),
-        '#agent-ipc': openCoreBuild
-          ? resolve('src/main/agentIpc.disabled.ts')
-          : resolve('src/main/agentIpc.ts'),
-        '#agent-release': openCoreBuild
-          ? resolve('src/main/agentRelease.disabled.ts')
-          : resolve('src/main/agentRelease.ts'),
-        '#agent-server': openCoreBuild
-          ? resolve('src/main/agentServer.disabled.ts')
-          : resolve('src/main/agentServer.ts'),
-        '#agent-auto-approval': openCoreBuild
-          ? resolve('src/main/agentAutoApproval.disabled.ts')
-          : resolve('src/main/agentAutoApproval.ts'),
+        '#agent-composition': openCoreBuild
+          ? resolve('src/main/agentComposition.disabled.ts')
+          : resolve('src/main/agentComposition.ts'),
         '#extension-handoff': openCoreBuild
           ? resolve('src/main/extensionHandoff.disabled.ts')
           : resolve('src/main/extensionHandoff.ts'),

@@ -33,7 +33,7 @@ controls, so they are not classified as user-visible Community features.
 | Capability | Community status |
 | --- | --- |
 | Settings modal, password change/sign-out, restore, and reveal-PIN setup | Not exposed by the Community shell; compatibility IPC is not a user-facing promise |
-| Agent request server, approvals, discovery file, and CLI | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
+| Agent request server, approvals, discovery file, and CLI | Private/Pro; live implementation and renderer IPC contracts excluded; one minimal inert composition seam retained |
 | Services/provider connections and remote token lifecycle | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
 | Browser-extension pairing and save handoff | Private/Pro; live implementation and renderer IPC contracts excluded; throwing/no-op compile seams retained |
 | Hosted accounts, sync/audit, billing, and spend dashboards | Not included |
