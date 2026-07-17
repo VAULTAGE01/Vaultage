@@ -1,5 +1,10 @@
 import { VAULT_VALIDATION_LIMITS } from '../../../shared/vaultValidation'
 import type { VaultFolder, VaultRoot } from '../types'
+import {
+  readBoundedImageDataUrl,
+  validateImageIngestPreflight,
+  type ImageIngestFile,
+} from './imageIngestSecurity'
 
 /**
  * Import-specific selection cap. The vault can hold far more secrets, but a
@@ -10,11 +15,7 @@ export const MAX_IMAGE_IMPORT_DECODED_BYTES = VAULT_VALIDATION_LIMITS.maxEmbedde
 export const MAX_IMAGE_IMPORT_AGGREGATE_DECODED_BYTES =
   VAULT_VALIDATION_LIMITS.maxEmbeddedImageBytesAggregate
 
-export interface ImageImportCandidate {
-  name: string
-  size: number
-  type: string
-}
+export interface ImageImportCandidate extends ImageIngestFile {}
 
 export type ImageImportSelectionResult<T extends ImageImportCandidate> =
   | {
@@ -39,7 +40,7 @@ export async function readBoundedImageImportSelection<T extends ImageImportCandi
   const items: Array<{ file: T; dataUrl: string | null; error: unknown | null }> = []
   for (const file of files) {
     try {
-      items.push({ file, dataUrl: await readDataUrl(file), error: null })
+      items.push({ file, dataUrl: await readBoundedImageDataUrl(file, readDataUrl), error: null })
     } catch (error) {
       items.push({ file, dataUrl: null, error })
     }
@@ -59,15 +60,8 @@ export function validateImageImportSelection(files: readonly ImageImportCandidat
 
   let decodedBytes = 0
   for (const file of files) {
-    if (!file.type.toLowerCase().startsWith('image/')) {
-      return `${file.name || 'Selected file'} is not an image`
-    }
-    if (!Number.isSafeInteger(file.size) || file.size < 1) {
-      return `${file.name || 'Selected image'} is empty or has an invalid size`
-    }
-    if (file.size > MAX_IMAGE_IMPORT_DECODED_BYTES) {
-      return `${file.name || 'Selected image'} is larger than ${formatMiB(MAX_IMAGE_IMPORT_DECODED_BYTES)} MB`
-    }
+    const preflightError = validateImageIngestPreflight(file)
+    if (preflightError) return preflightError
     decodedBytes += file.size
     if (decodedBytes > MAX_IMAGE_IMPORT_AGGREGATE_DECODED_BYTES) {
       return `Selected images exceed the ${formatMiB(MAX_IMAGE_IMPORT_AGGREGATE_DECODED_BYTES)} MB total limit`

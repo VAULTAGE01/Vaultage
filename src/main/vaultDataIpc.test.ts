@@ -580,6 +580,7 @@ function deps(overrides: Partial<VaultIpcDeps> = {}): VaultIpcDeps {
     lockVault: vi.fn(),
     authController: {} as AuthController,
     recordAudit: vi.fn(),
+    recordAuditDurable: vi.fn(async () => undefined),
     ...overrides,
   }
 }

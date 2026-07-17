@@ -17,7 +17,10 @@ vi.mock('./vaultStorage', () => ({ updateVault: mocks.updateVault }))
 import { registerMenuPanelIpc } from './menuPanelIpc'
 
 describe('menu panel usage batching', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mocks.readText.mockReturnValue('')
+  })
 
   it('resolves copy and reveal values in main while deferring usage writes', async () => {
     const recordSecretUsage = vi.fn()
@@ -69,6 +72,23 @@ describe('menu panel usage batching', () => {
     await expect(handlers.get('menu-panel:action')?.({}, { action: 'stopAgent' })).resolves.toEqual({ success: true })
     expect(stopAgent).toHaveBeenCalledOnce()
   })
+
+  it('clears copied plaintext and fails when menu-bar audit evidence is not durable', async () => {
+    mocks.readText.mockReturnValue('main-only-secret-value')
+    const { ipcMain, handlers } = fakeIpcMain()
+    registerMenuPanelIpc(ipcMain, deps({
+      readVault: vi.fn().mockResolvedValue(sampleVault()),
+      recordAuditDurable: vi.fn(async () => { throw new Error('audit storage unavailable') }),
+    }))
+
+    await expect(handlers.get('menu-panel:copy')?.({}, {
+      secretId: 'secret-a',
+      fieldKey: 'token',
+      confirmationPhrase: 'REVEAL SECRET',
+    })).resolves.toMatchObject({ success: false, error: 'audit storage unavailable' })
+    expect(mocks.writeText).toHaveBeenNthCalledWith(1, 'main-only-secret-value')
+    expect(mocks.writeText).toHaveBeenNthCalledWith(2, '')
+  })
 })
 
 function deps(overrides: Partial<MenuPanelIpcDeps> = {}): MenuPanelIpcDeps {
@@ -102,6 +122,7 @@ function deps(overrides: Partial<MenuPanelIpcDeps> = {}): MenuPanelIpcDeps {
       confirmSecretReveal: vi.fn(() => ({ success: true })),
     } as unknown as AuthController,
     recordAudit: vi.fn(),
+    recordAuditDurable: vi.fn(async () => undefined),
     ...overrides,
   }
 }

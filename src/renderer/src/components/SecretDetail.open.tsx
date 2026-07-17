@@ -1,6 +1,7 @@
 import { cn } from '@/lib/utils'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { toast } from 'sonner'
 import { useVault, findFolder, findSecret, flatSecrets } from '../vaultContext'
 import type { SecretField, VaultFolder, VaultSecret } from '../types'
 import AddSecretModal from './AddSecretModal.open'
@@ -11,8 +12,9 @@ import { isPinnedSecret, togglePinnedSecret } from '../lib/pinning'
 import { SECRET_TYPE_LABELS } from '../types'
 import type { VaultExportScope } from '../../../shared/vaultExport'
 import { Button } from '@/components/ui/button'
-import { Copy, Eye, FileKey2, FolderKanban, Image as ImageIcon, Pencil, ShieldCheck, Star, Trash2 } from 'lucide-react'
+import { Copy, Download, Eye, EyeOff, FileKey2, FolderKanban, Image as ImageIcon, Pencil, ShieldCheck, Star, Trash2 } from 'lucide-react'
 import { countSecretProjectMappings, secretDeletionConfirmation } from '@/lib/secretActionPreviews'
+import { useTransientReveal } from '../lib/useTransientReveal'
 
 function countFolders(folder: VaultFolder): number {
   return folder.children.length + folder.children.reduce((total, child) => total + countFolders(child), 0)
@@ -145,6 +147,7 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
   const { secret, folderId } = result
   const folder = findFolder(state.vault.root, folderId)
   const pinned = isPinnedSecret(secret)
+  const imageField = secret.fields.find(field => field.key === '__image__')
   const updated = new Date(secret.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
   const remove = async () => {
@@ -154,6 +157,27 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
     }))) return
     await deleteSecret(folderId, secret.id)
     selectSecret(null)
+  }
+
+  const saveImage = async (): Promise<boolean> => {
+    const plaintextConfirmation = import.meta.env.VITE_E2E === '1'
+      ? undefined
+      : window.prompt('Type EXPORT PLAINTEXT to save this decrypted image.')
+    if (plaintextConfirmation === null) return false
+    try {
+      const result = await window.vault.saveSecretImageField({
+        secretId: secret.id,
+        fieldKey: '__image__',
+        fieldId: imageField?.id,
+        plaintextConfirmation,
+      })
+      if (result.success) toast.success('Image saved')
+      else if (!result.cancelled) toast.error(result.error ?? 'Could not save image')
+      return result.success
+    } catch (error) {
+      toast.error(`Could not save image: ${String(error)}`)
+      return false
+    }
   }
 
   return (
@@ -214,17 +238,20 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
 
         {secret.type === 'image' ? (
           <ImageField
-            hasImage={Boolean(secret.fields.find(field => field.key === '__image__')?.value)}
-            onCopy={() => copySecretImageField(secret.id, '__image__', secret.fields.find(field => field.key === '__image__')?.id)}
-            onReveal={() => revealSecretImageField(secret.id, '__image__', { fieldId: secret.fields.find(field => field.key === '__image__')?.id })}
+            identity={`${secret.id}:${secret.updatedAt}:${imageField?.id ?? '__image__'}`}
+            hasImage={Boolean(imageField?.value)}
+            onCopy={() => copySecretImageField(secret.id, '__image__', imageField?.id)}
+            onReveal={() => revealSecretImageField(secret.id, '__image__', { fieldId: imageField?.id })}
+            onSave={saveImage}
           />
         ) : (
           <section className="space-y-3">
             {secret.fields.filter(field => field.key !== '__image__').map((field, index) => (
               <FieldRow
                 key={`${field.key}-${index}`}
+                identity={`${secret.id}:${secret.updatedAt}:${field.id ?? field.key}:${index}`}
                 field={field}
-                onCopy={() => copySecretField(secret.id, field.key, { clearAfterMs: 30_000, fieldId: field.id })}
+                onCopy={() => copySecretField(secret.id, field.key, { fieldId: field.id })}
                 onReveal={() => revealSecretField(secret.id, field.key, { fieldId: field.id })}
               />
             ))}
@@ -266,32 +293,38 @@ function FolderEmptyState() {
 }
 
 function ImageField({
+  identity,
   hasImage,
   onCopy,
   onReveal,
+  onSave,
 }: {
+  identity: string
   hasImage: boolean
   onCopy: () => Promise<boolean>
   onReveal: () => Promise<string | null>
+  onSave: () => Promise<boolean>
 }) {
-  const [dataUrl, setDataUrl] = useState<string | null>(null)
   const [copying, setCopying] = useState(false)
   const [revealFailed, setRevealFailed] = useState(false)
+  const { value: dataUrl, reveal: revealTransient, clear } = useTransientReveal<string>(identity)
+
+  useEffect(() => setRevealFailed(false), [identity])
 
   const copy = async () => {
-    setCopying(true)
-    try {
-      await onCopy()
-    } finally {
-      setTimeout(() => setCopying(false), 700)
+    const copied = await onCopy()
+    if (!copied) {
+      toast.error('Could not copy image')
+      return
     }
+    setCopying(true)
+    setTimeout(() => setCopying(false), 700)
   }
 
   const reveal = async () => {
     setRevealFailed(false)
-    const value = await onReveal()
-    if (value) setDataUrl(value)
-    else setRevealFailed(true)
+    const outcome = await revealTransient(onReveal)
+    if (outcome === 'empty') setRevealFailed(true)
   }
 
   if (!hasImage) {
@@ -310,12 +343,16 @@ function ImageField({
             <img src={dataUrl} alt="Stored secret" className="max-h-[50vh] w-full object-contain" />
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => setDataUrl(null)}>
+            <Button variant="outline" size="sm" onClick={clear}>
               Hide Image
             </Button>
             <Button variant="ghost" size="sm" onClick={() => { void copy() }}>
               <Copy className="mr-1.5 h-3.5 w-3.5" />
               {copying ? 'Copied' : 'Copy Image'}
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => { void onSave() }}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              Save Image
             </Button>
           </div>
         </>
@@ -335,6 +372,10 @@ function ImageField({
               <Copy className="mr-1.5 h-3.5 w-3.5" />
               {copying ? 'Copied' : 'Copy Image'}
             </Button>
+            <Button variant="ghost" size="sm" onClick={() => { void onSave() }}>
+              <Download className="mr-1.5 h-3.5 w-3.5" />
+              Save Image
+            </Button>
           </div>
           {revealFailed && <p className="text-xs text-danger">Could not reveal this image.</p>}
         </div>
@@ -344,29 +385,35 @@ function ImageField({
 }
 
 function FieldRow({
+  identity,
   field,
   onCopy,
   onReveal,
 }: {
+  identity: string
   field: SecretField
   onCopy: () => Promise<boolean>
   onReveal: () => Promise<string | null>
 }) {
-  const [revealed, setRevealed] = useState<string | null>(null)
   const [copying, setCopying] = useState(false)
+  const { value: revealed, reveal: revealTransient, clear } = useTransientReveal<string>(identity)
 
   const copy = async () => {
-    setCopying(true)
-    try {
-      await onCopy()
-    } finally {
-      setTimeout(() => setCopying(false), 700)
+    const copied = await onCopy()
+    if (!copied) {
+      toast.error('Could not copy value')
+      return
     }
+    setCopying(true)
+    setTimeout(() => setCopying(false), 700)
   }
 
   const reveal = async () => {
-    const value = await onReveal()
-    if (value != null) setRevealed(value)
+    if (revealed !== null) {
+      clear()
+      return
+    }
+    await revealTransient(onReveal)
   }
 
   return (
@@ -384,8 +431,8 @@ function FieldRow({
           </Button>
           {field.sensitive && (
             <Button variant="ghost" size="sm" onClick={() => { void reveal() }}>
-              <Eye className="mr-1.5 h-3.5 w-3.5" />
-              Reveal
+              {revealed !== null ? <EyeOff className="mr-1.5 h-3.5 w-3.5" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />}
+              {revealed !== null ? 'Hide' : 'Reveal'}
             </Button>
           )}
         </div>

@@ -6,10 +6,11 @@ import type { IpcMain } from 'electron'
 const mocks = vi.hoisted(() => ({
   auditDir: `/tmp/vaultage-audit-ipc-${process.pid}`,
   showSaveDialog: vi.fn(),
+  fromWebContents: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { getFocusedWindow: () => null },
+  BrowserWindow: { fromWebContents: mocks.fromWebContents },
   dialog: { showSaveDialog: mocks.showSaveDialog },
 }))
 
@@ -27,6 +28,7 @@ describe('audit IPC integrity boundary', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks()
+    mocks.fromWebContents.mockReturnValue({ id: 'sender-window' })
     await fs.rm(mocks.auditDir, { recursive: true, force: true })
     await fs.mkdir(mocks.auditDir, { recursive: true })
     macKey = deriveAuditMacKey(Buffer.from('audit-ipc-test-vault-key'))
@@ -49,6 +51,40 @@ describe('audit IPC integrity boundary', () => {
     }
     expect(result).toMatchObject({ success: true, verification: { ok: true } })
     expect(result.events).toHaveLength(1)
+  })
+
+  it('fails closed when the vault session changes after the audit queue flush', async () => {
+    await appendAuditEvent(auditFile, 'vault.unlock', {}, macKey)
+    const operation = sessionOperation({ failAtAssertion: 1 })
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerAuditIpc(ipcMain, deps({ beginSessionOperation: () => operation }))
+
+    const result = await handlers.get('audit:read')?.({ sender: { id: 7 } }, undefined) as {
+      success: boolean
+      error: string
+      events?: unknown[]
+    }
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/session changed/i)
+    expect(result.events).toBeUndefined()
+    expect(operation.release).toHaveBeenCalledOnce()
+  })
+
+  it('revalidates the session after reading before returning audit records', async () => {
+    await appendAuditEvent(auditFile, 'vault.unlock', {}, macKey)
+    const operation = sessionOperation({ failAtAssertion: 2 })
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerAuditIpc(ipcMain, deps({ beginSessionOperation: () => operation }))
+
+    const result = await handlers.get('audit:read')?.({ sender: { id: 7 } }, undefined) as {
+      success: boolean
+      error: string
+      events?: unknown[]
+    }
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/session changed/i)
+    expect(result.events).toBeUndefined()
+    expect(operation.release).toHaveBeenCalledOnce()
   })
 
   it('fails closed without returning records when the authenticated prefix is truncated', async () => {
@@ -76,11 +112,17 @@ describe('audit IPC integrity boundary', () => {
     const { handlers, ipcMain } = fakeIpcMain()
     registerAuditIpc(ipcMain, deps({ recordAudit }))
 
-    const result = await handlers.get('audit:export-json')?.({}, undefined) as {
+    const sender = { id: 7 }
+    const result = await handlers.get('audit:export-json')?.({ sender }, undefined) as {
       success: boolean
       path: string
     }
     expect(result).toEqual({ success: true, path: exportFile })
+    expect(mocks.fromWebContents).toHaveBeenCalledWith(sender)
+    expect(mocks.showSaveDialog).toHaveBeenCalledWith(
+      { id: 'sender-window' },
+      expect.objectContaining({ title: 'Export Vaultage Audit Log' }),
+    )
     const exported = JSON.parse(await fs.readFile(exportFile, 'utf8')) as {
       verification: { ok: boolean }
       anchor: { format: string; totalEventCount: number; mac: string }
@@ -95,15 +137,85 @@ describe('audit IPC integrity boundary', () => {
     expect(exported.events).toHaveLength(1)
     expect(recordAudit).toHaveBeenCalledWith('audit.exported', expect.objectContaining({ count: 1 }))
   })
+
+  it('refuses an export when the invoking renderer no longer has a window', async () => {
+    await appendAuditEvent(auditFile, 'vault.unlock', {}, macKey)
+    mocks.fromWebContents.mockReturnValue(null)
+    const operation = sessionOperation()
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerAuditIpc(ipcMain, deps({ beginSessionOperation: () => operation }))
+
+    const result = await handlers.get('audit:export-json')?.({ sender: { id: 7 } }, undefined) as {
+      success: boolean
+      error: string
+    }
+    expect(result).toEqual({ success: false, error: 'Audit window is unavailable' })
+    expect(mocks.showSaveDialog).not.toHaveBeenCalled()
+    expect(operation.release).toHaveBeenCalledOnce()
+  })
+
+  it('removes the staged export when the session changes at the atomic commit boundary', async () => {
+    await appendAuditEvent(auditFile, 'vault.unlock', {}, macKey)
+    mocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: exportFile })
+    const operation = sessionOperation({ failAtAssertion: 4 })
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerAuditIpc(ipcMain, deps({ beginSessionOperation: () => operation }))
+
+    const result = await handlers.get('audit:export-json')?.({ sender: { id: 7 } }, undefined) as {
+      success: boolean
+      error: string
+    }
+    expect(result.success).toBe(false)
+    expect(result.error).toMatch(/session changed/i)
+    await expect(fs.stat(exportFile)).rejects.toMatchObject({ code: 'ENOENT' })
+    expect(operation.release).toHaveBeenCalledOnce()
+  })
+
+  it('reports an atomically committed export as success even if audit publication throws', async () => {
+    await appendAuditEvent(auditFile, 'vault.unlock', {}, macKey)
+    mocks.showSaveDialog.mockResolvedValue({ canceled: false, filePath: exportFile })
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const operation = sessionOperation()
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerAuditIpc(ipcMain, deps({
+      beginSessionOperation: () => operation,
+      recordAudit: () => { throw new Error('synthetic audit publication failure') },
+    }))
+
+    const result = await handlers.get('audit:export-json')?.({ sender: { id: 7 } }, undefined)
+    expect(result).toEqual({ success: true, path: exportFile })
+    expect(JSON.parse(await fs.readFile(exportFile, 'utf8'))).toMatchObject({
+      verification: { ok: true },
+    })
+    expect(consoleError).toHaveBeenCalledWith(
+      '[audit] Could not enqueue committed audit export event:',
+      expect.any(Error),
+    )
+    expect(operation.release).toHaveBeenCalledOnce()
+    consoleError.mockRestore()
+  })
 })
 
 function deps(overrides: Partial<AuditIpcDeps> = {}): AuditIpcDeps {
   return {
     hasVaultKey: () => true,
     getAuditMacKey: () => Buffer.from(macKeyForDeps()),
+    beginSessionOperation: () => sessionOperation(),
     flushAuditQueue: async () => undefined,
     recordAudit: vi.fn(),
     ...overrides,
+  }
+}
+
+function sessionOperation(options: { failAtAssertion?: number } = {}) {
+  let assertions = 0
+  return {
+    epoch: 1,
+    assertCurrent: vi.fn(() => {
+      assertions += 1
+      if (assertions === options.failAtAssertion) throw new Error('Vault session changed; unlock and try again')
+    }),
+    release: vi.fn(),
   }
 }
 

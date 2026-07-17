@@ -31,6 +31,8 @@ export default function BackupRestoreScreen({
         backupPassword,
         confirmation,
       })
+      setCurrentPassword('')
+      setBackupPassword('')
       if (result.cancelled) return
       if (!result.success) {
         setError(result.error ?? 'Could not restore this backup')
@@ -38,6 +40,8 @@ export default function BackupRestoreScreen({
       }
       setRestored(true)
     } catch (err) {
+      setCurrentPassword('')
+      setBackupPassword('')
       setError(err instanceof Error ? err.message : 'Could not restore this backup')
     } finally {
       setLoading(false)

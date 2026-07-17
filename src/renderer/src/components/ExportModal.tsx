@@ -241,11 +241,14 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
 
     setExportBusy(true); setExportResult(null)
     try {
+      const encryptionPassword = encrypted ? password : undefined
+      setPassword('')
+      setPasswordRepeat('')
       const res = await window.vault.exportScope({
         scope: selectedScope.scope,
         format,
         plaintextConfirmation: encrypted ? undefined : confirmText,
-        encryptionPassword: encrypted ? password : undefined,
+        encryptionPassword,
       })
       if (res.cancelled) {
         setConfirming(false)
@@ -259,8 +262,6 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
       if (res.success) {
         setConfirming(false)
         setConfirmText('')
-        setPassword('')
-        setPasswordRepeat('')
       }
     } finally {
       setExportBusy(false)

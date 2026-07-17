@@ -1,9 +1,9 @@
 import { clipboard, type IpcMain } from 'electron'
 import { Buffer } from 'buffer'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { updateVault } from './vaultStorage'
 import { validateVaultSaveJson } from './security'
-import { resolveSecretFieldInVault } from './vaultMutations'
+import { assertPinnedSecretInVault, resolveSecretFieldInVault } from './vaultMutations'
 import { redactVaultForRenderer } from './vaultRedaction'
 import { vaultRevisionFrom } from './vaultIpcCommon'
 import type { AuditEventType } from './audit'
@@ -25,7 +25,6 @@ import type { VaultChangedEvent } from '../shared/vaultIpcContracts'
 import { VAULT_VALIDATION_LIMITS } from '../shared/vaultValidation'
 
 const DEFAULT_CLEAR_AFTER_MS = 45_000
-const MAX_CLEAR_AFTER_MS = 5 * 60 * 1000
 
 export interface MenuPanelIpcDeps {
   appName: string
@@ -55,6 +54,7 @@ export interface MenuPanelIpcDeps {
   quitApp: () => void
   authController: AuthController
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void
+  recordAuditDurable: (type: AuditEventType, details?: Record<string, unknown>) => Promise<void>
 }
 
 export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): void {
@@ -111,6 +111,7 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
     if (!vaultKey) return { success: false, error: 'Not authenticated' }
     const operation = deps.beginSessionOperation()
     if (!operation) return { success: false, error: 'Not authenticated' }
+    let clipboardFingerprint: string | null = null
     try {
       const pin = optionalQuickRevealPin(payload.pin)
       if (!pin) {
@@ -121,31 +122,40 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
         if (!confirmation.success) return confirmation
         resetQuickRevealPinThrottle()
       }
-      const clearAfterMs = clipboardClearAfterMs(payload.clearAfterMs)
+      const clearAfterMs = DEFAULT_CLEAR_AFTER_MS
       const vault = await deps.readVault(vaultKey)
-      if (pin) await requireQuickRevealPin(vault, pin)
+      if (pin) {
+        assertPinnedSecretInVault(vault, payload.secretId)
+        await requireQuickRevealPin(vault, pin)
+      }
       operation.assertCurrent()
       const copiedValue = resolveSecretFieldInVault(vault, payload.secretId, payload.fieldKey, payload.fieldId)
       if (copiedValue.length > 1_000_000) throw new Error('Clipboard text is too large')
       const usedAt = new Date().toISOString()
       operation.assertCurrent()
       clipboard.writeText(copiedValue)
-      deps.recordSecretUsage(payload.secretId, usedAt)
-      deps.recordAudit('vault.secret.copied', {
+      clipboardFingerprint = copiedValue ? textFingerprint(copiedValue) : null
+      await deps.recordAuditDurable('vault.secret.copied', {
         vaultItemId: payload.secretId,
         field: payload.fieldKey,
         kind: 'text',
         source: 'menu-bar',
         method: pin ? 'pin' : 'system',
       })
-      if (clearAfterMs > 0 && copiedValue) {
+      operation.assertCurrent()
+      deps.recordSecretUsage(payload.secretId, usedAt)
+      if (clearAfterMs > 0 && clipboardFingerprint) {
+        const expectedFingerprint = clipboardFingerprint
         const timer = setTimeout(() => {
-          if (clipboard.readText() === copiedValue) clipboard.writeText('')
+          if (textFingerprint(clipboard.readText()) === expectedFingerprint) clipboard.writeText('')
         }, clearAfterMs)
         timer.unref?.()
       }
       return { success: true }
     } catch (err) {
+      if (clipboardFingerprint && textFingerprint(clipboard.readText()) === clipboardFingerprint) {
+        clipboard.writeText('')
+      }
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     } finally {
       operation.release()
@@ -169,20 +179,24 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
         resetQuickRevealPinThrottle()
       }
       const vault = await deps.readVault(vaultKey)
-      if (pin) await requireQuickRevealPin(vault, pin)
+      if (pin) {
+        assertPinnedSecretInVault(vault, payload.secretId)
+        await requireQuickRevealPin(vault, pin)
+      }
       operation.assertCurrent()
       const value = resolveSecretFieldInVault(vault, payload.secretId, payload.fieldKey, payload.fieldId)
       if (Buffer.byteLength(value, 'utf8') > 1_000_000) throw new Error('Secret field is too large to view')
       const usedAt = new Date().toISOString()
       operation.assertCurrent()
-      deps.recordSecretUsage(payload.secretId, usedAt)
-      deps.recordAudit('vault.secret.revealed', {
+      await deps.recordAuditDurable('vault.secret.revealed', {
         vaultItemId: payload.secretId,
         field: payload.fieldKey,
         kind: 'text',
         source: 'menu-bar',
         method: pin ? 'pin' : 'system',
       })
+      operation.assertCurrent()
+      deps.recordSecretUsage(payload.secretId, usedAt)
       return { success: true, value }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -310,10 +324,8 @@ async function availableCapability(check: () => boolean | Promise<boolean>): Pro
   }
 }
 
-function clipboardClearAfterMs(value: number | undefined): number {
-  if (value === undefined) return DEFAULT_CLEAR_AFTER_MS
-  if (!Number.isFinite(value) || value <= 0) return 0
-  return Math.min(MAX_CLEAR_AFTER_MS, Math.floor(value))
+function textFingerprint(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
 type QuickCreateSecret = {

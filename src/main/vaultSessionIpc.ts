@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, type IpcMain } from 'electron'
+import { BrowserWindow, dialog, type IpcMain, type IpcMainInvokeEvent, type OpenDialogOptions } from 'electron'
 import { randomUUID } from 'crypto'
 import { join } from 'path'
 import { promises as fs } from 'fs'
@@ -27,20 +27,22 @@ export function registerVaultSessionIpc(ipcMain: IpcMain, deps: VaultIpcDeps): v
     return { success: true }
   })
 
-  ipcMain.handle(vaultIpc.backup.channel, async (_, payload: unknown) => {
+  ipcMain.handle(vaultIpc.backup.channel, async (event, payload: unknown) => {
     vaultIpc.backup.validate(payload)
-    const win = BrowserWindow.getFocusedWindow()
-    const result = await dialog.showOpenDialog(win!, {
-      properties: ['openDirectory'],
-      title: 'Choose backup destination',
-    })
-    if (result.canceled) return { success: false, cancelled: true }
-
     const vaultKey = deps.getVaultKey()
     if (!vaultKey) return { success: false, error: 'Not authenticated' }
+    const operation = deps.beginSessionOperation()
+    if (!operation) return { success: false, error: 'Not authenticated' }
 
     let stagingDir: string | null = null
+    let unpublishedBackupDir: string | null = null
     try {
+      const result = await showOpenDialogForSender(event, {
+        properties: ['openDirectory'],
+        title: 'Choose backup destination',
+      })
+      if (result.canceled) return { success: false, cancelled: true }
+      operation.assertCurrent()
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
       const backupDir = join(result.filePaths[0], `vault-backup-${stamp}`)
       stagingDir = join(
@@ -48,26 +50,33 @@ export function registerVaultSessionIpc(ipcMain: IpcMain, deps: VaultIpcDeps): v
         `.vault-backup-${stamp}.${randomUUID()}.tmp`,
       )
       await createVaultBackupSnapshot(stagingDir, vaultKey)
+      operation.assertCurrent()
       await fs.rename(stagingDir, backupDir)
       stagingDir = null
-      deps.recordAudit('vault.backup.created', { format: 'vaultage.backup.v1' })
+      unpublishedBackupDir = backupDir
+      operation.assertCurrent()
+      deps.recordAudit('vault.backup.created', { format: 'vaultage.backup.v2' })
+      unpublishedBackupDir = null
       return { success: true, path: backupDir }
     } catch (err) {
       return { success: false, error: String(err) }
     } finally {
       if (stagingDir) await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined)
+      if (unpublishedBackupDir) {
+        await fs.rm(unpublishedBackupDir, { recursive: true, force: true }).catch(() => undefined)
+      }
+      operation.release()
     }
   })
 
-  ipcMain.handle(vaultIpc.restoreBackup.channel, async (_, rawPayload: unknown) => {
+  ipcMain.handle(vaultIpc.restoreBackup.channel, async (event, rawPayload: unknown) => {
     let payload: ReturnType<typeof vaultIpc.restoreBackup.validate>
     try {
       payload = vaultIpc.restoreBackup.validate(rawPayload)
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
-    const win = BrowserWindow.getFocusedWindow()
-    const result = await dialog.showOpenDialog(win!, {
+    const result = await showOpenDialogForSender(event, {
       properties: ['openDirectory'],
       title: 'Choose a Vaultage backup folder to restore',
     })
@@ -89,4 +98,9 @@ export function registerVaultSessionIpc(ipcMain: IpcMain, deps: VaultIpcDeps): v
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }
   })
+}
+
+function showOpenDialogForSender(event: IpcMainInvokeEvent, options: OpenDialogOptions) {
+  const win = BrowserWindow.fromWebContents(event.sender)
+  return win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options)
 }

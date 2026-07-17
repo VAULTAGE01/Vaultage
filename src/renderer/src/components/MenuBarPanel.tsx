@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent } from 'react'
 import {
   ArrowLeft,
   Bell,
@@ -26,6 +26,12 @@ import type {
   MenuPanelSearchResult,
   MenuPanelStatusResult,
 } from '../../../shared/menuPanelIpcContracts'
+import {
+  ImageReadAttemptGate,
+  readBoundedImageDataUrl,
+  readFileAsDataUrl,
+  selectImagePasteFile,
+} from '../lib/imageIngestSecurity'
 
 type MenuPanelTabId = 'recent' | 'keys' | 'other' | 'all'
 type MenuPanelScreen = 'home' | 'search' | 'add'
@@ -123,15 +129,6 @@ function panelStatusFromResponse(response: MenuPanelStatusResult): PanelStatus {
   }
 }
 
-function fileToDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader()
-    reader.onload = () => resolve(String(reader.result ?? ''))
-    reader.onerror = () => reject(new Error('Could not read image'))
-    reader.readAsDataURL(file)
-  })
-}
-
 export default function MenuBarPanel() {
   const [status, setStatus] = useState<PanelStatus | null>(null)
   const [screen, setScreen] = useState<MenuPanelScreen>('home')
@@ -154,24 +151,46 @@ export default function MenuBarPanel() {
   const [authError, setAuthError] = useState('')
   const [panelActionBusy, setPanelActionBusy] = useState<PanelActionKey | ''>('')
   const inputRef = useRef<HTMLInputElement>(null)
+  const imageReadGateRef = useRef(new ImageReadAttemptGate())
+  const sensitiveGenerationRef = useRef(0)
 
-  const refreshStatus = async () => {
+  const clearSensitivePanelState = useCallback(() => {
+    sensitiveGenerationRef.current++
+    imageReadGateRef.current.invalidate()
+    setScreen('home')
+    setQuickAddName('')
+    setQuickAddText('')
+    setQuickAddImage('')
+    setQuickAddSaved('')
+    setRevealed({})
+    setCopied('')
+    setAuthRequest(null)
+    setPin('')
+    setAuthError('')
+  }, [])
+
+  const refreshStatus = useCallback(async () => {
     const response = await window.vault.menuPanelStatus()
     const next = panelStatusFromResponse(response)
     setStatus(next)
     if (!next.unlocked) {
+      clearSensitivePanelState()
       setResults([])
       setBusy(false)
     }
     return next
-  }
+  }, [clearSensitivePanelState])
 
   useEffect(() => {
     let cancelled = false
     window.vault.menuPanelStatus().then(response => {
       if (cancelled) return
-      setStatus(panelStatusFromResponse(response))
-      if (response.unlocked !== true) setBusy(false)
+      const next = panelStatusFromResponse(response)
+      setStatus(next)
+      if (!next.unlocked) {
+        clearSensitivePanelState()
+        setBusy(false)
+      }
     }).catch(err => {
       if (!cancelled) {
         setError(err instanceof Error ? err.message : String(err))
@@ -179,7 +198,32 @@ export default function MenuBarPanel() {
       }
     })
     return () => { cancelled = true }
-  }, [])
+  }, [clearSensitivePanelState])
+
+  useEffect(() => {
+    const clearOnBlur = () => clearSensitivePanelState()
+    const clearWhenHidden = () => {
+      if (document.visibilityState !== 'visible') clearSensitivePanelState()
+    }
+    const refreshOnFocus = () => {
+      void refreshStatus().catch(err => {
+        setError(err instanceof Error ? err.message : String(err))
+      })
+    }
+    window.addEventListener('blur', clearOnBlur)
+    window.addEventListener('focus', refreshOnFocus)
+    document.addEventListener('visibilitychange', clearWhenHidden)
+    return () => {
+      imageReadGateRef.current.invalidate()
+      window.removeEventListener('blur', clearOnBlur)
+      window.removeEventListener('focus', refreshOnFocus)
+      document.removeEventListener('visibilitychange', clearWhenHidden)
+    }
+  }, [clearSensitivePanelState, refreshStatus])
+
+  useEffect(() => {
+    if (status && !status.unlocked) clearSensitivePanelState()
+  }, [clearSensitivePanelState, status?.unlocked])
 
   useEffect(() => {
     if (!status?.unlocked || screen !== 'search') return
@@ -199,18 +243,16 @@ export default function MenuBarPanel() {
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         if (screen === 'home') {
+          clearSensitivePanelState()
           void window.vault.menuPanelClose()
         } else {
-          setScreen('home')
-          setAuthRequest(null)
-          setAuthError('')
-          setPin('')
+          clearSensitivePanelState()
         }
       }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [screen])
+  }, [clearSensitivePanelState, screen])
 
   useEffect(() => {
     if (screen !== 'search') return
@@ -252,6 +294,7 @@ export default function MenuBarPanel() {
   }
 
   const runFieldAction = async (request: ProtectedFieldRequest, pinCode?: string) => {
+    const sensitiveGeneration = sensitiveGenerationRef.current
     const actionKey = fieldActionKey(request.action, request.secretId, request.fieldKey, request.fieldId)
     const valueKey = fieldValueKey(request.secretId, request.fieldKey, request.fieldId)
     setPendingAction(actionKey)
@@ -265,7 +308,8 @@ export default function MenuBarPanel() {
         ...(pinCode ? { pin: pinCode } : {}),
       }
       if (request.action === 'copy') {
-        const response = await window.vault.menuPanelCopy({ ...payload, clearAfterMs: 45_000 })
+        const response = await window.vault.menuPanelCopy(payload)
+        if (sensitiveGeneration !== sensitiveGenerationRef.current) return
         if (!response.success) {
           const message = response.error ?? 'Could not copy field'
           if (status?.quickRevealPinEnabled) setAuthError(message)
@@ -276,6 +320,7 @@ export default function MenuBarPanel() {
         setTimeout(() => setCopied(current => current === valueKey ? '' : current), 1600)
       } else {
         const response = await window.vault.menuPanelReveal(payload)
+        if (sensitiveGeneration !== sensitiveGenerationRef.current) return
         if (!response.success) {
           const message = response.error ?? 'Could not view field'
           if (status?.quickRevealPinEnabled) setAuthError(message)
@@ -335,23 +380,33 @@ export default function MenuBarPanel() {
   }
 
   const openQuickAdd = (mode: QuickAddMode) => {
+    imageReadGateRef.current.invalidate()
     setQuickAddMode(mode)
+    setQuickAddName('')
+    setQuickAddText('')
+    setQuickAddImage('')
     setQuickAddSaved('')
     setError('')
     setScreen('add')
   }
 
   const handleImagePaste = async (event: ClipboardEvent<HTMLElement>) => {
-    const imageItem = Array.from(event.clipboardData.items).find(item => item.type.startsWith('image/'))
-    if (!imageItem) return
-    const file = imageItem.getAsFile()
-    if (!file) return
+    const selection = selectImagePasteFile(event.target, Array.from(event.clipboardData.items))
+    if (selection.status === 'ignore') return
+    if (selection.status === 'reject') {
+      setError(selection.error)
+      return
+    }
     event.preventDefault()
+    const generation = imageReadGateRef.current.begin()
     try {
-      setQuickAddImage(await fileToDataUrl(file))
+      const dataUrl = await readBoundedImageDataUrl(selection.file, readFileAsDataUrl)
+      if (!imageReadGateRef.current.isCurrent(generation)) return
+      setQuickAddImage(dataUrl)
       setQuickAddSaved('')
       setError('')
     } catch (err) {
+      if (!imageReadGateRef.current.isCurrent(generation)) return
       setError(err instanceof Error ? err.message : String(err))
     }
   }
@@ -403,11 +458,7 @@ export default function MenuBarPanel() {
         : 'Paste image'
   const actionButtonClass = 'inline-flex h-7 items-center justify-center gap-1.5 rounded-md px-2.5 text-[10px] font-semibold text-text-secondary transition hover:text-accent disabled:cursor-not-allowed disabled:opacity-35'
   const goHome = () => {
-    setScreen('home')
-    setAuthRequest(null)
-    setAuthError('')
-    setPin('')
-    setQuickAddSaved('')
+    clearSensitivePanelState()
   }
 
   return (
@@ -429,7 +480,10 @@ export default function MenuBarPanel() {
         </div>
         <button
           type="button"
-          onClick={() => void window.vault.menuPanelClose()}
+          onClick={() => {
+            clearSensitivePanelState()
+            void window.vault.menuPanelClose()
+          }}
           className="grid h-7 w-7 flex-shrink-0 place-items-center rounded-md text-muted transition hover:text-text"
           title="Close"
         >
@@ -603,7 +657,9 @@ export default function MenuBarPanel() {
             <button
               type="button"
               onClick={() => {
+                imageReadGateRef.current.invalidate()
                 setQuickAddMode('text')
+                setQuickAddImage('')
                 setQuickAddSaved('')
                 setError('')
               }}
@@ -618,6 +674,7 @@ export default function MenuBarPanel() {
             <button
               type="button"
               onClick={() => {
+                imageReadGateRef.current.invalidate()
                 setQuickAddMode('image')
                 setQuickAddSaved('')
                 setError('')
@@ -664,6 +721,7 @@ export default function MenuBarPanel() {
           ) : (
             <div
               tabIndex={0}
+              data-image-paste-target="true"
               className="flex min-h-40 flex-1 flex-col items-center justify-center overflow-hidden rounded-xl border border-dashed border-white/[0.16] bg-black/20 p-3 text-center outline-none focus:border-accent/40"
             >
               {quickAddImage ? (
@@ -695,6 +753,7 @@ export default function MenuBarPanel() {
             <button
               type="button"
               onClick={() => {
+                imageReadGateRef.current.invalidate()
                 setQuickAddName('')
                 setQuickAddText('')
                 setQuickAddImage('')

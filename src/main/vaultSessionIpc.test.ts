@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { getFocusedWindow: () => null },
+  BrowserWindow: { fromWebContents: () => null },
   dialog: { showOpenDialog: mocks.showOpenDialog },
 }))
 
@@ -54,6 +54,27 @@ describe('vault session backup and restore IPC', () => {
     expect(result.path).toMatch(/vault-backup-\d{4}-\d{2}-\d{2}T/)
     expect(mocks.createVaultBackupSnapshot).toHaveBeenCalledWith(expect.stringContaining('.tmp'), key)
     await expect(fs.access(result.path)).resolves.toBeUndefined()
+  })
+
+  it('removes the staged backup when the vault session changes before publish', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    let current = true
+    mocks.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [scratch] })
+    mocks.createVaultBackupSnapshot.mockImplementation(async (target: string) => {
+      await fs.mkdir(target, { recursive: true })
+      await fs.writeFile(join(target, 'vaultage-backup.json'), '{}')
+      current = false
+    })
+    registerVaultSessionIpc(ipcMain, deps({
+      beginSessionOperation: () => ({
+        epoch: 1,
+        assertCurrent: () => { if (!current) throw new Error('Vault session changed') },
+        release: () => undefined,
+      }),
+    }))
+
+    await expect(handlers.get('vault:backup')?.({}, undefined)).resolves.toMatchObject({ success: false })
+    await expect(fs.readdir(scratch)).resolves.toEqual([])
   })
 
   it('validates and commits a restore before locking and requesting restart', async () => {
@@ -143,15 +164,16 @@ function deps(overrides: {
   forgetTouchID?: AuthController['forgetTouchID']
   lockVault?: VaultIpcDeps['lockVault']
   quitApp?: () => void
+  beginSessionOperation?: VaultIpcDeps['beginSessionOperation']
 } = {}): VaultIpcDeps {
   return {
     getVaultKey: overrides.getVaultKey ?? (() => Buffer.alloc(32, 1)),
     readVault: vi.fn(),
-    beginSessionOperation: () => ({
+    beginSessionOperation: overrides.beginSessionOperation ?? (() => ({
       epoch: 1,
       assertCurrent: () => undefined,
       release: () => undefined,
-    }),
+    })),
     recordSecretUsage: vi.fn(),
     decorateVaultSnapshot: value => value,
     authorizeProjectPathMutation: async (_vault, command) => command,
@@ -163,6 +185,7 @@ function deps(overrides: {
       restoreBackup: overrides.restoreBackup ?? vi.fn(),
     } as unknown as AuthController,
     recordAudit: vi.fn(),
+    recordAuditDurable: vi.fn(async () => undefined),
     quitApp: overrides.quitApp,
   }
 }

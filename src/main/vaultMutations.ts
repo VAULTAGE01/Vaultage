@@ -126,6 +126,15 @@ export function resolveSecretFieldInVault(
   return field.value
 }
 
+export function assertPinnedSecretInVault(vault: unknown, secretId: unknown): void {
+  const safeSecretId = validateId(secretId, 'secret id')
+  const secret = findSecretInVault(vault, safeSecretId)
+  const tags = Array.isArray(secret.tags) ? secret.tags : []
+  const pinned = tags.some(tag => typeof tag === 'string' &&
+    ['pin', 'pinned', 'favorite', 'favourite', 'starred'].includes(tag.trim().toLowerCase()))
+  if (!pinned) throw new Error('Quick Reveal PIN is limited to pinned secrets')
+}
+
 /** Resolve all fields without mutating usage metadata. */
 export function resolveSecretFieldsInVault(
   vault: unknown,

@@ -1,5 +1,5 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, nativeImage, safeStorage, screen, session, shell, type MessageBoxOptions } from 'electron'
-import { randomUUID } from 'crypto'
+import { createHash, randomUUID } from 'crypto'
 import { join } from 'path'
 import { appendAuditEvent, deriveAuditMacKey, readVerifiedAuditLog, type AuditEventType } from './audit'
 import { AuditFailureGuard } from './auditFailureGuard'
@@ -191,6 +191,7 @@ const agentComposition = registerAgentComposition({
   ipcMain: mainWindowIpc,
   getMode: () => appMode,
   hasVaultKey: () => vaultSession.isUnlocked(),
+  beginSessionOperation: () => vaultSession.beginOperation(),
   leaseVaultKey: () => vaultSession.leaseCurrentKey(),
   readVault,
   shouldProtectContent: shouldUseContentProtection,
@@ -225,12 +226,7 @@ const agentComposition = registerAgentComposition({
     return { secretId: committed.secretId }
   },
   recordAudit,
-  recordAuditDurable: async (type, details) => {
-    if (auditFailureGuard.isBlocked) throw new Error('Audit integrity guard is blocking secret release')
-    recordAudit(type, details)
-    await flushAuditQueue()
-    if (auditFailureGuard.isBlocked) throw new Error('Audit event could not be durably recorded')
-  },
+  recordAuditDurable,
   authorizeCapability: async capability => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
     return commercialRuntime.acquireCapabilityLease(capability)
@@ -286,6 +282,17 @@ function recordAudit(type: AuditEventType, details: Record<string, unknown> = {}
       }
     })
     .finally(() => auditMacKey.fill(0))
+}
+
+async function recordAuditDurable(
+  type: AuditEventType,
+  details: Record<string, unknown> = {},
+): Promise<void> {
+  if (auditFailureGuard.isBlocked) throw new Error('Audit integrity guard is blocking secret release')
+  if (!vaultSession.isUnlocked()) throw new Error('Vault locked before audit evidence could be recorded')
+  recordAudit(type, details)
+  await flushAuditQueue()
+  if (auditFailureGuard.isBlocked) throw new Error('Audit event could not be durably recorded')
 }
 
 async function flushAuditQueue(): Promise<void> {
@@ -351,6 +358,7 @@ registerVaultIpc(mainWindowIpc, {
   lockVault,
   authController,
   recordAudit,
+  recordAuditDurable,
   quitApp: () => setTimeout(() => app.quit(), 0),
 })
 registerModeIpc(mainWindowIpc, {
@@ -373,6 +381,7 @@ registerAuditIpc(mainWindowIpc, {
     const key = vaultSession.currentKey()
     return key ? deriveAuditMacKey(key) : null
   },
+  beginSessionOperation: () => vaultSession.beginOperation(),
   flushAuditQueue,
   recordAudit,
 })
@@ -397,8 +406,10 @@ registerProjectIpc(mainWindowIpc, {
   getVaultKey: () => vaultSession.currentKey(),
   getVaultRevision: () => vaultRevision,
   readVault,
+  beginSessionOperation: () => vaultSession.beginOperation(),
   authController,
   recordAudit,
+  recordAuditDurable,
   acquireProjectScanLease: async (vault, path, projectId, replaceProjectId) => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
     return commercialRuntime.acquireProjectScanLease(vault, path, projectId, replaceProjectId)
@@ -471,6 +482,7 @@ registerMenuPanelIpc(menuPanelIpc, {
   quitApp: () => app.quit(),
   authController,
   recordAudit,
+  recordAuditDurable,
   notifyVaultChanged,
 })
 
@@ -672,25 +684,50 @@ async function stopBrowserExtensionFromMenu(): Promise<void> {
 
 async function copyAgentInstructionsFromMenu(): Promise<void> {
   if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
-  await commercialRuntime.requireCapability('pro.agent')
+  const capabilityLease = await commercialRuntime.acquireCapabilityLease('pro.agent')
   if (!vaultSession.isUnlocked()) {
     showMainWindow()
     return
   }
-  writeSensitiveClipboardText(await agentComposition.instructionsSnippet())
-  recordAudit('agent.instructions.copied', {
-    source: 'menu-bar',
-    port: agentServer.configuredPort(),
-    clearAfterMs: AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS,
-  })
+  const operation = vaultSession.beginOperation()
+  if (!operation) throw new Error('Not authenticated')
+  let clipboardFingerprint: string | null = null
+  try {
+    const snippet = await agentComposition.instructionsSnippet()
+    capabilityLease.assertCurrent()
+    operation.assertCurrent()
+    clipboardFingerprint = writeSensitiveClipboardText(snippet)
+    await recordAuditDurable('agent.instructions.copied', {
+      source: 'menu-bar',
+      port: agentServer.configuredPort(),
+      clearAfterMs: AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS,
+    })
+    capabilityLease.assertCurrent()
+    operation.assertCurrent()
+  } catch (error) {
+    clearOwnedSensitiveClipboardText(clipboardFingerprint)
+    throw error
+  } finally {
+    operation.release()
+  }
 }
 
-function writeSensitiveClipboardText(value: string): void {
+function writeSensitiveClipboardText(value: string): string {
+  const fingerprint = sensitiveClipboardFingerprint(value)
   clipboard.writeText(value)
   const timer = setTimeout(() => {
-    if (clipboard.readText() === value) clipboard.writeText('')
+    if (sensitiveClipboardFingerprint(clipboard.readText()) === fingerprint) clipboard.writeText('')
   }, AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS)
   timer.unref?.()
+  return fingerprint
+}
+
+function clearOwnedSensitiveClipboardText(fingerprint: string | null): void {
+  if (fingerprint && sensitiveClipboardFingerprint(clipboard.readText()) === fingerprint) clipboard.writeText('')
+}
+
+function sensitiveClipboardFingerprint(value: string): string {
+  return createHash('sha256').update(value, 'utf8').digest('hex')
 }
 
 function initializeMenuBar(): void {
@@ -820,12 +857,14 @@ app.whenReady().then(async () => {
   await receiveExtensionHandoff(agentComposition.findHandoffArg(process.argv))
   flushExtensionHandoffUrls()
   installRendererCsp(session.defaultSession, { allowDevelopmentWebSockets: !app.isPackaged })
+  session.defaultSession.on('will-download', event => event.preventDefault())
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
   session.defaultSession.setPermissionCheckHandler(() => false)
   const menuPanelSession = session.fromPartition(MENU_PANEL_PARTITION, { cache: false })
   installRendererCsp(menuPanelSession, { allowDevelopmentWebSockets: !app.isPackaged })
+  menuPanelSession.on('will-download', event => event.preventDefault())
   menuPanelSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })

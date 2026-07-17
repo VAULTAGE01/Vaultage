@@ -15,7 +15,6 @@ export type MenuPanelCopyPayload = {
   secretId: string
   fieldId?: string
   fieldKey: string
-  clearAfterMs?: number
   confirmationPhrase?: string
   pin?: string
 }
@@ -170,12 +169,10 @@ function validateSearchPayload(payload: unknown): MenuPanelSearchPayload {
 
 function validateCopyPayload(payload: unknown): MenuPanelCopyPayload {
   const record = requireRecord(payload, 'menu panel copy payload')
-  const clearAfterMs = optionalNumber(record.clearAfterMs, 'clipboard clear delay')
   return {
     secretId: requireString(record.secretId, 'secret id'),
     fieldId: optionalMenuPanelString(record.fieldId, 'field id'),
     fieldKey: requireString(record.fieldKey, 'field key'),
-    clearAfterMs,
     confirmationPhrase: optionalMenuPanelString(record.confirmationPhrase, 'confirmation phrase'),
     pin: optionalMenuPanelString(record.pin, 'PIN'),
   }

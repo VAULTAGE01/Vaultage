@@ -6,7 +6,6 @@ import {
 } from './vaultValidation'
 import {
   contract,
-  optionalNumber,
   optionalString,
   requireRecord,
   requireString,
@@ -54,7 +53,9 @@ export type VaultMutationPayload = {
 }
 export type VaultSecretIdPayload = { secretId: string }
 export type VaultSecretFieldPayload = { secretId: string; fieldKey: string; fieldId?: string }
-export type VaultCopySecretFieldPayload = VaultSecretFieldPayload & { clearAfterMs?: number }
+export type VaultCopySecretFieldPayload = VaultSecretFieldPayload
+export type VaultCopySecretImageFieldPayload = VaultSecretFieldPayload
+export type VaultSaveSecretImageFieldPayload = VaultSecretFieldPayload & { plaintextConfirmation?: string }
 export type VaultRevealSecretFieldPayload = VaultSecretFieldPayload & {
   confirmationPhrase?: string
   pin?: string
@@ -72,7 +73,14 @@ export type VaultExportScopePayload = {
   plaintextConfirmation?: string
   encryptionPassword?: string
 }
-export type VaultDecryptExportPayload = { data: string; password: string }
+export type VaultBeginEncryptedImportPayload = { data: string; password: string }
+export type VaultCommitEncryptedImportPayload = {
+  token: string
+  selectionIds: string[]
+  destinationFolderId: string
+  expectedRevision: number
+}
+export type VaultCancelEncryptedImportPayload = { token: string }
 export type VaultRestoreBackupPayload = {
   currentPassword: string
   backupPassword: string
@@ -105,15 +113,35 @@ export type VaultRestoreBackupResult = VaultBackupResult & {
   restartRequired?: boolean
   sessionChanged?: boolean
 }
-export type VaultExportResult = VaultBackupResult
-export type VaultDecryptExportResult = VaultBaseResult & { data?: unknown }
+export type VaultExportResult = VaultBackupResult & { committed?: boolean }
+export interface VaultEncryptedImportPreviewItem {
+  selectionId: string
+  name: string
+  type: string
+  folderPath: string
+  hasValue: boolean
+}
+export type VaultBeginEncryptedImportResult = VaultBaseResult & {
+  token?: string
+  revision?: number
+  items?: VaultEncryptedImportPreviewItem[]
+  expiresAt?: string
+}
+export type VaultCommitEncryptedImportResult = VaultMutationResult & {
+  folderId?: string
+  firstSecretId?: string | null
+  secretCount?: number
+  sessionExpired?: boolean
+  stale?: boolean
+}
 export type VaultChangedEvent = { revision: number; data: unknown; source?: string }
 
 export interface VaultIpcApi {
   mutate(payload: VaultMutationPayload): Promise<VaultMutationResult>
   trackUsage(payload: VaultSecretIdPayload): Promise<VaultRevisionResult>
   copySecretField(payload: VaultCopySecretFieldPayload): Promise<VaultRevisionResult>
-  copySecretImageField(payload: VaultSecretFieldPayload): Promise<VaultRevisionResult>
+  copySecretImageField(payload: VaultCopySecretImageFieldPayload): Promise<VaultRevisionResult>
+  saveSecretImageField(payload: VaultSaveSecretImageFieldPayload): Promise<VaultExportResult>
   revealSecretField(payload: VaultRevealSecretFieldPayload): Promise<VaultRevealSecretFieldResult>
   revealSecretImageField(payload: VaultRevealSecretFieldPayload): Promise<VaultRevealSecretFieldResult>
   revealSecretFields(payload: VaultRevealSecretFieldsPayload): Promise<VaultRevealSecretFieldsResult>
@@ -125,7 +153,10 @@ export interface VaultIpcApi {
   restoreBackup(payload: VaultRestoreBackupPayload): Promise<VaultRestoreBackupResult>
   exportJson(payload?: VaultExportJsonPayload): Promise<VaultExportResult>
   exportScope(payload: VaultExportScopePayload): Promise<VaultExportResult>
-  decryptExport(payload: VaultDecryptExportPayload): Promise<VaultDecryptExportResult>
+  saveImportTemplate(): Promise<VaultExportResult>
+  beginEncryptedImport(payload: VaultBeginEncryptedImportPayload): Promise<VaultBeginEncryptedImportResult>
+  commitEncryptedImport(payload: VaultCommitEncryptedImportPayload): Promise<VaultCommitEncryptedImportResult>
+  cancelEncryptedImport(payload: VaultCancelEncryptedImportPayload): Promise<VaultBaseResult>
 }
 
 export const vaultIpcContracts = {
@@ -135,9 +166,13 @@ export const vaultIpcContracts = {
     'vault:copy-secret-field',
     validateCopySecretFieldPayload,
   ),
-  copySecretImageField: contract<VaultSecretFieldPayload, VaultRevisionResult>(
+  copySecretImageField: contract<VaultCopySecretImageFieldPayload, VaultRevisionResult>(
     'vault:copy-secret-image-field',
-    validateSecretFieldPayload,
+    validateCopySecretImageFieldPayload,
+  ),
+  saveSecretImageField: contract<VaultSaveSecretImageFieldPayload, VaultExportResult>(
+    'vault:save-secret-image-field',
+    validateSaveSecretImageFieldPayload,
   ),
   revealSecretField: contract<VaultRevealSecretFieldPayload, VaultRevealSecretFieldResult>(
     'vault:reveal-secret-field',
@@ -168,9 +203,18 @@ export const vaultIpcContracts = {
   ),
   exportJson: contract<VaultExportJsonPayload, VaultExportResult>('vault:export-json', validateExportJsonPayload),
   exportScope: contract<VaultExportScopePayload, VaultExportResult>('vault:export-scope', validateExportScopePayload),
-  decryptExport: contract<VaultDecryptExportPayload, VaultDecryptExportResult>(
-    'vault:decrypt-export',
-    validateDecryptExportPayload,
+  saveImportTemplate: contract<VaultNoPayload, VaultExportResult>('vault:save-import-template', validateNoPayload),
+  beginEncryptedImport: contract<VaultBeginEncryptedImportPayload, VaultBeginEncryptedImportResult>(
+    'vault:begin-encrypted-import',
+    validateBeginEncryptedImportPayload,
+  ),
+  commitEncryptedImport: contract<VaultCommitEncryptedImportPayload, VaultCommitEncryptedImportResult>(
+    'vault:commit-encrypted-import',
+    validateCommitEncryptedImportPayload,
+  ),
+  cancelEncryptedImport: contract<VaultCancelEncryptedImportPayload, VaultBaseResult>(
+    'vault:cancel-encrypted-import',
+    validateCancelEncryptedImportPayload,
   ),
 } as const
 
@@ -773,12 +817,26 @@ function validateSecretFieldPayload(payload: unknown): VaultSecretFieldPayload {
 }
 
 function validateCopySecretFieldPayload(payload: unknown): VaultCopySecretFieldPayload {
-  const record = requireRecord(payload, 'copy secret field payload')
+  return validateSecretFieldPayload(payload)
+}
+
+function validateCopySecretImageFieldPayload(payload: unknown): VaultCopySecretImageFieldPayload {
+  return validateCopySecretFieldPayload(payload)
+}
+
+function validateSaveSecretImageFieldPayload(payload: unknown): VaultSaveSecretImageFieldPayload {
+  const record = requireRecord(payload, 'save secret image field payload')
+  requireExactKeys(
+    record,
+    ['secretId', 'fieldKey'],
+    ['fieldId', 'plaintextConfirmation'],
+    'save secret image field payload',
+  )
   return {
     secretId: requireString(record.secretId, 'secret id'),
     fieldKey: requireString(record.fieldKey, 'field key'),
     fieldId: optionalBoundedId(record.fieldId, 'secret field id'),
-    clearAfterMs: optionalNumber(record.clearAfterMs, 'clipboard clear delay'),
+    plaintextConfirmation: optionalString(record.plaintextConfirmation, 'confirmation phrase'),
   }
 }
 
@@ -831,12 +889,48 @@ function validateExportScopePayload(payload: unknown): VaultExportScopePayload {
   }
 }
 
-function validateDecryptExportPayload(payload: unknown): VaultDecryptExportPayload {
+function validateBeginEncryptedImportPayload(payload: unknown): VaultBeginEncryptedImportPayload {
   const record = requireRecord(payload, 'decrypt export payload')
+  requireExactKeys(record, ['data', 'password'], [], 'decrypt export payload')
   return {
     data: requireString(record.data, 'encrypted export data'),
     password: requireString(record.password, 'export password'),
   }
+}
+
+function validateCommitEncryptedImportPayload(payload: unknown): VaultCommitEncryptedImportPayload {
+  const record = requireRecord(payload, 'commit encrypted import payload')
+  requireExactKeys(
+    record,
+    ['token', 'selectionIds', 'destinationFolderId', 'expectedRevision'],
+    [],
+    'commit encrypted import payload',
+  )
+  const selectionIds = boundedArray(
+    record.selectionIds,
+    'encrypted import selection ids',
+    VAULT_VALIDATION_LIMITS.maxSecrets,
+  ).map((value, index) => boundedId(value, `encrypted import selection ids[${index}]`))
+  if (selectionIds.length === 0) throw new Error('Select at least one secret to import')
+  if (new Set(selectionIds).size !== selectionIds.length) {
+    throw new Error('Encrypted import selection ids must be unique')
+  }
+  const expectedRevision = record.expectedRevision
+  if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('encrypted import revision must be a positive integer')
+  }
+  return {
+    token: boundedId(record.token, 'encrypted import token'),
+    selectionIds,
+    destinationFolderId: boundedId(record.destinationFolderId, 'encrypted import destination folder id'),
+    expectedRevision,
+  }
+}
+
+function validateCancelEncryptedImportPayload(payload: unknown): VaultCancelEncryptedImportPayload {
+  const record = requireRecord(payload, 'cancel encrypted import payload')
+  requireExactKeys(record, ['token'], [], 'cancel encrypted import payload')
+  return { token: boundedId(record.token, 'encrypted import token') }
 }
 
 function validateExportFormat(format: unknown): VaultExportFormat {

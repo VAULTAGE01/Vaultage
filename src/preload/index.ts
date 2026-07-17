@@ -29,6 +29,7 @@ const vaultDataApi: VaultIpcApi = {
   trackUsage:      (payload) => ipcRenderer.invoke(vaultIpc.trackUsage.channel, payload),
   copySecretField: (payload) => ipcRenderer.invoke(vaultIpc.copySecretField.channel, payload),
   copySecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.copySecretImageField.channel, payload),
+  saveSecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.saveSecretImageField.channel, payload),
   revealSecretField: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretField.channel, payload),
   revealSecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretImageField.channel, payload),
   revealSecretFields: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretFields.channel, payload),
@@ -40,7 +41,10 @@ const vaultDataApi: VaultIpcApi = {
   restoreBackup:   (payload) => ipcRenderer.invoke(vaultIpc.restoreBackup.channel, payload),
   exportJson:      (payload) => ipcRenderer.invoke(vaultIpc.exportJson.channel, payload),
   exportScope:     (payload) => ipcRenderer.invoke(vaultIpc.exportScope.channel, payload),
-  decryptExport:   (payload) => ipcRenderer.invoke(vaultIpc.decryptExport.channel, payload),
+  saveImportTemplate: () => ipcRenderer.invoke(vaultIpc.saveImportTemplate.channel),
+  beginEncryptedImport: (payload) => ipcRenderer.invoke(vaultIpc.beginEncryptedImport.channel, payload),
+  commitEncryptedImport: (payload) => ipcRenderer.invoke(vaultIpc.commitEncryptedImport.channel, payload),
+  cancelEncryptedImport: (payload) => ipcRenderer.invoke(vaultIpc.cancelEncryptedImport.channel, payload),
 }
 
 const auditApi: AuditIpcApi = {
