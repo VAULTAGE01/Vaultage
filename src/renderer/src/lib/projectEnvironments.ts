@@ -1,6 +1,6 @@
 import type { EnvEntry, EnvProject, EnvProjectEnvironment, Provider } from '../types'
 
-export type ProjectEnvironmentStatus = 'ready' | 'needs-mapping' | 'needs-target' | 'planned'
+export type ProjectEnvironmentStatus = 'ready' | 'needs-mapping' | 'needs-target' | 'unavailable'
 
 export interface ProjectEnvironmentDisplay {
   id: string
@@ -18,12 +18,6 @@ export interface ProjectEnvironmentDisplay {
   targetLabel: string
   lastSyncAt?: string
 }
-
-const DEFAULT_ENVIRONMENT_ROWS: Array<Pick<ProjectEnvironmentDisplay, 'id' | 'name' | 'scope' | 'kind'>> = [
-  { id: 'default-local', name: 'Local', scope: 'development', kind: 'local' },
-  { id: 'default-staging', name: 'Staging', scope: 'staging', kind: 'cloud' },
-  { id: 'default-production', name: 'Production', scope: 'production', kind: 'cloud' },
-]
 
 export function projectLocalEnvironmentId(projectId: string): string {
   return `${projectId}:local`
@@ -133,40 +127,11 @@ export function getProjectEnvironmentDisplays(
 ): ProjectEnvironmentDisplay[] {
   const providerById = new Map(providers.map(provider => [provider.id, provider]))
   const configured = getProjectEnvironments(project)
-  const usedIds = new Set<string>()
-
-  const displays = DEFAULT_ENVIRONMENT_ROWS.map(defaultRow => {
-    const match = configured.find(environment =>
-      environment.kind === defaultRow.kind &&
-      (environment.scope === defaultRow.scope || environment.name.toLowerCase() === defaultRow.name.toLowerCase())
-    )
-    if (!match) return placeholderDisplay(defaultRow)
-    usedIds.add(match.id)
-    return environmentDisplay(match, providerById)
-  })
-
-  for (const environment of configured) {
-    if (!usedIds.has(environment.id)) displays.push(environmentDisplay(environment, providerById))
-  }
-
-  return displays
+  return configured.map(environment => environmentDisplay(environment, providerById))
 }
 
 export function projectPrimaryLocalPath(project: EnvProject): string {
   return projectLocalEnvironment(project).path ?? project.path
-}
-
-function placeholderDisplay(
-  row: Pick<ProjectEnvironmentDisplay, 'id' | 'name' | 'scope' | 'kind'>,
-): ProjectEnvironmentDisplay {
-  return {
-    ...row,
-    entries: [],
-    configured: false,
-    status: 'planned',
-    detail: row.kind === 'local' ? 'Attach a local folder' : 'Connect a cloud target',
-    targetLabel: row.kind === 'local' ? 'No local folder' : 'No provider linked',
-  }
 }
 
 function environmentDisplay(
@@ -180,7 +145,7 @@ function environmentDisplay(
     : providerById.get(environment.providerId ?? '')?.name ?? environment.providerEnvName ?? 'No provider linked'
   const hasTarget = environment.kind === 'local' ? Boolean(environment.path) : Boolean(environment.providerId)
   const status: ProjectEnvironmentStatus = environment.kind === 'cloud'
-    ? 'planned'
+    ? 'unavailable'
     : !hasTarget
       ? 'needs-target'
       : entries.length === 0
@@ -202,7 +167,7 @@ function environmentDisplay(
     configured: true,
     status,
     detail: environment.kind === 'cloud'
-      ? `Configuration draft · ${readyCount}/${entries.length} mapped · sync not available yet`
+      ? `Saved configuration only · ${readyCount}/${entries.length} mapped · cloud push/pull unavailable`
       : entries.length === 0
         ? 'No mapped env keys'
         : `${readyCount}/${entries.length} mapped`,

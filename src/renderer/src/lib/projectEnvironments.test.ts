@@ -33,13 +33,11 @@ describe('project environment helpers', () => {
     }])
   })
 
-  it('renders default local, staging, and production rows', () => {
+  it('renders only environments that belong to the Project', () => {
     const displays = getProjectEnvironmentDisplays(legacyProject)
 
     expect(displays.map(environment => [environment.name, environment.kind, environment.configured])).toEqual([
       ['Local', 'local', true],
-      ['Staging', 'cloud', false],
-      ['Production', 'cloud', false],
     ])
   })
 
@@ -87,8 +85,8 @@ describe('project environment helpers', () => {
       'Staging',
     ])
     expect(getProjectEnvironmentDisplays(project).find(environment => environment.name === 'Staging')).toMatchObject({
-      status: 'planned',
-      detail: expect.stringContaining('sync not available yet'),
+      status: 'unavailable',
+      detail: expect.stringContaining('cloud push/pull unavailable'),
     })
   })
 })

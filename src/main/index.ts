@@ -72,6 +72,7 @@ let auditQueue = Promise.resolve()
 let receiptAuditReconciliationQueue = Promise.resolve()
 const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
 const APP_DISPLAY_NAME = OPEN_CORE_BUILD ? 'vault-OC' : 'Vaultage'
+const USER_FACING_APP_NAME = OPEN_CORE_BUILD ? 'Vaultage Community' : 'Vaultage'
 app.setName(APP_DISPLAY_NAME)
 const providerClient = new ProviderWorkerClient()
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
@@ -444,7 +445,7 @@ registerExtensionNativeHostIpc(mainWindowIpc, {
 })
 registerPlatformIpc(mainWindowIpc)
 registerMenuPanelIpc(menuPanelIpc, {
-  appName: APP_DISPLAY_NAME,
+  appName: USER_FACING_APP_NAME,
   openCoreBuild: OPEN_CORE_BUILD,
   getVaultKey: () => vaultSession.currentKey(),
   beginSessionOperation: () => vaultSession.beginOperation(),
@@ -454,8 +455,10 @@ registerMenuPanelIpc(menuPanelIpc, {
   readVault,
   pendingCount: () => agentServer.pendingCount(),
   isAgentListening: () => isAgentListening(),
+  hasAgentCapability: async () => await commercialRuntime?.hasCapability('pro.agent') ?? false,
   agentPort: () => agentServer.configuredPort(),
   isBrowserEnabled: () => agentServer.isExtensionEnabled(),
+  hasBrowserCapability: async () => await commercialRuntime?.hasCapability('pro.extension') ?? false,
   showMainWindow,
   navigateMainWindow,
   closePanel: () => menuPanelWindow?.hide(),
@@ -694,7 +697,7 @@ function initializeMenuBar(): void {
   menuBar = new MenuBarController({
     iconPath: iconPath(),
     getState: () => ({
-      appName: APP_DISPLAY_NAME,
+      appName: USER_FACING_APP_NAME,
       unlocked: vaultSession.isUnlocked(),
       mode: appMode,
       agentApiEnabled: agentServer.isApiEnabled(),

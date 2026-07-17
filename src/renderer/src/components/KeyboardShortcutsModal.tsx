@@ -6,39 +6,9 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog'
+import { useCommercialCapabilities } from '#commercial-capabilities'
 
 type ShortcutRow = [label: string, keys: string[]]
-
-const navigationRows: ShortcutRow[] = [
-  ['Search secrets', ['⌘', 'K']],
-  ['Vault', ['⌘', '1']],
-  ['Projects', ['⌘', '2']],
-  ...(__VAULTAGE_OPEN_CORE__ ? [] : [['Services', ['⌘', '3']] as ShortcutRow]),
-]
-
-const sections = [
-  {
-    title: 'Navigation',
-    rows: navigationRows,
-  },
-  {
-    title: 'Actions',
-    rows: [
-      ['New item in current mode', ['⌘', 'N']],
-      ['Import secrets', ['⌘', '⇧', 'I']],
-      ['Export vault', ['⌘', '⇧', 'E']],
-      ['Lock vault', ['⌘', 'L']],
-    ] as ShortcutRow[],
-  },
-  {
-    title: 'Settings',
-    rows: [
-      ['Open settings', ['⌘', ',']],
-      ['Show shortcuts', ['⌘', '/']],
-      ['Close modal', ['Esc']],
-    ] as ShortcutRow[],
-  },
-]
 
 function Keycap({ children }: { children: string }) {
   return (
@@ -49,6 +19,38 @@ function Keycap({ children }: { children: string }) {
 }
 
 export default function KeyboardShortcutsModal({ onClose }: { onClose: () => void }) {
+  const capabilities = useCommercialCapabilities()
+  const sections = [
+    {
+      title: 'Navigation',
+      rows: [
+        ['Search secrets', ['⌘', 'K']],
+        ['Vault', ['⌘', '1']],
+        ['Projects', ['⌘', '2']],
+        ...(!__VAULTAGE_OPEN_CORE__ && capabilities.services
+          ? [['Services', ['⌘', '3']] as ShortcutRow]
+          : []),
+      ] as ShortcutRow[],
+    },
+    {
+      title: 'Actions',
+      rows: [
+        ['New item in current mode', ['⌘', 'N']],
+        ['Import secrets', ['⌘', '⇧', 'I']],
+        ['Export vault', ['⌘', '⇧', 'E']],
+        ['Lock vault', ['⌘', 'L']],
+      ] as ShortcutRow[],
+    },
+    {
+      title: 'Settings',
+      rows: [
+        ['Open settings', ['⌘', ',']],
+        ['Show shortcuts', ['⌘', '/']],
+        ['Close modal', ['Esc']],
+      ] as ShortcutRow[],
+    },
+  ]
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()

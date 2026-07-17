@@ -62,8 +62,10 @@ export type MenuPanelStatusResult = BaseIpcResult & {
   unlocked?: boolean
   pendingCount?: number
   agentListening?: boolean
+  agentAvailable?: boolean
   agentPort?: number
   browserEnabled?: boolean
+  browserAvailable?: boolean
   quickRevealPinEnabled?: boolean
   openCoreBuild?: boolean
 }

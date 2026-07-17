@@ -12,14 +12,6 @@ import {
   masterPasswordPolicyError,
   masterPasswordStrength,
 } from '../../../shared/passwordPolicy'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
 
 const openSetupPanelClassName =
   'rounded-[28px] border border-black/10 bg-[#101612]/[0.88] p-8 shadow-[0_26px_80px_rgba(30,34,30,0.28),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl'
@@ -61,8 +53,7 @@ function StrengthBar({ score, color }: { score: number; color: string }) {
 // ── Welcome step ─────────────────────────────────────────────────────────────
 
 function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
-  const [showAccountSoon, setShowAccountSoon] = useState(false)
-  const paidAccountPathEnabled = !__VAULTAGE_OPEN_CORE__
+  const localOnly = __VAULTAGE_OPEN_CORE__
 
   return (
     <>
@@ -70,7 +61,9 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
         {/* Header */}
         <div className="text-center mb-7 flex flex-col items-center">
           <VaultageLogoWordmark className="w-64 h-16 text-white mb-3" />
-          <p className="text-sm text-text-secondary mt-1">Choose how you want to get started</p>
+          <p className="text-sm text-text-secondary mt-1">
+            Create your local vault
+          </p>
         </div>
 
         {/* Two paths */}
@@ -78,7 +71,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
           {/* Local */}
 	          <button
 	            onClick={onContinueLocal}
-	            title="Start Vaultage in local-first mode without creating an account. Shortcut: Enter"
+	            title="Create your local Vaultage vault. Shortcut: Enter"
 	            className="w-full text-left p-5 rounded-2xl transition-all active:scale-[0.99] group"
             style={{
               background: 'rgba(0,255,127,0.04)',
@@ -98,11 +91,14 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-semibold text-text">Continue without account</p>
-                  <span className="text-[10px] font-semibold text-accent uppercase tracking-wider">Recommended</span>
+                  <p className="text-sm font-semibold text-text">
+                    Create local vault
+                  </p>
                 </div>
                 <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-                  Local-first. Your secrets stay encrypted on this Mac. Free forever, no signup.
+                  {localOnly
+                    ? 'Local-first Community. Complete encrypted vault and unlimited local Projects, no signup.'
+                    : 'Local-first Free. Complete encrypted vault and up to two active Projects, no signup.'}
                 </p>
               </div>
               <svg className="w-4 h-4 text-text-secondary mt-2 flex-shrink-0 transition-transform group-hover:translate-x-0.5"
@@ -112,45 +108,10 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
             </div>
           </button>
 
-          {paidAccountPathEnabled && (
-	            <button
-	              onClick={() => setShowAccountSoon(true)}
-	              title="Preview the optional Pro account path for Agent, Services, and browser extension access. Shortcut: Enter"
-	              className="w-full text-left p-5 rounded-2xl transition-all active:scale-[0.99] opacity-80 hover:opacity-100"
-              style={{
-                background: 'rgba(255,255,255,0.02)',
-                border: '1px solid rgba(255,255,255,0.06)',
-              }}
-            >
-              <div className="flex items-start gap-3">
-                <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{ background: 'rgba(56,189,248,0.10)' }}
-                >
-                  <svg className="w-5 h-5 text-sky-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.75}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M13 2 3 14h9l-1 8 10-12h-9l1-8z" />
-                  </svg>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-text">Continue with account</p>
-                    <span
-                      className="text-[10px] font-medium uppercase tracking-wider px-1.5 py-0.5 rounded-full"
-                      style={{
-                        color: '#7dd3fc',
-                        background: 'rgba(56,189,248,0.08)',
-                        border: '1px solid rgba(56,189,248,0.2)',
-                      }}
-                    >
-                      After setup
-                    </span>
-                  </div>
-                  <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-                    Sign in after setup; trusted-device enrollment activates the included 30-day Pro trial automatically.
-                  </p>
-                </div>
-              </div>
-            </button>
+          {!localOnly && (
+            <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4 text-xs leading-relaxed text-text-secondary">
+              After setup, Account &amp; Plan reports whether optional paid-beta activation is available. When enabled, an eligible new account receives one 30-day, no-card Pro trial for Agent and Services. Browser-extension access remains separately release-gated.
+            </div>
           )}
         </div>
 
@@ -160,26 +121,6 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
         </p>
       </div>
 
-      {/* Account coming-soon dialog */}
-      {paidAccountPathEnabled && (
-        <Dialog open={showAccountSoon} onOpenChange={setShowAccountSoon}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle>Vaultage accounts are optional</DialogTitle>
-              <DialogDescription className="text-sm text-text-secondary leading-relaxed pt-1">
-                Set up your local vault first, then use Account &amp; Plan to sign in. The first
-                trusted Mac automatically activates the one-time 30-day, no-card Pro trial for Agent, Services, and browser extension access.
-                Cloud sync, teams, and hosted execution are not part of the paid beta.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-	              <Button size="sm" onClick={() => setShowAccountSoon(false)} title="Close this message. Shortcut: Esc">
-                OK
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      )}
     </>
   )
 }
