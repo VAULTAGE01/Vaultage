@@ -787,6 +787,10 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   }
 
   const handlePickParentFolder = async () => {
+    if (!creationPolicy.canCreate) {
+      setCreateError(creationPolicy.blockedMessage ?? 'Choose an active Project slot to replace before scanning.')
+      return
+    }
     const path = await window.vault.pickFolder({ purpose: 'scan-parent' })
     if (!path) return
     setCreateFlow('scan-parent')
@@ -798,7 +802,10 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
     setCreateError(null)
     setDiscovering(true)
     try {
-      const res = await window.vault.discoverProjects({ parentPath: path })
+      const res = await window.vault.discoverProjects({
+        parentPath: path,
+        ...(createReplacementProjectId ? { replaceProjectId: createReplacementProjectId } : {}),
+      })
       if (!res.success || !res.result) throw new Error(res.error ?? 'Project discovery failed')
       setDiscovery(res.result)
     } catch (err) {

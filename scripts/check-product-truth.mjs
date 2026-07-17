@@ -51,6 +51,8 @@ if (privateTree) {
   const auth = read('src/main/auth.ts')
   const communityRuntime = read('src/main/commercialRuntime.disabled.ts')
   const marketing = read('marketing-web/src/App.tsx')
+  const agentView = read('src/renderer/src/components/AgentView.tsx')
+  const stageOpenSource = read('scripts/stage-open-source.mjs')
 
   requireMatch(
     'docs/product.md',
@@ -76,6 +78,42 @@ if (privateTree) {
     policy,
     /DEFAULT_FREE_ACTIVE_PROJECT_LIMIT\s*=\s*2\b/u,
     'closed Free must default to exactly two active Projects',
+  )
+  requireMatch(
+    'src/shared/commercialPolicy.ts',
+    policy,
+    /MAX_FREE_ACTIVE_PROJECT_LIMIT\s*=\s*DEFAULT_FREE_ACTIVE_PROJECT_LIMIT\b/u,
+    'closed Free must reject Control policy above the advertised two-Project ceiling',
+  )
+  requireMatch(
+    'src/renderer/src/components/AgentView.tsx',
+    agentView,
+    /agentRequestsEnabled\s*=\s*AGENT_REQUESTS_COMPILED\s*&&\s*commercialCapabilities\.agent/u,
+    'closed Agent request UI must require the paid Agent capability, not only compile-time inclusion',
+  )
+  requireMatch(
+    'src/renderer/src/components/AgentView.tsx',
+    agentView,
+    /agentRequestsEnabled\s*\?\s*'Agent Access'\s*:\s*'Environments'/u,
+    'closed Free Environment Settings must replace the Agent metric with neutral Project data',
+  )
+  requireMatch(
+    'src/renderer/src/components/AgentView.tsx',
+    agentView,
+    /agentRequestsEnabled[\s\S]{0,140}'Open project history, syncs, mappings, and agent events\.'[\s\S]{0,100}'Open project history, syncs, and mappings\.'/u,
+    'closed Free Project audit copy must not advertise Agent events',
+  )
+  requireMatch(
+    'scripts/stage-open-source.mjs',
+    stageOpenSource,
+    /Encrypted file backup[\s\S]{0,180}portable full-vault export are exposed directly through Export/u,
+    'generated Community docs must classify backup as exposed while leaving restore outside the shell',
+  )
+  forbid(
+    'scripts/stage-open-source.mjs',
+    stageOpenSource,
+    /backup\/restore[^\n]*Not exposed/u,
+    'generated Community docs must not classify the exposed backup flow as unavailable',
   )
   requireMatch(
     'src/shared/projectIpcContracts.ts',
@@ -153,7 +191,7 @@ if (privateTree) {
   requireMatch(
     'src/main/commercialRuntime.disabled.ts',
     communityRuntime,
-    /acquireProjectExportLease[\s\S]{0,500}acquiredGeneration[\s\S]{0,500}generation !== acquiredGeneration/u,
+    /const acquireProjectExportLease[\s\S]{0,500}acquiredGeneration[\s\S]{0,500}generation !== acquiredGeneration/u,
     'Community Project export leases must invalidate across suspend/resume/dispose',
   )
   requireMatch(

@@ -6,11 +6,13 @@ import type { EnvProject, VaultFolder, VaultSecret } from '../types'
 import AddSecretModal from './AddSecretModal.open'
 import AuditLogModal from './AuditLogModal'
 import EnvProjectsModal from './EnvProjectsModal'
+import ExportModal from './ExportModal'
 import ImportModal from './ImportModal'
 import ModeSwitcher from './ModeSwitcher.open'
 import { Button } from '@/components/ui/button'
 import {
   FileKey2,
+  Download,
   Folder,
   FolderKanban,
   FolderPlus,
@@ -33,6 +35,7 @@ export default function Sidebar({ view, onViewChange }: Props) {
   const { mode, setMode, selectedProjectId, setSelectedProjectId } = useMode()
   const [showNewSecret, setShowNewSecret] = useState(false)
   const [showImport, setShowImport] = useState(false)
+  const [showExport, setShowExport] = useState(false)
   const [showAudit, setShowAudit] = useState(false)
   const [projectModal, setProjectModal] = useState<{
     initialProjectId?: string | null
@@ -176,10 +179,14 @@ export default function Sidebar({ view, onViewChange }: Props) {
           </div>
 
           <footer className="border-t border-border p-3">
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-3 gap-2">
               <Button variant="outline" size="sm" onClick={() => setShowImport(true)}>
                 <Import className="mr-1.5 h-3.5 w-3.5" />
                 Import
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => setShowExport(true)}>
+                <Download className="mr-1.5 h-3.5 w-3.5" />
+                Export
               </Button>
               <Button variant="outline" size="sm" onClick={() => setShowAudit(true)}>
                 <History className="mr-1.5 h-3.5 w-3.5" />
@@ -194,6 +201,7 @@ export default function Sidebar({ view, onViewChange }: Props) {
         <AddSecretModal folderId={targetFolderId} onClose={() => setShowNewSecret(false)} />
       )}
       {showImport && <ImportModal onClose={() => setShowImport(false)} />}
+      {showExport && <ExportModal initialScope={{ kind: 'vault' }} onClose={() => setShowExport(false)} />}
       {showAudit && <AuditLogModal onClose={() => setShowAudit(false)} />}
       {projectModal && (
         <EnvProjectsModal

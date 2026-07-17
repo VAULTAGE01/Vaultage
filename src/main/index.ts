@@ -398,9 +398,9 @@ registerProjectIpc(mainWindowIpc, {
   readVault,
   authController,
   recordAudit,
-  authorizeProjectScan: async (vault, path, projectId, replaceProjectId) => {
+  acquireProjectScanLease: async (vault, path, projectId, replaceProjectId) => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
-    await commercialRuntime.authorizeProjectScan(vault, path, projectId, replaceProjectId)
+    return commercialRuntime.acquireProjectScanLease(vault, path, projectId, replaceProjectId)
   },
   acquireProjectExportLease: async (vault, projectId) => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')

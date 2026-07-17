@@ -30,6 +30,7 @@ export const reviewedDisabledSeamPaths = new Set([
   'src/main/extensionNativeHostIpc.disabled.ts',
   'src/main/extensionHandoff.disabled.ts',
   'src/main/providerIpc.disabled.ts',
+  'src/main/providerBasicOps.disabled.ts',
   'src/main/providerLifecycleOps.disabled.ts',
   'src/main/providerVote.disabled.ts',
   'src/main/providerWorkerClient.disabled.ts',
@@ -117,7 +118,7 @@ export const openNodeAliasPaths = {
   '#provider-ipc': ['src/main/providerIpc.disabled.ts'],
   '#provider-vote': ['src/main/providerVote.disabled.ts'],
   '#provider-worker-client': ['src/main/providerWorkerClient.disabled.ts'],
-  '#provider-basic-ops': ['src/main/providerLifecycleOps.disabled.ts'],
+  '#provider-basic-ops': ['src/main/providerBasicOps.disabled.ts'],
   '#provider-lifecycle-ops': ['src/main/providerLifecycleOps.disabled.ts'],
   '#commercial-runtime': ['src/main/commercialRuntime.disabled.ts'],
 }

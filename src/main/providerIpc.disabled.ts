@@ -29,6 +29,9 @@ export function registerProviderIpc(
       ) {
         throw new Error('Provider integrations are unavailable in this edition')
       }
+      if (type === 'folder.import') {
+        return stripClosedProviderMetadata(command) as Record<string, unknown>
+      }
       if (containsClosedProviderMetadata(command)) {
         throw new Error('Provider-owned metadata cannot be changed in this edition')
       }
@@ -58,3 +61,25 @@ function containsClosedProviderMetadata(value: unknown, seen = new WeakSet<objec
   }
   return false
 }
+
+function stripClosedProviderMetadata(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value
+      .map(item => stripClosedProviderMetadata(item))
+      .filter(item => item !== OMIT_CLOSED_PROVIDER_VALUE)
+  }
+  if (!value || typeof value !== 'object') return value
+
+  const source = value as Record<string, unknown>
+  if (source.kind === 'cloud') return OMIT_CLOSED_PROVIDER_VALUE
+
+  const sanitized: Record<string, unknown> = {}
+  for (const [key, nested] of Object.entries(source)) {
+    if (closedProviderKeys.has(key)) continue
+    const next = stripClosedProviderMetadata(nested)
+    if (next !== OMIT_CLOSED_PROVIDER_VALUE) sanitized[key] = next
+  }
+  return sanitized
+}
+
+const OMIT_CLOSED_PROVIDER_VALUE = Symbol('omit-closed-provider-value')

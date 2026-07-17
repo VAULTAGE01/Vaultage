@@ -206,18 +206,34 @@ function encryptedExportKdf(value: unknown): EncryptedExportKdf {
   const salt = typeof record.salt === 'string' && /^[0-9a-f]+$/i.test(record.salt) && record.salt.length % 2 === 0
     ? record.salt
     : null
-  if (!salt) throw new Error('Encrypted export salt is invalid')
+  if (!salt || salt.length < 32 || salt.length > 256) {
+    throw new Error('Encrypted export salt is invalid')
+  }
+  const supported = currentScryptParams()
   return {
-    N: positiveInteger(record.N, 'N'),
-    r: positiveInteger(record.r, 'r'),
-    p: positiveInteger(record.p, 'p'),
-    keylen: positiveInteger(record.keylen, 'key length'),
+    N: supportedScryptN(record.N, supported.N),
+    r: supportedInteger(record.r, supported.r, 'r'),
+    p: supportedInteger(record.p, supported.p, 'p'),
+    keylen: supportedInteger(record.keylen, supported.keylen, 'key length'),
     salt,
   }
 }
 
-function positiveInteger(value: unknown, label: string): number {
-  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+function supportedScryptN(value: unknown, maximum: number): number {
+  if (
+    typeof value !== 'number'
+    || !Number.isInteger(value)
+    || value < 16_384
+    || value > maximum
+    || (value & (value - 1)) !== 0
+  ) {
+    throw new Error('Encrypted export N is invalid')
+  }
+  return value
+}
+
+function supportedInteger(value: unknown, expected: number, label: string): number {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value !== expected) {
     throw new Error(`Encrypted export ${label} is invalid`)
   }
   return value

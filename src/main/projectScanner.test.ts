@@ -1,7 +1,7 @@
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { discoverProjectCandidates, parseDotenvAssignments, parseDotenvValue, scanProject } from './projectScanner'
 
 let tempRoot: string | null = null
@@ -34,6 +34,38 @@ describe('project scanner discovery', () => {
       envFileCount: 1,
     })
     expect(result.candidates[0].services).toContain('OpenAI')
+  })
+
+  it('authorizes each discovery candidate before scanning it', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'vaultage-project-discovery-policy-'))
+    const appDir = join(tempRoot, 'checkout-app')
+    await mkdir(appDir)
+    await writeFile(join(appDir, 'package.json'), '{"name":"checkout-app"}')
+    const acquireCandidateLease = vi.fn(async () => {
+      throw new Error('The Free plan active-project limit is full')
+    })
+
+    await expect(discoverProjectCandidates(
+      { parentPath: tempRoot },
+      { acquireCandidateLease },
+    )).rejects.toThrow('active-project limit is full')
+    expect(acquireCandidateLease).toHaveBeenCalledWith(await realpath(appDir))
+  })
+
+  it('withholds discovery results when candidate authorization changes during scanning', async () => {
+    tempRoot = await mkdtemp(join(tmpdir(), 'vaultage-project-discovery-lease-'))
+    const appDir = join(tempRoot, 'checkout-app')
+    await mkdir(appDir)
+    await writeFile(join(appDir, 'package.json'), '{"name":"checkout-app"}')
+
+    await expect(discoverProjectCandidates(
+      { parentPath: tempRoot },
+      {
+        acquireCandidateLease: async () => ({
+          assertCurrent: async () => { throw new Error('Project scan authorization changed; try again') },
+        }),
+      },
+    )).rejects.toThrow('Project scan authorization changed')
   })
 
   it('parses quoted hashes and escapes without treating them as comments', () => {

@@ -670,7 +670,18 @@ export async function scanProject(request: ProjectScanRequest): Promise<ProjectS
   }
 }
 
-export async function discoverProjectCandidates(request: ProjectDiscoverRequest): Promise<ProjectDiscoverResult> {
+export interface ProjectDiscoveryAuthorizationLease {
+  assertCurrent(): Promise<void>
+}
+
+export interface ProjectDiscoveryAuthorization {
+  acquireCandidateLease(path: string): Promise<ProjectDiscoveryAuthorizationLease>
+}
+
+export async function discoverProjectCandidates(
+  request: ProjectDiscoverRequest,
+  authorization?: ProjectDiscoveryAuthorization,
+): Promise<ProjectDiscoverResult> {
   if (!request.parentPath || !isAbsolute(request.parentPath)) throw new Error('Parent path must be absolute')
   const parentPath = resolve(request.parentPath)
   const stat = await fs.lstat(parentPath).catch(() => null)
@@ -679,22 +690,32 @@ export async function discoverProjectCandidates(request: ProjectDiscoverRequest)
 
   const warnings: string[] = []
   const candidates: ProjectScanCandidate[] = []
+  const candidateLeases: ProjectDiscoveryAuthorizationLease[] = []
   const seen = new Set<string>()
   const roots = await discoverCandidateRoots(canonicalParent, warnings)
 
   for (const rootPath of roots.slice(0, MAX_DISCOVERY_CANDIDATES)) {
     if (seen.has(rootPath)) continue
     seen.add(rootPath)
+    const lease = await authorization?.acquireCandidateLease(rootPath)
+    let result: ProjectScanResult
     try {
-      const result = await scanProject({ path: rootPath })
-      if (!isInterestingProjectCandidate(result)) continue
-      candidates.push(projectScanCandidate(result))
-      warnings.push(...result.warnings.map(warning => `${basename(rootPath)}: ${warning}`))
+      result = await scanProject({ path: rootPath })
     } catch {
       // A candidate can disappear or be unreadable between directory listing and
       // scan. Discovery should keep returning the usable projects it found.
+      continue
     }
+    await lease?.assertCurrent()
+    if (!isInterestingProjectCandidate(result)) continue
+    candidates.push(projectScanCandidate(result))
+    if (lease) candidateLeases.push(lease)
+    warnings.push(...result.warnings.map(warning => `${basename(rootPath)}: ${warning}`))
   }
+
+  // A policy transition while later candidates were being inspected must
+  // invalidate the whole discovery result, including earlier candidates.
+  for (const lease of candidateLeases) await lease.assertCurrent()
 
   return {
     parentPath: canonicalParent,

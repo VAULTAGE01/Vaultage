@@ -71,6 +71,8 @@ export interface ProjectScanRequest {
 
 export interface ProjectDiscoverRequest {
   parentPath: string
+  /** Closed-Free active slot selected for candidate authorization. */
+  replaceProjectId?: string
 }
 
 export interface ProjectScanCandidate {
