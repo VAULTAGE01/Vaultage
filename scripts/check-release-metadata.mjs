@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from 'fs'
 import { spawnSync } from 'child_process'
 import { join } from 'path'
 import yaml from 'js-yaml'
+import { communitySourceCiWorkflow, privateSourceCiWorkflow } from './check-source-ci.mjs'
 
 const root = process.cwd()
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
@@ -11,6 +12,15 @@ const workflowActionPolicy = JSON.parse(
 )
 const failures = []
 const APPROVED_WORKFLOW_ACTIONS = new Map(Object.entries(workflowActionPolicy.actions ?? {}))
+const CHECKOUT_ACTION = 'actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10'
+const PNPM_SETUP_ACTION = 'pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271'
+const NODE_SETUP_ACTION = 'actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e'
+const PRIVATE_WORKFLOW_ALLOWLIST = new Set([
+  'ci.yml',
+  'extension-store-publish.yml',
+  'extension-store-upload.yml',
+  'release.yml',
+])
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
 
@@ -189,6 +199,13 @@ if (!privateProductPackage && existsSync(workflowsPath)) {
   if (!exactCommunityWorkflow) {
     failures.push('Community packages must contain only .github/workflows/ci.yml')
   }
+} else if (privateProductPackage && existsSync(workflowsPath)) {
+  const unexpectedPrivateWorkflows = readdirSync(workflowsPath, { withFileTypes: true })
+    .filter(entry => !entry.isFile() || !PRIVATE_WORKFLOW_ALLOWLIST.has(entry.name))
+    .map(entry => entry.name)
+  if (unexpectedPrivateWorkflows.length > 0) {
+    failures.push(`Private workflow filename is outside the exact allowlist: ${unexpectedPrivateWorkflows.join(', ')}`)
+  }
 }
 if (!existsSync(ciWorkflowPath)) {
   failures.push('CI workflow is missing')
@@ -201,6 +218,9 @@ if (!existsSync(ciWorkflowPath)) {
   } catch {
     // validateWorkflowActionPins reports the invalid workflow YAML.
   }
+  validateRoutineCiWorkflow(parsedCiWorkflow, workflow, { privateProductPackage })
+  const exactWorkflow = privateProductPackage ? privateSourceCiWorkflow() : communitySourceCiWorkflow()
+  if (workflow !== exactWorkflow) failures.push('Routine CI workflow bytes must match the canonical source-only policy')
   if (!exactRecord(parsedCiWorkflow?.permissions, ['contents'])
     || parsedCiWorkflow.permissions.contents !== 'read') {
     failures.push('CI workflow must declare exactly read-only top-level contents permission')
@@ -398,6 +418,122 @@ function collectWorkflowActionValues(value, actions) {
     }
     collectWorkflowActionValues(item, actions)
   }
+}
+
+function validateRoutineCiWorkflow(workflow, source, { privateProductPackage }) {
+  if (!exactRecord(workflow, ['name', 'on', 'permissions', 'concurrency', 'jobs']) || workflow.name !== 'CI') {
+    failures.push('Routine CI must use the exact canonical top-level source-check workflow inventory')
+  }
+
+  const expectedPushBranches = ['main']
+  const triggers = workflow?.on
+  if (!exactRecord(triggers, ['pull_request', 'push'])
+    || triggers.pull_request !== null
+    || !exactRecord(triggers.push, ['branches'])
+    || !exactArray(triggers.push.branches, expectedPushBranches)) {
+    failures.push(`Routine CI must run only for pull requests and pushes to ${expectedPushBranches.join('/')}`)
+  }
+
+  if (!exactRecord(workflow?.concurrency, ['cancel-in-progress', 'group'])
+    || workflow.concurrency.group !== 'ci-${{ github.workflow }}-${{ github.ref }}'
+    || workflow.concurrency['cancel-in-progress'] !== true) {
+    failures.push('Routine CI must use the exact stale-run cancellation policy')
+  }
+
+  if (/\$\{\{\s*(?:secrets|vars)\b/iu.test(source)) {
+    failures.push('Routine CI must not read GitHub secrets or variables')
+  }
+  if (/^\s*(?:-\s*)?["'](?:name|on|push|branches|pull_request|permissions|contents|concurrency|group|cancel-in-progress|jobs|runs-on|timeout-minutes|steps|uses|with|version|node-version|cache|shell|run|environment|env|id-token|strategy|matrix|if|continue-on-error)["']\s*:/mu
+    .test(source)
+    || /^\s*-\s*[\[{]/mu.test(source)
+    || /^\s*[A-Za-z0-9_-]+\s*:\s*[\[{]/mu.test(source)
+    || /^\s*(?:-\s*)?(?:[A-Za-z0-9_-]+\s*:\s*)?[&*][A-Za-z0-9_-]+\s*$/mu.test(source)) {
+    failures.push('Routine CI must use canonical block YAML without quoted control keys, flow collections, anchors, or aliases')
+  }
+
+  const jobs = workflow?.jobs
+  const expectedJobs = privateProductPackage
+    ? ['open-source-gates', 'portable-release-gates']
+    : ['community-release-gate']
+  if (!exactRecord(jobs, expectedJobs)) {
+    failures.push(`Routine CI must define only the exact jobs: ${expectedJobs.join(', ')}`)
+    return
+  }
+
+  const expectedByJob = privateProductPackage
+    ? {
+        'portable-release-gates': privateRoutineSteps([
+          namedRunStep('Install dependencies', 'pnpm install --frozen-lockfile'),
+          namedRunStep('Linear roadmap integrity tests', 'pnpm test:linear-roadmap'),
+          namedRunStep('Release gates', 'pnpm verify:release:portable'),
+        ]),
+        'open-source-gates': privateRoutineSteps([
+          namedRunStep('Install dependencies', 'pnpm install --frozen-lockfile'),
+          namedRunStep('Verify public Vault + Projects source drop', 'pnpm verify:open-source-stage'),
+        ]),
+      }
+    : {
+        'community-release-gate': communityRoutineSteps(),
+      }
+
+  for (const jobName of expectedJobs) {
+    const job = jobs[jobName]
+    const expectedSteps = expectedByJob[jobName]
+    if (!exactRecord(job, ['runs-on', 'steps', 'timeout-minutes'])
+      || job['runs-on'] !== 'ubuntu-24.04'
+      || job['timeout-minutes'] !== 15
+      || !Array.isArray(job.steps)
+      || job.steps.length !== expectedSteps.length
+      || job.steps.some((step, index) => !deepExact(step, expectedSteps[index]))) {
+      failures.push(`Routine CI job ${jobName} must use the exact reviewed action, input, and command inventory`)
+    }
+  }
+}
+
+function privateRoutineSteps(finalSteps) {
+  return [
+    actionStep(CHECKOUT_ACTION, { 'persist-credentials': false }),
+    namedRunStep('Verify source-CI policy before dependency execution', 'node scripts/check-source-ci.mjs'),
+    actionStep(PNPM_SETUP_ACTION, { version: '11.11.0' }),
+    actionStep(NODE_SETUP_ACTION, { 'node-version': 24, cache: 'pnpm' }),
+    ...finalSteps,
+  ]
+}
+
+function communityRoutineSteps() {
+  return [
+    actionStep(CHECKOUT_ACTION, { 'persist-credentials': false }),
+    namedRunStep('Verify source-CI policy before dependency execution', 'node scripts/check-source-ci.mjs'),
+    actionStep(PNPM_SETUP_ACTION, { version: '11.11.0' }),
+    actionStep(NODE_SETUP_ACTION, { 'node-version': 24, cache: 'pnpm' }),
+    namedRunStep('Install dependencies', 'pnpm install --frozen-lockfile'),
+    namedRunStep('Verify Community source', 'pnpm verify:release'),
+  ]
+}
+
+function actionStep(uses, withInputs) {
+  return { uses, with: withInputs }
+}
+
+function namedRunStep(name, run) {
+  return { name, run }
+}
+
+function exactArray(value, expected) {
+  return Array.isArray(value)
+    && value.length === expected.length
+    && value.every((item, index) => item === expected[index])
+}
+
+function deepExact(value, expected) {
+  if (Array.isArray(expected)) {
+    return Array.isArray(value)
+      && value.length === expected.length
+      && value.every((item, index) => deepExact(item, expected[index]))
+  }
+  if (expected === null || typeof expected !== 'object') return value === expected
+  return exactRecord(value, Object.keys(expected))
+    && Object.entries(expected).every(([key, item]) => deepExact(value[key], item))
 }
 
 function validateRequiredReleaseGate(workflow, { jobName, stepName, command, label }) {

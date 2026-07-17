@@ -23,8 +23,11 @@ require an independent or maintainer review.
 
 ## Pull Request CI
 
-`.github/workflows/ci.yml` runs on pull requests and pushes to `main` or
-`develop`.
+`.github/workflows/ci.yml` runs on pull requests and pushes to `main`.
+Its dependency-free first repository step checks `VAULTAGE01/Vaultage`,
+GitHub's synthetic pull-request merge SHA or exact `main` push SHA, a clean
+worktree, exact workflow bytes, and the Community-only workflow inventory
+before dependency setup or package scripts.
 
 Required job:
 
@@ -39,7 +42,18 @@ checks skip on Linux and remain mandatory local macOS release evidence.
 Workflow actions are pinned to immutable commit SHAs instead of moving tags.
 The workflow has read-only repository permissions and does not persist checkout
 credentials. Routine hosted CI must remain Linux-only, use an explicit timeout,
-and cancel stale runs for the same branch or pull request.
+and cancel stale runs for the same branch or pull request. When it executes
+unchanged, its exact job/action/input/command inventory rejects environments,
+secret or variable contexts, OIDC/write authority, and deployment, release,
+Store, cloud, vendor, billing, or customer mutations.
+
+The early guard is fast validation, not a security sandbox or proof of its own
+immutability. A same-repository pull request proposes the workflow that GitHub
+executes and can delete the guard or request token permissions before a step
+runs. Workflow changes therefore require independent review of the exact diff
+and head SHA. Live branch/ruleset and protected-environment controls are the
+load-bearing enforcement for credentials, publication, release, and remote
+mutation; green repository self-checks do not replace them.
 
 ## Dependency Automation
 
