@@ -11,8 +11,15 @@ and `CLAUDE.md` point here.
 - `main`: release-candidate branch. Must stay green.
 - Feature branches: short-lived branches merged by pull request.
 
-Protect `main` so pull requests require the `community-release-gate` job
-and maintainer review.
+Protect `main` so pull requests require the `community-release-gate` job.
+During pre-release development, ordinary UI, refactor, and bug-fix pull
+requests may be merged by their automation author after required PR CI passes,
+followed by confirmation that the post-merge `main` SHA is green. A generated
+sync is ordinary only when its originating private change was Lightweight or
+Focused, its exact private provenance and staged digest are verified, and
+neither source rules nor the generated diff changes a trust boundary. Security,
+ambiguous generated sync, source-boundary, and release/publication changes
+require an independent or maintainer review.
 
 ## Pull Request CI
 
@@ -36,19 +43,23 @@ and cancel stale runs for the same branch or pull request.
 
 ## Dependency Automation
 
-`.github/dependabot.yml` asks Dependabot to check root npm/pnpm dependencies
-and GitHub Actions weekly. Security alerts and security updates should remain
-enabled in GitHub repository settings.
+This generated repository keeps a valid Dependabot configuration but sets
+version-update pull-request limits to zero. Dependency and GitHub Action version
+changes originate in the canonical private source, pass private and Community
+gates together, and arrive through a reviewed source regeneration. Security
+alerts and security updates should remain enabled in GitHub repository settings.
 
 ## Local Checks
 
-Run the full Community gate:
+Use the smallest focused tests and typechecks below during ordinary iteration.
+Run the full Community gate once at a security/source-boundary, milestone, or
+release/publication checkpoint:
 
 ```sh
 pnpm verify:release
 ```
 
-Useful focused checks:
+Focused iteration checks:
 
 ```sh
 pnpm test
@@ -70,6 +81,10 @@ pnpm check:preload-surfaces
 ```
 
 ## Publication Rules
+
+Publication, release tags, signing, destructive repository operations, and
+proceeding past failed or ambiguous evidence are human-gated. Green CI or an
+automation-authored merge never supplies that approval.
 
 - Do not add Agent, CLI, Services/provider, browser extension, cloud/account,
   signing identity, or paid overlay code to the public Community source surface
