@@ -2,6 +2,11 @@ import { isAbsolute, normalize } from 'path'
 import { isIP } from 'net'
 import { formatDotenvEntries, formatDotenvValue } from '../shared/dotenvCore'
 import { masterPasswordPolicyError } from '../shared/passwordPolicy'
+import {
+  VAULT_VALIDATION_LIMITS,
+  validateVaultRoot,
+  type VaultValidationBoundary,
+} from '../shared/vaultValidation'
 
 const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
 const OPEN_VALID_MODES = ['local', 'agent'] as const
@@ -16,11 +21,12 @@ export const MAX_ENV_VALUE_BYTES = 256 * 1024
 export const MAX_AGENT_COMMAND_ARGS = 64
 export const MAX_AGENT_COMMAND_ARG_LENGTH = 200
 export const MAX_PASSWORD_BYTES = 4 * 1024
-export const MAX_VAULT_JSON_BYTES = 10 * 1024 * 1024
+export const MAX_VAULT_JSON_BYTES = VAULT_VALIDATION_LIMITS.maxJsonBytes
 export const PLAINTEXT_EXPORT_CONFIRM_PHRASE = 'EXPORT PLAINTEXT'
 export const AGENT_APPROVAL_CONFIRM_PHRASE = 'APPROVE AGENT'
 export const SECRET_REVEAL_CONFIRM_PHRASE = 'REVEAL SECRET'
-export const QUICK_REVEAL_PIN_RE = /^\d{4}$/
+export const QUICK_REVEAL_PIN_RE = /^\d{6}$/
+export const LEGACY_QUICK_REVEAL_PIN_RE = /^\d{4}$/
 export const ENV_KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/
 export const HTTP_HEADER_NAME_RE = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 export const AGENT_DELIVERY_MODES = ['response', 'process'] as const
@@ -164,7 +170,15 @@ export function validateSecretRevealConfirmation(phrase: unknown): boolean {
 
 export function validateQuickRevealPinInput(pin: unknown, field = 'PIN'): string {
   if (typeof pin !== 'string') throw new Error(`${field} must be a string`)
-  if (!QUICK_REVEAL_PIN_RE.test(pin)) throw new Error(`${field} must be exactly 4 digits`)
+  if (!QUICK_REVEAL_PIN_RE.test(pin)) throw new Error(`${field} must be exactly 6 digits`)
+  return pin
+}
+
+export function validateQuickRevealPinAttemptInput(pin: unknown, field = 'PIN'): string {
+  if (typeof pin !== 'string') throw new Error(`${field} must be a string`)
+  if (!QUICK_REVEAL_PIN_RE.test(pin) && !LEGACY_QUICK_REVEAL_PIN_RE.test(pin)) {
+    throw new Error(`${field} must be a 6-digit PIN (legacy 4-digit PINs remain accepted)`)
+  }
   return pin
 }
 
@@ -184,7 +198,10 @@ export function validateMasterPasswordInput(password: unknown, field = 'password
   return safePassword
 }
 
-export function validateVaultSaveJson(json: unknown): string {
+export function validateVaultSaveJson(
+  json: unknown,
+  boundary: VaultValidationBoundary = 'persisted',
+): string {
   if (typeof json !== 'string') throw new Error('Vault payload must be a JSON string')
   if (Buffer.byteLength(json, 'utf8') > MAX_VAULT_JSON_BYTES) {
     throw new Error('Vault payload is too large')
@@ -211,6 +228,7 @@ export function validateVaultSaveJson(json: unknown): string {
   if (!root.root || typeof root.root !== 'object' || Array.isArray(root.root)) {
     throw new Error('Vault payload root must be an object')
   }
+  validateVaultRoot(parsed, { boundary })
   return json
 }
 

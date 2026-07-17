@@ -26,6 +26,14 @@ import {
 import { parseVaultJson } from '../vaultFormat'
 import type { VaultFolder, VaultRoot, VaultSecret } from '../types'
 import { SECRET_TYPE_LABELS } from '../types'
+import { ImportPreviewValue, IMPORT_VALUE_MASK } from './ImportPreviewValue'
+import {
+  ImportParseAttemptGate,
+  MAX_IMAGE_IMPORT_SELECTION_COUNT,
+  isCurrentImportDestination,
+  readBoundedImageImportSelection,
+  runGuardedImportAttempt,
+} from '../lib/importFlowSecurity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -86,11 +94,6 @@ function jsonSecretRows(vault: VaultRoot): { prepared: PreparedSecret; secretId:
             name: secret.name,
             type: secret.type,
             value: previewSecretValue(secret),
-            username: previewUsername(secret),
-            url: previewUrl(secret),
-            notes: secret.notes,
-            scope: secret.scope,
-            tags: secret.tags?.join('; '),
           },
           secret: previewSecretDraft(secret),
           error: null,
@@ -111,18 +114,9 @@ function previewSecretDraft(secret: VaultSecret): PreparedSecret['secret'] {
 
 function previewSecretValue(secret: VaultSecret): string {
   if (secret.type === 'image') return 'image'
-  return secret.fields.find(field => field.sensitive)?.value ||
-    secret.fields.find(field => field.value)?.value ||
-    secret.notes ||
-    ''
-}
-
-function previewUsername(secret: VaultSecret): string | undefined {
-  return secret.fields.find(field => /^(username|login|email|service)$/i.test(field.key))?.value
-}
-
-function previewUrl(secret: VaultSecret): string | undefined {
-  return secret.fields.find(field => /^(url|website|web site)$/i.test(field.key))?.value
+  return secret.fields.some(field => field.value.length > 0) || secret.notes
+    ? IMPORT_VALUE_MASK
+    : ''
 }
 
 function looksLikeEncryptedExport(text: string): boolean {
@@ -147,7 +141,6 @@ interface Props {
 type Step = 'source' | 'input' | 'preview'
 type ImportSource = 'chrome' | 'safari' | 'csv' | 'vaultageJson' | 'images'
 
-const MAX_IMAGE_IMPORT_BYTES = 5 * 1024 * 1024
 const MAX_VAULTAGE_EXPORT_FILE_BYTES = 20 * 1024 * 1024
 
 const SOURCE_SECTIONS: {
@@ -181,6 +174,11 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   const { state, addSecrets, importFolderTree, selectFolder, selectSecret } = useVault()
   const fileInputRef = useRef<HTMLInputElement>(null)
   const imageInputRef = useRef<HTMLInputElement>(null)
+  const jsonAttemptGateRef = useRef(new ImportParseAttemptGate())
+  const currentJsonTextRef = useRef('')
+  const sourceRef = useRef<ImportSource | null>(null)
+  const fileReadAttemptRef = useRef(0)
+  const imageReadAttemptRef = useRef(0)
 
   const [step,        setStep]        = useState<Step>('source')
   const [source,      setSource]      = useState<ImportSource | null>(null)
@@ -198,6 +196,8 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   )
   const [importing,   setImporting]   = useState(false)
   const [doneCount,   setDoneCount]   = useState<number | null>(null)
+  const latestVaultRef = useRef(state.vault)
+  latestVaultRef.current = state.vault
 
   const folders = useMemo(
     () => state.vault ? flatFolders(state.vault.root) : [],
@@ -205,10 +205,29 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   )
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && !importing) onClose() }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || importing) return
+      jsonAttemptGateRef.current.invalidate()
+      fileReadAttemptRef.current++
+      imageReadAttemptRef.current++
+      setJsonPassword('')
+      onClose()
+    }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [onClose, importing])
+
+  useEffect(() => () => {
+    jsonAttemptGateRef.current.invalidate()
+    fileReadAttemptRef.current++
+    imageReadAttemptRef.current++
+  }, [])
+
+  useEffect(() => {
+    if (folderId && state.vault && !isCurrentImportDestination(state.vault, folderId)) {
+      setFolderId(null)
+    }
+  }, [folderId, state.vault])
 
   // ── Step: Input ─────────────────────────────────────────────────────────
 
@@ -228,6 +247,11 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   }, [query])
 
   const chooseSource = (next: ImportSource) => {
+    jsonAttemptGateRef.current.invalidate()
+    fileReadAttemptRef.current++
+    imageReadAttemptRef.current++
+    currentJsonTextRef.current = ''
+    sourceRef.current = next
     setSource(next)
     setText('')
     setJsonPassword('')
@@ -238,6 +262,29 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
     setParseErrors([])
     setIncluded(new Set())
     setStep('input')
+  }
+
+  const replaceImportText = (next: string) => {
+    jsonAttemptGateRef.current.invalidate()
+    fileReadAttemptRef.current++
+    currentJsonTextRef.current = next
+    setText(next)
+    setJsonPassword('')
+    setJsonImportRoot(null)
+    setJsonSecretIds({})
+    if (sourceRef.current === 'vaultageJson') setJsonNeedsPassword(looksLikeEncryptedExport(next))
+  }
+
+  const clearPreparedImportData = () => {
+    jsonAttemptGateRef.current.invalidate()
+    currentJsonTextRef.current = ''
+    setText('')
+    setJsonPassword('')
+    setJsonImportRoot(null)
+    setJsonSecretIds({})
+    setParsed([])
+    setParseErrors([])
+    setIncluded(new Set())
   }
 
   const handleParse = async () => {
@@ -257,9 +304,24 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
             toast.error('Enter the export password first')
             return
           }
-          const decrypted = await window.vault.decryptExport({ data: text, password: jsonPassword })
+          const encryptedText = text
+          let password = jsonPassword
+          setJsonPassword('')
+          const outcome = await runGuardedImportAttempt(
+            jsonAttemptGateRef.current,
+            encryptedText,
+            () => currentJsonTextRef.current,
+            () => window.vault.decryptExport({ data: encryptedText, password }),
+          )
+          password = ''
+          if (outcome.status === 'stale') return
+          if (outcome.status === 'error') throw outcome.error
+          const decrypted = outcome.value
           if (!decrypted.success) throw new Error(decrypted.error ?? 'Could not decrypt export')
           jsonText = JSON.stringify(decrypted.data)
+        } else {
+          jsonAttemptGateRef.current.invalidate()
+          setJsonPassword('')
         }
         const vault = parseVaultJson(jsonText)
         const rows = jsonSecretRows(vault)
@@ -300,18 +362,36 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   }
 
   const handleFile = async (file: File) => {
+    const expectedSource = source
+    replaceImportText('')
+    const attemptId = ++fileReadAttemptRef.current
     const maxBytes = source === 'vaultageJson' ? MAX_VAULTAGE_EXPORT_FILE_BYTES : MAX_CSV_IMPORT_BYTES
     const label = source === 'vaultageJson' ? 'Export' : 'CSV'
     if (file.size > maxBytes) {
       toast.error(`${label} is too large. Maximum size is ${Math.round(maxBytes / 1024)} KB.`)
       return
     }
-    const buf = await file.text()
-    setText(buf)
-    if (source === 'vaultageJson') setJsonNeedsPassword(looksLikeEncryptedExport(buf))
+    try {
+      const buf = await file.text()
+      if (attemptId !== fileReadAttemptRef.current || sourceRef.current !== expectedSource) return
+      replaceImportText(buf)
+    } catch (error) {
+      if (attemptId !== fileReadAttemptRef.current || sourceRef.current !== expectedSource) return
+      toast.error(`Could not read ${label.toLowerCase()}: ${String(error)}`)
+    }
   }
 
   const handleImageFiles = async (files: FileList | File[]) => {
+    const attemptId = ++imageReadAttemptRef.current
+    setParsed([])
+    setParseErrors([])
+    setIncluded(new Set())
+    if (files.length > MAX_IMAGE_IMPORT_SELECTION_COUNT) {
+      const error = `Choose at most ${MAX_IMAGE_IMPORT_SELECTION_COUNT} images at a time`
+      setParseErrors([error])
+      toast.error(error)
+      return
+    }
     const imageFiles = Array.from(files).filter(file => file.type.startsWith('image/'))
     if (imageFiles.length === 0) {
       toast.error('Choose image files')
@@ -320,35 +400,33 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 
     const prepared: PreparedSecret[] = []
     const errors: string[] = []
-    for (const file of imageFiles) {
+    const selection = await readBoundedImageImportSelection(imageFiles, readImageDataUrl)
+    if (attemptId !== imageReadAttemptRef.current) return
+    if (!selection.ok) {
+      setParseErrors([selection.error])
+      toast.error(selection.error)
+      return
+    }
+
+    for (const item of selection.items) {
+      const file = item.file
       const index = prepared.length
-      if (file.size > MAX_IMAGE_IMPORT_BYTES) {
-        prepared.push({
-          index,
-          raw: { name: imageName(file.name), type: 'image', value: '' },
-          secret: null,
-          error: `Image is larger than ${Math.round(MAX_IMAGE_IMPORT_BYTES / 1024 / 1024)} MB`,
-        })
+      if (!item.dataUrl) {
+        errors.push(`Could not read ${file.name}`)
         continue
       }
-
-      try {
-        const dataUrl = await readImageDataUrl(file)
-        prepared.push({
-          index,
-          raw: { name: imageName(file.name), type: 'image', value: 'image' },
-          secret: {
-            name: imageName(file.name),
-            type: 'image',
-            fields: [{ key: '__image__', value: dataUrl, sensitive: true }],
-            notes: `Imported from ${file.name}`,
-            tags: ['image-import'],
-          },
-          error: null,
-        })
-      } catch {
-        errors.push(`Could not read ${file.name}`)
-      }
+      prepared.push({
+        index,
+        raw: { name: imageName(file.name), type: 'image', value: 'image' },
+        secret: {
+          name: imageName(file.name),
+          type: 'image',
+          fields: [{ key: '__image__', value: item.dataUrl, sensitive: true }],
+          notes: `Imported from ${file.name}`,
+          tags: ['image-import'],
+        },
+        error: null,
+      })
     }
 
     setParsed(prepared)
@@ -357,7 +435,18 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   }
 
   const handleBack = () => {
+    jsonAttemptGateRef.current.invalidate()
+    fileReadAttemptRef.current++
+    imageReadAttemptRef.current++
+    setJsonPassword('')
     if (step === 'preview') {
+      if (source === 'vaultageJson') {
+        setJsonImportRoot(null)
+        setJsonSecretIds({})
+        setParsed([])
+        setParseErrors([])
+        setIncluded(new Set())
+      }
       setStep('input')
       return
     }
@@ -398,7 +487,12 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   const errorCount = parsed.length - validCount
 
   const handleImport = async () => {
-    if (!folderId || !state.vault) return
+    const currentVault = latestVaultRef.current
+    if (!folderId || !isCurrentImportDestination(currentVault, folderId)) {
+      setFolderId(null)
+      toast.error('The destination folder is no longer available. Choose a current folder and try again.')
+      return
+    }
     setImporting(true)
     try {
       if (source === 'vaultageJson' && jsonImportRoot) {
@@ -412,6 +506,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
           selectFolder(imported.folderId)
           if (imported.firstSecretId) selectSecret(imported.firstSecretId)
         }
+        clearPreparedImportData()
         setDoneCount(imported.secretCount)
         toast.success(`Imported ${imported.secretCount} secret${imported.secretCount !== 1 ? 's' : ''}`)
         return
@@ -425,6 +520,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
         selectFolder(folderId)
         selectSecret(imported[0].id)
       }
+      clearPreparedImportData()
       setDoneCount(imported.length)
       toast.success(`Imported ${imported.length} secret${imported.length !== 1 ? 's' : ''}`)
     } catch (err) {
@@ -633,7 +729,10 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 	                    type="password"
 	                    data-secure-input="true"
 	                    value={jsonPassword}
-	                    onChange={e => setJsonPassword(e.target.value)}
+	                    onChange={e => {
+	                      jsonAttemptGateRef.current.invalidate()
+	                      setJsonPassword(e.target.value)
+	                    }}
 	                    placeholder={jsonNeedsPassword ? 'Required for encrypted export' : 'Only needed for encrypted exports'}
 	                    className={jsonNeedsPassword && !jsonPassword ? 'border-danger/50 focus:border-danger' : undefined}
 	                  />
@@ -643,10 +742,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 	                  <Label className="block mb-1.5">Or paste export JSON</Label>
 	                  <Textarea
 	                    value={text}
-	                    onChange={e => {
-	                      setText(e.target.value)
-	                      setJsonNeedsPassword(looksLikeEncryptedExport(e.target.value))
-	                    }}
+	                    onChange={e => replaceImportText(e.target.value)}
 	                    placeholder={'{\n  "format": "vaultage.export.v1",\n  "vault": { ... }\n}'}
 	                    className="font-mono text-[11px] min-h-[180px]"
 	                  />
@@ -679,7 +775,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 	                  <Label className="block mb-1.5">Or paste CSV content</Label>
 	                  <Textarea
 	                    value={text}
-	                    onChange={e => setText(e.target.value)}
+	                    onChange={e => replaceImportText(e.target.value)}
 	                    placeholder={
 	                      source === 'chrome'
 	                        ? 'name,url,username,password,note\nExample,https://example.com,me@example.com,password123,Personal'
@@ -741,7 +837,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
                 <div />
                 <div>Name</div>
                 <div>Type</div>
-                <div>Value</div>
+                <div>Value (hidden)</div>
                 <div className="text-right">Status</div>
               </div>
               {parsed.length === 0 && (
@@ -765,9 +861,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
                   <span className="text-text-secondary truncate">
                     {item.secret ? SECRET_TYPE_LABELS[item.secret.type] : (item.raw.type || '—')}
                   </span>
-                  <span className="text-text-secondary font-mono truncate" title={item.raw.value}>
-                    {item.raw.value ? (item.raw.value.length > 24 ? item.raw.value.slice(0, 24) + '…' : item.raw.value) : '—'}
-                  </span>
+                  <ImportPreviewValue item={item} />
                   <span className={'text-right truncate ' + (item.error ? 'text-danger' : 'text-accent')} title={item.error ?? 'OK'}>
                     {item.error ?? 'OK'}
                   </span>
@@ -813,7 +907,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 	              <Button
 	                size="sm"
 	                onClick={handleImport}
-	                disabled={importing || included.size === 0 || !folderId}
+	                disabled={importing || included.size === 0 || !isCurrentImportDestination(state.vault, folderId)}
 	                title="Import the selected rows into the chosen folder. Shortcut: Enter"
 	              >
                 {importing ? 'Importing…' : `Import ${included.size} secret${included.size !== 1 ? 's' : ''}`}

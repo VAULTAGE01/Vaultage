@@ -1,7 +1,6 @@
+import { cn } from '@/lib/utils'
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-
-function cn(...cls: (string | false | null | undefined)[]) { return cls.filter(Boolean).join(' ') }
 
 function formatType(type: string): string {
   return type
@@ -72,8 +71,8 @@ export default function AuditLogModal({ onClose }: Props) {
   }
 
   return createPortal(
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 no-drag">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-[820px] h-[580px] flex flex-col">
+    <div className="liquid-modal-overlay fixed inset-0 z-50 flex items-center justify-center no-drag">
+      <div className="liquid-modal-shell flex h-[580px] w-[820px] flex-col overflow-hidden rounded-2xl border shadow-modal">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">
           <div>
             <h2 className="text-sm font-semibold text-text">Audit Log</h2>

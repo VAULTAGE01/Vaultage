@@ -19,6 +19,7 @@ export default function SecureInputBridge() {
   useEffect(() => {
     let activeInput: HTMLElement | null = null
     let enabled = false
+    let suspendedForPointerLeave = false
 
     const setSecureInput = (next: boolean) => {
       if (enabled === next) return
@@ -33,12 +34,13 @@ export default function SecureInputBridge() {
         ? getProtectedInput(document.activeElement)
         : null
       activeInput = nextInput
-      setSecureInput(Boolean(nextInput))
+      setSecureInput(Boolean(nextInput) && !suspendedForPointerLeave)
     }
 
     const handleFocusIn = (event: FocusEvent) => {
       const nextInput = getProtectedInput(event.target)
       if (!nextInput) return
+      suspendedForPointerLeave = false
       activeInput = nextInput
       setSecureInput(true)
     }
@@ -51,10 +53,12 @@ export default function SecureInputBridge() {
 
     const handleWindowBlur = () => {
       activeInput = null
+      suspendedForPointerLeave = false
       setSecureInput(false)
     }
 
     const handleWindowFocus = () => {
+      suspendedForPointerLeave = false
       window.setTimeout(refreshFromActiveElement, 0)
     }
 
@@ -63,6 +67,18 @@ export default function SecureInputBridge() {
       else refreshFromActiveElement()
     }
 
+    const handlePointerEnter = () => {
+      suspendedForPointerLeave = false
+      refreshFromActiveElement()
+    }
+
+    const handlePointerLeave = () => {
+      suspendedForPointerLeave = true
+      setSecureInput(false)
+    }
+
+    document.addEventListener('pointerenter', handlePointerEnter)
+    document.addEventListener('pointerleave', handlePointerLeave)
     document.addEventListener('focusin', handleFocusIn)
     document.addEventListener('focusout', handleFocusOut)
     document.addEventListener('visibilitychange', handleVisibilityChange)
@@ -71,6 +87,8 @@ export default function SecureInputBridge() {
     refreshFromActiveElement()
 
     return () => {
+      document.removeEventListener('pointerenter', handlePointerEnter)
+      document.removeEventListener('pointerleave', handlePointerLeave)
       document.removeEventListener('focusin', handleFocusIn)
       document.removeEventListener('focusout', handleFocusOut)
       document.removeEventListener('visibilitychange', handleVisibilityChange)

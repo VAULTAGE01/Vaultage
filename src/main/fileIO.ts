@@ -10,7 +10,11 @@ export async function ensurePrivateDir(path: string): Promise<void> {
   await chmodIfPossible(path, PRIVATE_DIR_MODE)
 }
 
-export async function atomicWritePrivateFile(path: string, data: string | Buffer): Promise<void> {
+export async function atomicWritePrivateFile(
+  path: string,
+  data: string | Buffer,
+  options: { beforeCommit?: () => void } = {},
+): Promise<void> {
   const dir = dirname(path)
   const temp = join(dir, `.${basename(path)}.${process.pid}.${randomUUID()}.tmp`)
   let handle: fs.FileHandle | null = null
@@ -22,6 +26,7 @@ export async function atomicWritePrivateFile(path: string, data: string | Buffer
     await handle.close()
     handle = null
 
+    options.beforeCommit?.()
     await fs.rename(temp, path)
     await chmodIfPossible(path, PRIVATE_FILE_MODE)
     await fsyncDirIfPossible(dir)

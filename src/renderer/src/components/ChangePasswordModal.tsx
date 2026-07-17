@@ -1,10 +1,9 @@
+import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 import {
   masterPasswordPolicyError,
   masterPasswordStrength,
 } from '../../../shared/passwordPolicy'
-
-function cn(...cls: (string | false | null | undefined)[]) { return cls.filter(Boolean).join(' ') }
 
 function strength(pw: string): { score: number; label: string; color: string } {
   const { score: s } = masterPasswordStrength(pw)
@@ -56,8 +55,8 @@ export default function ChangePasswordModal({ onClose }: Props) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 no-drag">
-      <div className="bg-card border border-border rounded-2xl shadow-2xl w-[400px] flex flex-col">
+    <div className="liquid-modal-overlay fixed inset-0 z-50 flex items-center justify-center no-drag">
+      <div className="liquid-modal-shell flex w-[400px] flex-col overflow-hidden rounded-2xl border shadow-modal">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">

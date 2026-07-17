@@ -19,7 +19,7 @@ const buttonVariants = cva(
         default: 'h-9 px-4 py-2',
         sm:      'h-7 px-3 text-xs',
         lg:      'h-11 px-6',
-        icon:    'h-8 w-8',
+        icon:    'h-8 w-8 !border-0 !border-transparent !bg-transparent p-0 !shadow-none hover:!border-transparent hover:!bg-transparent',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

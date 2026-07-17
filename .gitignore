@@ -11,8 +11,10 @@ dist/
 *.tsbuildinfo
 *.log
 coverage/
+.tmp/
 resources/vault-keychain
 resources/vault-keychain-*
+resources/vaultage-extension-native-host
 marketing-web/scratch/
 electron.vite.config.js
 electron.vite.config.d.ts

@@ -1,16 +1,15 @@
+import { createHash } from 'crypto'
 import {
   REDACTED_PROVIDER_CONFIG_VALUE,
   REDACTED_SECRET_VALUE,
   isRedactedProviderConfigValue,
   isRedactedSecretValue,
 } from '../shared/vaultRedaction'
-
-const SENSITIVE_PROVIDER_CONFIG_KEY_RE =
-  /(?:token|secret|password|authorization|credential|apiKey|accessKey|privateKey|headerValue)/i
+import { isSensitiveProviderConfigKey } from '../shared/providerConfigPolicy'
 
 export function redactVaultForRenderer(vault: unknown): unknown {
   if (!isRecord(vault)) return cloneJsonValue(vault)
-  return {
+  const redacted: Record<string, unknown> = {
     ...cloneJsonObject(vault),
     root: redactFolder(vault.root),
     providers: Array.isArray(vault.providers)
@@ -18,20 +17,22 @@ export function redactVaultForRenderer(vault: unknown): unknown {
       : cloneJsonValue(vault.providers),
     preferences: redactPreferences(vault.preferences),
   }
+  delete redacted._vaultage
+  return redacted
 }
 
-export function mergeRedactedVaultValues(incoming: unknown, current: unknown): unknown {
-  if (!isRecord(incoming)) return cloneJsonValue(incoming)
-  const fieldIndex = buildCurrentSecretFieldIndex(current)
-  const providerIndex = buildCurrentProviderConfigIndex(current)
-  return {
-    ...cloneJsonObject(incoming),
-    root: mergeFolder(incoming.root, fieldIndex, new Map()),
-    providers: Array.isArray(incoming.providers)
-      ? incoming.providers.map(provider => mergeProvider(provider, providerIndex))
-      : cloneJsonValue(incoming.providers),
-    preferences: mergePreferences(incoming.preferences, isRecord(current) ? current.preferences : undefined),
-  }
+/** Restore only the main-owned values of one renderer-redacted secret. */
+export function mergeRedactedSecretValues(incoming: unknown, current: unknown): unknown {
+  const index = buildCurrentSecretFieldIndex({
+    root: { children: [], secrets: [current] },
+  })
+  return mergeSecret(incoming, index)
+}
+
+/** Restore only the main-owned values of one renderer-redacted provider. */
+export function mergeRedactedProviderValues(incoming: unknown, current: unknown): unknown {
+  const index = buildCurrentProviderConfigIndex({ providers: [current] })
+  return mergeProvider(incoming, index)
 }
 
 function redactFolder(folder: unknown): unknown {
@@ -45,17 +46,33 @@ function redactFolder(folder: unknown): unknown {
 
 function redactSecret(secret: unknown): unknown {
   if (!isRecord(secret)) return cloneJsonValue(secret)
-  return {
-    ...cloneJsonObject(secret),
-    fields: Array.isArray(secret.fields) ? secret.fields.map(redactField) : cloneJsonValue(secret.fields),
+  const secureNote = secret.type === 'secureNote'
+  const secretId = typeof secret.id === 'string' ? secret.id : 'unknown-secret'
+  const occurrences = new Map<string, number>()
+  const next = cloneJsonObject(secret)
+  if (secureNote && typeof secret.notes === 'string' && secret.notes.length > 0) {
+    next.notes = REDACTED_SECRET_VALUE
   }
+  next.fields = Array.isArray(secret.fields)
+    ? secret.fields.map(field => {
+        const key = isRecord(field) && typeof field.key === 'string' ? field.key : ''
+        const occurrence = occurrences.get(key) ?? 0
+        occurrences.set(key, occurrence + 1)
+        const fieldId = isRecord(field) && validFieldId(field.id)
+          ? field.id
+          : legacySecretFieldId(secretId, key, occurrence)
+        return redactField(field, fieldId, secureNote)
+      })
+    : cloneJsonValue(secret.fields)
+  return next
 }
 
-function redactField(field: unknown): unknown {
+function redactField(field: unknown, fieldId: string, forceSensitive = false): unknown {
   if (!isRecord(field)) return cloneJsonValue(field)
-  const next = cloneJsonObject(field)
+  const next: Record<string, unknown> = { ...cloneJsonObject(field), id: fieldId }
+  if (forceSensitive) next.sensitive = true
   if (
-    field.sensitive === true &&
+    (forceSensitive || field.sensitive === true) &&
     typeof field.value === 'string' &&
     field.value.length > 0
   ) {
@@ -77,7 +94,7 @@ function redactProviderConfig(config: unknown): unknown {
   const next = cloneJsonObject(config)
   for (const [key, value] of Object.entries(config)) {
     if (
-      SENSITIVE_PROVIDER_CONFIG_KEY_RE.test(key) &&
+      isSensitiveProviderConfigKey(key) &&
       typeof value === 'string' &&
       value.length > 0
     ) {
@@ -96,68 +113,48 @@ function redactPreferences(preferences: unknown): unknown {
   return next
 }
 
-function mergePreferences(incoming: unknown, current: unknown): unknown {
-  if (!isRecord(incoming)) return cloneJsonValue(incoming)
-  const next = cloneJsonObject(incoming)
-  if (isRecord(current) && isRecord(current.quickRevealPin) && !isRecord(incoming.quickRevealPin)) {
-    next.quickRevealPin = cloneJsonObject(current.quickRevealPin)
-    next.quickRevealPinEnabled = true
-  }
-  return next
-}
-
-function mergeFolder(folder: unknown, index: SecretFieldIndex, counters: Map<string, number>): unknown {
-  if (!isRecord(folder)) return cloneJsonValue(folder)
-  return {
-    ...cloneJsonObject(folder),
-    secrets: Array.isArray(folder.secrets)
-      ? folder.secrets.map(secret => mergeSecret(secret, index, counters))
-      : cloneJsonValue(folder.secrets),
-    children: Array.isArray(folder.children)
-      ? folder.children.map(child => mergeFolder(child, index, counters))
-      : cloneJsonValue(folder.children),
-  }
-}
-
-function mergeSecret(secret: unknown, index: SecretFieldIndex, counters: Map<string, number>): unknown {
+function mergeSecret(secret: unknown, index: SecretFieldIndex): unknown {
   if (!isRecord(secret)) return cloneJsonValue(secret)
   const secretId = typeof secret.id === 'string' ? secret.id : null
-  return {
-    ...cloneJsonObject(secret),
-    fields: Array.isArray(secret.fields)
-      ? secret.fields.map((field, fieldPosition) => mergeField(field, secretId, fieldPosition, index, counters))
-      : cloneJsonValue(secret.fields),
+  const secureNote = secret.type === 'secureNote'
+  const next = cloneJsonObject(secret)
+  // A form may change the type of a secure note while its legacy notes remain
+  // redacted. Restore by sentinel identity regardless of the incoming type so
+  // the transition cannot erase or persist the placeholder.
+  if (isRedactedSecretValue(secret.notes)) {
+    const currentNotes = secretId ? index.get(secretId)?.notes : undefined
+    if (typeof currentNotes !== 'string') {
+      throw new Error('Redacted secure-note metadata cannot be saved without a current value')
+    }
+    next.notes = currentNotes
   }
+  next.fields = Array.isArray(secret.fields)
+    ? secret.fields.map(field => mergeField(field, secretId, index, secureNote))
+    : cloneJsonValue(secret.fields)
+  return next
 }
 
 function mergeField(
   field: unknown,
   secretId: string | null,
-  fieldPosition: number,
   index: SecretFieldIndex,
-  counters: Map<string, number>,
+  forceSensitive = false,
 ): unknown {
   if (!isRecord(field)) return cloneJsonValue(field)
   const next = cloneJsonObject(field)
-  const fieldIndexKey = secretId && typeof field.key === 'string' ? `${secretId}\u0000${field.key}` : null
-  const occurrence = fieldIndexKey ? (counters.get(fieldIndexKey) ?? 0) : 0
-  if (fieldIndexKey) counters.set(fieldIndexKey, occurrence + 1)
+  if (forceSensitive) next.sensitive = true
   if (!isRedactedSecretValue(field.value)) return next
-  if (field.sensitive !== true) {
+  if (next.sensitive !== true) {
     throw new Error('Redacted secret field cannot be saved as non-sensitive')
   }
-  if (!secretId || typeof field.key !== 'string') {
+  if (!secretId || !validFieldId(field.id)) {
     throw new Error('Redacted secret field cannot be saved without a matching secret')
   }
 
   const currentSecret = index.get(secretId)
-  const currentValues = currentSecret?.byKey.get(field.key)
-  const currentValue = currentValues?.[occurrence]
-  const fallbackCurrentValue = currentSecret?.ordered[fieldPosition]
+  const currentValue = currentSecret?.byId.get(field.id)
   if (typeof currentValue === 'string') {
     next.value = currentValue
-  } else if (typeof fallbackCurrentValue === 'string') {
-    next.value = fallbackCurrentValue
   } else {
     throw new Error('Redacted secret field cannot be saved without a current value')
   }
@@ -193,8 +190,8 @@ function mergeProviderConfig(
 }
 
 interface CurrentSecretFields {
-  byKey: Map<string, string[]>
-  ordered: string[]
+  byId: Map<string, string>
+  notes?: string
 }
 
 type SecretFieldIndex = Map<string, CurrentSecretFields>
@@ -219,20 +216,47 @@ function walkCurrentFolder(folder: unknown, index: SecretFieldIndex): void {
 }
 
 function addCurrentSecretFields(secret: unknown, index: SecretFieldIndex): void {
-  if (!isRecord(secret) || typeof secret.id !== 'string' || !Array.isArray(secret.fields)) return
+  if (!isRecord(secret) || typeof secret.id !== 'string') return
   let secretFields = index.get(secret.id)
   if (!secretFields) {
-    secretFields = { byKey: new Map(), ordered: [] }
+    secretFields = {
+      byId: new Map(),
+      notes: typeof secret.notes === 'string' ? secret.notes : undefined,
+    }
     index.set(secret.id, secretFields)
   }
 
+  if (!Array.isArray(secret.fields)) return
+  const occurrences = new Map<string, number>()
   for (const field of secret.fields) {
     if (!isRecord(field) || typeof field.key !== 'string' || typeof field.value !== 'string') continue
-    secretFields.ordered.push(field.value)
-    const values = secretFields.byKey.get(field.key) ?? []
-    values.push(field.value)
-    secretFields.byKey.set(field.key, values)
+    const occurrence = occurrences.get(field.key) ?? 0
+    occurrences.set(field.key, occurrence + 1)
+    const fieldId = validFieldId(field.id)
+      ? field.id
+      : legacySecretFieldId(secret.id, field.key, occurrence)
+    if (secretFields.byId.has(fieldId)) throw new Error('Duplicate secret field id')
+    secretFields.byId.set(fieldId, field.value)
   }
+}
+
+export function legacySecretFieldId(secretId: string, fieldKey: string, occurrence: number): string {
+  const digest = createHash('sha256')
+    .update('vaultage-field-v1\0', 'utf8')
+    .update(secretId, 'utf8')
+    .update('\0', 'utf8')
+    .update(fieldKey, 'utf8')
+    .update('\0', 'utf8')
+    .update(String(occurrence), 'utf8')
+    .digest('hex')
+  return `field-legacy-${digest}`
+}
+
+function validFieldId(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= 240
+    && !/[\u0000-\u001f\u007f]/.test(value)
 }
 
 function buildCurrentProviderConfigIndex(vault: unknown): ProviderConfigIndex {

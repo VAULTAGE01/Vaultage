@@ -1,5 +1,9 @@
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
+import {
+  findPrivateIpcNamespaceLeaks,
+  findPrivatePreloadIpcChannelLeaks,
+} from './open-source-config.mjs'
 
 const root = process.cwd()
 const mainDir = join(root, 'out', 'main')
@@ -26,6 +30,11 @@ if (!preloadIndex) {
   fail('open artifact is missing out/preload/index.js')
 }
 
+const menuPanelPreload = readIfExists(join(preloadDir, 'menuPanel.js'))
+if (!menuPanelPreload) {
+  fail('open artifact is missing out/preload/menuPanel.js')
+}
+
 const providerWorker = readIfExists(join(mainDir, 'providerWorker.js'))
 if (providerWorker) {
   fail('open artifact must not emit out/main/providerWorker.js; Services/provider work is closed source')
@@ -46,28 +55,28 @@ for (const term of forbiddenMainTerms) {
     fail(`open main bundle contains forbidden provider term: ${term}`)
   }
 }
+for (const term of findPrivateIpcNamespaceLeaks(mainIndex)) {
+  fail(`open main bundle contains forbidden private IPC channel: ${term}`)
+}
 
-const forbiddenPreloadTerms = [
+for (const term of findPrivatePreloadIpcChannelLeaks(preloadIndex)) {
+  fail(`open preload bundle contains forbidden private IPC channel: ${term}`)
+}
+
+const forbiddenMenuPanelPreloadTerms = [
+  'auth:setup',
+  'auth:password',
+  'vault:mutate',
+  'vault:backup',
+  'project:scan',
   'provider:test',
-  'provider:list-saved',
-  'provider:set-from-vault-field',
-  'provider:delete-saved',
-  'provider:cf-permissions-saved',
-  'provider:cf-create-token-saved',
-  'provider:cf-roll-token-saved',
-  'feedback:provider-vote',
-  'vault:copy-agent-instructions',
-  'vault:get-agent-api-config',
-  'vault:set-agent-api-port',
-  'vault:set-api-enabled',
-  'vault:incoming-request',
   'vault:respond-request',
-  'vault:confirm-request-approval',
+  'audit:read',
 ]
 
-for (const term of forbiddenPreloadTerms) {
-  if (preloadIndex.includes(term)) {
-    fail(`open preload bundle contains forbidden private IPC channel: ${term}`)
+for (const term of forbiddenMenuPanelPreloadTerms) {
+  if (menuPanelPreload.includes(term)) {
+    fail(`open menu-panel preload contains forbidden privileged IPC channel: ${term}`)
   }
 }
 
@@ -109,11 +118,33 @@ const forbiddenRendererTerms = [
 ]
 
 for (const { file, source } of rendererJs) {
+  for (const term of findPrivateIpcNamespaceLeaks(source)) {
+    fail(`open renderer bundle ${file} contains forbidden private IPC channel: ${term}`)
+  }
   for (const term of forbiddenRendererTerms) {
     if (source.includes(term)) {
       fail(`open renderer bundle ${file} contains forbidden provider UI/API term: ${term}`)
     }
   }
+}
+
+const rendererSource = rendererJs.map(({ source }) => source).join('\n')
+const requiredOpenThemeTerms = [
+  'darkGrey',
+  'opacity-28',
+  'mix-blend-screen',
+  'rgba(210,220,214,0.052)',
+  'rgba(210,220,214,0.055)',
+]
+
+for (const term of requiredOpenThemeTerms) {
+  if (!rendererSource.includes(term)) {
+    fail(`open renderer bundle is missing the Community auth backdrop contract term: ${term}`)
+  }
+}
+
+if (rendererSource.includes('liquid-noise')) {
+  fail('open renderer bundle contains the closed-app liquid-noise visual layer')
 }
 
 if (failures.length > 0) {

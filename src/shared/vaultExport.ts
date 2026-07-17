@@ -236,8 +236,26 @@ function filterEnvProject(project: unknown, selectedSecretIds: Set<string>): unk
         return Boolean(secretId && selectedSecretIds.has(secretId))
       }).map(cloneJsonValue)
     : []
+  const environments = Array.isArray(project.environments)
+    ? project.environments.map(environment => filterEnvProjectEnvironment(environment, selectedSecretIds)).filter(Boolean)
+    : []
+  if (entries.length === 0 && environments.length === 0) return null
+  const cloned: Record<string, unknown> = { ...cloneJsonObject(project), entries }
+  if (Array.isArray(project.environments)) cloned.environments = environments
+  return cloned
+}
+
+function filterEnvProjectEnvironment(environment: unknown, selectedSecretIds: Set<string>): unknown | null {
+  if (!isRecord(environment)) return null
+  const entries = Array.isArray(environment.entries)
+    ? environment.entries.filter(entry => {
+        if (!isRecord(entry)) return false
+        const secretId = stringValue(entry.secretId)
+        return Boolean(secretId && selectedSecretIds.has(secretId))
+      }).map(cloneJsonValue)
+    : []
   if (entries.length === 0) return null
-  return { ...cloneJsonObject(project), entries }
+  return { ...cloneJsonObject(environment), entries }
 }
 
 function csvRow({ secret, folderPath }: SecretRow): string[] {

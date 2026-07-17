@@ -26,7 +26,13 @@ chmod +x "$OUT"
 rm "$OUT_ARM" "$OUT_X64"
 
 if command -v codesign &>/dev/null; then
-  codesign --force --sign - --timestamp=none "$OUT"
+  codesign \
+    --force \
+    --sign - \
+    --identifier xyz.arcalab.vaultage.keychain-helper \
+    --options runtime \
+    --timestamp=none \
+    "$OUT"
 fi
 
 echo "✓ Built universal binary: $OUT"

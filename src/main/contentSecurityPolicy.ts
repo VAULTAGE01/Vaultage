@@ -1,17 +1,30 @@
 import type { Session } from 'electron'
 
-export const RENDERER_CSP = [
+const BASE_RENDERER_CSP = [
   "default-src 'self'",
   "script-src 'self'",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
-  "connect-src 'self' ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
   "object-src 'none'",
   "base-uri 'self'",
   "frame-ancestors 'none'",
+]
+
+export const RENDERER_CSP = [
+  ...BASE_RENDERER_CSP,
+  "connect-src 'self'",
 ].join('; ')
 
-export function installRendererCsp(targetSession: Session): void {
+export const DEVELOPMENT_RENDERER_CSP = [
+  ...BASE_RENDERER_CSP,
+  "connect-src 'self' ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
+].join('; ')
+
+export function installRendererCsp(
+  targetSession: Session,
+  options: { allowDevelopmentWebSockets?: boolean } = {},
+): void {
+  const policy = options.allowDevelopmentWebSockets ? DEVELOPMENT_RENDERER_CSP : RENDERER_CSP
   targetSession.webRequest.onHeadersReceived((details, callback) => {
     if (details.resourceType !== 'mainFrame' && details.resourceType !== 'subFrame') {
       callback({ responseHeaders: details.responseHeaders })
@@ -21,7 +34,7 @@ export function installRendererCsp(targetSession: Session): void {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
-        'Content-Security-Policy': [RENDERER_CSP],
+        'Content-Security-Policy': [policy],
       },
     })
   })

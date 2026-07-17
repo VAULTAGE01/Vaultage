@@ -1,8 +1,14 @@
 import { app } from 'electron'
+import { existsSync, lstatSync } from 'fs'
 import { join } from 'path'
 import { spawnSync } from 'child_process'
+import {
+  buildKeychainHelperEnvironment,
+  keychainHelperMetadataError,
+} from './keychainPolicy'
 
 export const IS_MAC = process.platform === 'darwin'
+const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
 
 export interface KeychainResult {
   key: string | null
@@ -12,15 +18,84 @@ export interface KeychainResult {
 }
 
 export function helperPath(): string {
-  return app.isPackaged
-    ? join(process.resourcesPath, 'Vaultage Keychain')
-    : join(app.getAppPath(), 'resources', 'vault-keychain')
+  if (!app.isPackaged) return join(app.getAppPath(), 'resources', 'vault-keychain')
+  const packagedPath = join(process.resourcesPath, 'Vaultage Keychain')
+  return existsSync(packagedPath)
+    ? packagedPath
+    : join(process.resourcesPath, 'vault-keychain')
+}
+
+export function keychainHelperEnvironment(): NodeJS.ProcessEnv {
+  return buildKeychainHelperEnvironment(
+    process.env,
+    {
+      service: OPEN_CORE_BUILD
+        ? 'xyz.arcalab.vault-oc.masterkey'
+        : 'xyz.arcalab.vaultage.masterkey',
+      legacyServices: OPEN_CORE_BUILD
+        ? ''
+        : 'com.eden.vaultage.masterkey,com.eden.vaultage.masterkey.migration,dev.vault.app.masterkey',
+      migrationService: OPEN_CORE_BUILD
+        ? 'xyz.arcalab.vault-oc.masterkey.migration'
+        : 'xyz.arcalab.vaultage.masterkey.migration',
+    },
+    app.isPackaged ? undefined : app.getAppPath(),
+  )
+}
+
+export function trustedHelperPath(): string | null {
+  const candidate = helperPath()
+  try {
+    const stat = lstatSync(candidate)
+    const metadataError = keychainHelperMetadataError(
+      {
+        isFile: stat.isFile(),
+        isSymbolicLink: stat.isSymbolicLink(),
+        mode: stat.mode,
+        uid: stat.uid,
+        size: stat.size,
+      },
+      process.getuid?.(),
+    )
+    if (metadataError) {
+      console.error(`[keychain] rejected native helper: ${metadataError}`)
+      return null
+    }
+
+    const signature = spawnSync(
+      '/usr/bin/codesign',
+      ['--verify', '--strict', '--all-architectures', '--', candidate],
+      {
+        encoding: 'utf8',
+        env: { PATH: '/usr/bin:/bin:/usr/sbin:/sbin' },
+        timeout: 5_000,
+      },
+    )
+    if (signature.status !== 0) {
+      console.error('[keychain] rejected native helper: code signature verification failed', {
+        status: signature.status,
+        signal: signature.signal,
+        error: signature.error?.message,
+        stderr: signature.stderr?.toString().trim().slice(0, 500),
+      })
+      return null
+    }
+    return candidate
+  } catch (err) {
+    console.error('[keychain] rejected native helper', { error: String(err) })
+    return null
+  }
 }
 
 export function keychainStore(hexKey: string): boolean {
   if (!IS_MAC) return false
-  const result = spawnSync(helperPath(), ['store', hexKey], {
+  if (!/^[0-9a-f]{64}$/i.test(hexKey)) return false
+  const executable = trustedHelperPath()
+  if (!executable) return false
+  const result = spawnSync(executable, ['store'], {
     encoding: 'utf8',
+    input: hexKey,
+    env: keychainHelperEnvironment(),
     timeout: 5_000,
   })
   if (result.status !== 0) {
@@ -36,8 +111,11 @@ export function keychainStore(hexKey: string): boolean {
 
 export function keychainRemove(): boolean {
   if (!IS_MAC) return false
-  const result = spawnSync(helperPath(), ['remove'], {
+  const executable = trustedHelperPath()
+  if (!executable) return false
+  const result = spawnSync(executable, ['remove'], {
     encoding: 'utf8',
+    env: keychainHelperEnvironment(),
     timeout: 5_000,
   })
   if (result.status !== 0) {
@@ -51,13 +129,18 @@ export function keychainRemove(): boolean {
   return result.status === 0
 }
 
-export function keychainRetrieve(prompt = 'unlock Vaultage'): KeychainResult {
+export function keychainRetrieve(_prompt?: string): KeychainResult {
   if (!IS_MAC) {
     return { key: null, cancelled: false, authFailed: false, notFound: true }
   }
 
-  const result = spawnSync(helperPath(), ['retrieve', prompt], {
+  const executable = trustedHelperPath()
+  if (!executable) {
+    return { key: null, cancelled: false, authFailed: true, notFound: false }
+  }
+  const result = spawnSync(executable, ['retrieve'], {
     encoding: 'utf8',
+    env: keychainHelperEnvironment(),
     timeout: 30_000,
   })
 
@@ -70,10 +153,14 @@ export function keychainRetrieve(prompt = 'unlock Vaultage'): KeychainResult {
     })
   }
 
+  const helperFailed = ![0, 2, 3, 4].includes(result.status ?? -1)
+  const key = result.status === 0 ? (result.stdout as string).trim() : null
+  const validKey = key && /^[0-9a-f]{64}$/i.test(key) ? key : null
+  if (result.status === 0 && !validKey) console.error('[keychain] helper returned invalid key material')
   return {
-    key: result.status === 0 ? (result.stdout as string).trim() : null,
+    key: validKey,
     cancelled: result.status === 2,
-    authFailed: result.status === 3,
+    authFailed: result.status === 3 || helperFailed,
     notFound: result.status === 4,
   }
 }

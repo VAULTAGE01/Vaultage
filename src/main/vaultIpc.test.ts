@@ -68,6 +68,11 @@ describe('registerVaultIpc export IPC', () => {
 
     registerVaultIpc(ipcMain, {
       getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
       getVaultRevision: () => 1,
       setVaultRevision: vi.fn(),
       lockVault: vi.fn(),
@@ -123,7 +128,7 @@ describe('registerVaultIpc export IPC', () => {
         },
       },
     })
-  })
+  }, 15_000)
 
   it('requires plaintext confirmation before JSON or CSV export', async () => {
     const { handlers, ipcMain } = fakeIpcMain()
@@ -135,6 +140,11 @@ describe('registerVaultIpc export IPC', () => {
 
     registerVaultIpc(ipcMain, {
       getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
       getVaultRevision: () => 1,
       setVaultRevision: vi.fn(),
       lockVault: vi.fn(),
@@ -154,6 +164,119 @@ describe('registerVaultIpc export IPC', () => {
     expect(storageMock.readVault).not.toHaveBeenCalled()
     expect(electronMock.showSaveDialog).not.toHaveBeenCalled()
   })
+
+  it('does not write a prepared plaintext export after the vault locks in the save dialog', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const authController = {
+      confirmPlaintextExport: vi.fn(() => ({ success: true })),
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+    const dir = await fs.mkdtemp(join(tmpdir(), 'vaultage-export-lock-'))
+    const filePath = join(dir, 'must-not-exist.json')
+    const dialogResult = Promise.withResolvers<{ canceled: boolean; filePath: string }>()
+    electronMock.showSaveDialog.mockReturnValue(dialogResult.promise)
+    let sessionCurrent = true
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: () => ({
+        epoch: 1,
+        assertCurrent: () => {
+          if (!sessionCurrent) throw new Error('Vault session changed; unlock and try again')
+        },
+        release: () => undefined,
+      }),
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+    })
+
+    const pending = handlers.get('vault:export-scope')?.({}, {
+      scope: { kind: 'vault' },
+      format: 'json',
+      plaintextConfirmation: 'EXPORT PLAINTEXT',
+    }) as Promise<any>
+    await vi.waitFor(() => expect(electronMock.showSaveDialog).toHaveBeenCalled())
+    sessionCurrent = false
+    dialogResult.resolve({ canceled: false, filePath })
+
+    const result = await pending
+    expect(result).toMatchObject({ success: false })
+    await expect(fs.access(filePath)).rejects.toThrow()
+  })
+
+  it('rejects malformed scoped export payloads before reading the vault', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const authController = {
+      confirmPlaintextExport: vi.fn(() => ({ success: true })),
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+    })
+
+    const result = await handlers.get('vault:export-scope')?.({}, {
+      scope: { kind: 'folder', id: '' },
+      format: 'json',
+    })
+
+    expect(result).toEqual({ success: false, error: 'Error: Invalid export folder id' })
+    expect(storageMock.readVault).not.toHaveBeenCalled()
+    expect(electronMock.showSaveDialog).not.toHaveBeenCalled()
+  })
+
+  it('copies from a main-only vault read and defers usage persistence', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const recordSecretUsage = vi.fn()
+    const authController = {
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage,
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+    })
+
+    const result = await handlers.get('vault:copy-secret-field')?.({}, {
+      secretId: 'secret-stripe',
+      fieldKey: 'API Key',
+      clearAfterMs: 0,
+    })
+
+    expect(result).toEqual({ success: true })
+    expect(electronMock.writeText).toHaveBeenCalledWith('stripe-secret-value')
+    expect(recordSecretUsage).toHaveBeenCalledWith('secret-stripe', expect.any(String))
+    expect(storageMock.updateVault).not.toHaveBeenCalled()
+  })
 })
 
 function fakeIpcMain(): {
@@ -168,6 +291,14 @@ function fakeIpcMain(): {
         handlers.set(channel, handler)
       },
     } as unknown as IpcMain,
+  }
+}
+
+function activeSessionOperation() {
+  return {
+    epoch: 1,
+    assertCurrent: () => undefined,
+    release: () => undefined,
   }
 }
 

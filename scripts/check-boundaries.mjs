@@ -18,21 +18,8 @@ const rules = [
   },
   {
     name: 'provider IPC only talks to provider RPC, not implementations',
-    files: ['src/main/providerIpc.ts', 'src/main/providerIpc.open.ts'],
+    files: ['src/main/providerIpc.ts'],
     forbidden: [/from ['"]\.\/providers['"]/],
-  },
-  {
-    name: 'provider IPC split keeps lifecycle automation out of basic/provider seams',
-    files: ['src/main/providerIpc.open.ts'],
-    forbidden: [
-      /registerProviderLifecycleIpc/,
-      /provider:delete-saved/,
-      /provider:cf-permissions-saved/,
-      /provider:cf-create-token-saved/,
-      /provider:cf-roll-token-saved/,
-      /cloudflare\.createToken/,
-      /cloudflare\.rollToken/,
-    ],
   },
   {
     name: 'saved provider IPC uses provider ids instead of renderer-supplied provider credentials',
@@ -82,9 +69,52 @@ const rules = [
       /"@react-three\//,
     ],
   },
+  {
+    name: 'commercial status IPC never exposes identity, session, assertion, or key material',
+    files: ['src/shared/commercialIpcContracts.ts', 'src/preload/index.ts'],
+    forbidden: [
+      /opaqueSession/,
+      /compactAssertion/,
+      /privateKey/,
+      /accountId/,
+      /deviceId/,
+      /sessionExpiresAt/,
+      /replacementId\s*[:?]/,
+      /thumbprint\s*[:?]/i,
+      /publicJwk\s*[:?]/,
+      /bearer(?:Token|Session)?\s*[:?]/i,
+      /(?:private|confirmation)Proof\s*[:?]/,
+    ],
+  },
+  {
+    name: 'native Keychain processes do not inherit the Electron environment wholesale',
+    files: ['src/main/keychain.ts', 'src/main/secureInput.ts'],
+    forbidden: [
+      /\.\.\.process\.env/,
+    ],
+  },
 ]
 
 const requiredRules = [
+  {
+    name: 'browser native-host registration stays private with capability-gated creation and ungated cleanup',
+    file: 'src/main/index.ts',
+    required: [
+      /from ['"]#extension-native-host-composition['"]/,
+      /from ['"]#extension-native-host-ipc['"]/,
+      /acquireCapabilityLease\(['"]pro\.extension['"]\)/,
+      /confirmExtensionNativeHostAction/,
+    ],
+  },
+  {
+    name: 'commercial runtime is activated only through the edition alias and authorized main-window IPC',
+    file: 'src/main/index.ts',
+    required: [
+      /from ['"]#commercial-runtime['"]/,
+      /ipcMain:\s*mainWindowIpc/,
+      /app\.whenReady\(\)\.then\(async \(\) => \{[\s\S]*installCommercialRuntime/,
+    ],
+  },
   {
     name: 'native Keychain helper binds stored vault key to biometric access control',
     file: 'vault-keychain/main.swift',
@@ -92,6 +122,62 @@ const requiredRules = [
       /SecAccessControlCreateWithFlags/,
       /SecAccessControlCreateFlags\.userPresence/,
       /kSecAttrAccessControl/,
+      /SecCodeCopyGuestWithAttributes/,
+      /SecStaticCodeCheckValidity/,
+      /kSecCSCheckNestedCode/,
+      /kSecCodeInfoTeamIdentifier/,
+      /CODE_SIGNATURE_RUNTIME/,
+      /anchor apple generic/,
+      /verifyCallerIdentity/,
+    ],
+  },
+  {
+    name: 'Electron validates the native helper before launching it',
+    file: 'src/main/keychain.ts',
+    required: [
+      /keychainHelperMetadataError/,
+      /trustedHelperPath/,
+      /--all-architectures/,
+      /keychainHelperEnvironment/,
+    ],
+  },
+  {
+    name: 'native helper environment is assembled from a fixed allowlist',
+    file: 'src/main/keychainPolicy.ts',
+    required: [
+      /buildKeychainHelperEnvironment/,
+      /VAULTAGE_KEYCHAIN_SERVICE/,
+      /VAULTAGE_KEYCHAIN_DEV_ROOT/,
+      /SESSION_ENVIRONMENT_KEYS/,
+    ],
+  },
+  {
+    name: 'native helper build emits a hardened-runtime code signature',
+    file: 'build-helper.sh',
+    required: [
+      /--identifier xyz\.arcalab\.vaultage\.keychain-helper/,
+      /--options runtime/,
+      /--timestamp=none/,
+    ],
+  },
+  {
+    name: 'packaged Electron binaries disable identity-confusing execution modes',
+    file: 'scripts/apply-electron-fuses.cjs',
+    required: [
+      /strictlyRequireAllFuses:\s*true/,
+      /\[FuseV1Options\.RunAsNode\]:\s*false/,
+      /\[FuseV1Options\.EnableNodeOptionsEnvironmentVariable\]:\s*false/,
+      /\[FuseV1Options\.EnableNodeCliInspectArguments\]:\s*false/,
+      /\[FuseV1Options\.EnableEmbeddedAsarIntegrityValidation\]:\s*true/,
+      /\[FuseV1Options\.OnlyLoadAppFromAsar\]:\s*true/,
+    ],
+  },
+  {
+    name: 'electron-builder applies the fuse policy before signing an ASAR package',
+    file: 'electron-builder.yml',
+    required: [
+      /^asar:\s*true$/m,
+      /^afterPack:\s*scripts\/apply-electron-fuses\.cjs$/m,
     ],
   },
   {
@@ -147,12 +233,12 @@ const requiredRules = [
     ],
   },
   {
-    name: 'renderer vault saves preserve redacted secret values in main',
-    file: 'src/main/vaultIpc.ts',
+    name: 'semantic vault commands restore renderer-redacted values in main',
+    file: 'src/main/vaultCommandMutations.ts',
     required: [
-      /mergeRedactedVaultValues/,
-      /vault:reveal-secret-field/,
-      /vault:reveal-secret-image-field/,
+      /mergeRedactedSecretValues/,
+      /mergeRedactedProviderValues/,
+      /applyVaultMutationCommand/,
     ],
   },
   {
@@ -160,17 +246,17 @@ const requiredRules = [
     file: 'src/main/vaultRedaction.ts',
     required: [
       /REDACTED_PROVIDER_CONFIG_VALUE/,
-      /SENSITIVE_PROVIDER_CONFIG_KEY_RE/,
+      /isSensitiveProviderConfigKey/,
       /mergeProviderConfig/,
     ],
   },
   {
     name: 'saved secret reveal IPC requires fresh user presence',
-    file: 'src/main/vaultIpc.ts',
+    file: 'src/main/vaultSecretIpc.ts',
     required: [
       /confirmSecretReveal/,
-      /vault:reveal-secret-field/,
-      /vault:reveal-secret-image-field/,
+      /vaultIpc\.revealSecretField\.channel/,
+      /vaultIpc\.revealSecretImageField\.channel/,
     ],
   },
   {

@@ -1,8 +1,10 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'fs'
-import { join } from 'path'
+import { createHash } from 'crypto'
+import { join, relative } from 'path'
 
 const root = process.cwd()
 const failures = []
+const allowlistPath = join(root, 'scripts', 'source-secret-scan-allowlist.json')
 const skippedDirs = new Set([
   '.git',
   'node_modules',
@@ -27,14 +29,51 @@ const skippedExtensions = new Set([
 ])
 
 const secretPatterns = [
-  { name: 'private key block', pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----/ },
-  { name: 'GitHub token', pattern: /\bgh[pousr]_[A-Za-z0-9_]{36,}\b/ },
-  { name: 'OpenAI secret key', pattern: /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/ },
-  { name: 'Stripe live secret key', pattern: /\bsk_live_[A-Za-z0-9]{24,}\b/ },
-  { name: 'AWS access key id', pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/ },
-  { name: 'Cloudflare API token label with value', pattern: /\b(?:CLOUDFLARE|CF)_[A-Z0-9_]*(?:TOKEN|KEY)\s*=\s*[A-Za-z0-9_-]{30,}/i },
-  { name: 'generic production secret assignment', pattern: /\b(?:API|AUTH|ACCESS|REFRESH|CLIENT|PRIVATE|SECRET|TOKEN|PASSWORD)_?(?:KEY|SECRET|TOKEN|PASSWORD)?\s*=\s*['"]?[A-Za-z0-9._~+/-]{40,}['"]?/i },
+  { name: 'private key block', pattern: /-----BEGIN (?:RSA |EC |OPENSSH |DSA |)?PRIVATE KEY-----/g },
+  { name: 'GitHub token', pattern: /\bgh[pousr]_[A-Za-z0-9_]{36,}\b/g },
+  { name: 'OpenAI secret key', pattern: /\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/g },
+  { name: 'Stripe live secret key', pattern: /\bsk_live_[A-Za-z0-9]{24,}\b/g },
+  { name: 'AWS access key id', pattern: /\b(?:AKIA|ASIA)[A-Z0-9]{16}\b/g },
+  { name: 'Cloudflare API token label with value', pattern: /\b(?:CLOUDFLARE|CF)_[A-Z0-9_]*(?:TOKEN|KEY)\s*=\s*[A-Za-z0-9_-]{30,}/gi },
+  { name: 'generic production secret assignment', pattern: /\b(?:API|AUTH|ACCESS|REFRESH|CLIENT|PRIVATE|SECRET|TOKEN|PASSWORD)_?(?:KEY|SECRET|TOKEN|PASSWORD)?\s*=\s*['"]?[A-Za-z0-9._~+/-]{40,}['"]?/gi },
 ]
+
+function fingerprint(value) {
+  return createHash('sha256').update(value).digest('hex')
+}
+
+function loadAllowlist() {
+  if (!existsSync(allowlistPath)) return []
+  const parsed = JSON.parse(readFileSync(allowlistPath, 'utf8'))
+  if (!Array.isArray(parsed)) throw new Error('Source secret allowlist must be a JSON array')
+
+  const seen = new Set()
+  for (const entry of parsed) {
+    if (
+      !entry ||
+      typeof entry.path !== 'string' ||
+      typeof entry.pattern !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(entry.sha256) ||
+      typeof entry.reason !== 'string' ||
+      entry.reason.trim().length < 12
+    ) {
+      throw new Error('Every source secret allowlist entry needs path, pattern, sha256, and a specific reason')
+    }
+    if (entry.path.includes('..') || !/\.test\.[cm]?[jt]sx?$/.test(entry.path)) {
+      throw new Error(`Secret fixture allowlist path must be a test source file: ${entry.path}`)
+    }
+    const key = `${entry.path}\0${entry.pattern}\0${entry.sha256}`
+    if (seen.has(key)) throw new Error(`Duplicate source secret allowlist entry: ${entry.path}`)
+    seen.add(key)
+  }
+  return parsed
+}
+
+const allowlist = loadAllowlist()
+const allowlistEntries = new Map(
+  allowlist.map(entry => [`${entry.path}\0${entry.pattern}\0${entry.sha256}`, entry]),
+)
+const usedAllowlistEntries = new Set()
 
 function extension(path) {
   const index = path.lastIndexOf('.')
@@ -66,14 +105,36 @@ for (const file of walk(root)) {
   if (!isTextFile(file)) continue
   const source = readFileSync(file, 'utf8')
   for (const { name, pattern } of secretPatterns) {
-    if (pattern.test(source)) failures.push({ file, name })
+    for (const match of source.matchAll(pattern)) {
+      const sha256 = fingerprint(match[0])
+      const filePath = relative(root, file).split('\\').join('/')
+      const allowlistKey = `${filePath}\0${name}\0${sha256}`
+      if (allowlistEntries.has(allowlistKey)) {
+        usedAllowlistEntries.add(allowlistKey)
+        continue
+      }
+      const line = source.slice(0, match.index).split('\n').length
+      failures.push({ file, name, line, sha256 })
+    }
+  }
+}
+
+for (const [key, entry] of allowlistEntries) {
+  if (!usedAllowlistEntries.has(key)) {
+    failures.push({
+      file: join(root, entry.path),
+      name: 'stale secret fixture allowlist entry',
+      line: 0,
+      sha256: entry.sha256,
+    })
   }
 }
 
 if (failures.length > 0) {
   console.error('Source-drop secret scan failed:')
   for (const failure of failures) {
-    console.error(`  - ${failure.file}: ${failure.name}`)
+    const location = failure.line > 0 ? `${failure.file}:${failure.line}` : failure.file
+    console.error(`  - ${location}: ${failure.name} (sha256 ${failure.sha256})`)
   }
   process.exit(1)
 }

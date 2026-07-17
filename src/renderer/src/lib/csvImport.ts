@@ -318,11 +318,15 @@ export function rowToSecret(row: CsvRow): PreparedSecret['secret'] {
       break
     case 'secureNote':
       fields = [
-        { key: 'Content', value: row.notes ?? row.value ?? '', sensitive: false },
+        { key: 'Content', value: row.notes ?? row.value ?? '', sensitive: true },
       ]
       break
     default:
       fields = [{ key: 'Value', value: row.value ?? '', sensitive: true }]
+  }
+
+  if (type === 'secureNote') {
+    fields = fields.map(field => ({ ...field, sensitive: true }))
   }
 
   return {

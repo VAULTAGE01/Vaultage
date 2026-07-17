@@ -3,13 +3,18 @@ import { templateCsv } from '../shared/csvImportTemplate'
 import { resolveAllowedExternalUrl } from './externalUrlPolicy'
 import { submitProviderVote } from '#provider-vote'
 import { setSecureInputEnabled } from './secureInput'
+import { platformIpcContracts } from '../shared/platformIpcContracts'
 
 export function registerPlatformIpc(ipcMain: IpcMain): void {
-  ipcMain.handle('security:set-secure-input', async (_, enabled: boolean) => {
+  const platformIpc = platformIpcContracts
+
+  ipcMain.handle(platformIpc.setSecureInputEnabled.channel, async (_, rawPayload: unknown) => {
+    const enabled = platformIpc.setSecureInputEnabled.validate(rawPayload)
     return setSecureInputEnabled(enabled === true)
   })
 
-  ipcMain.handle('shell:openExternal', async (_, url: string) => {
+  ipcMain.handle(platformIpc.openExternal.channel, async (_, rawPayload: unknown) => {
+    const url = platformIpc.openExternal.validate(rawPayload)
     const externalUrl = resolveAllowedExternalUrl(url)
     if (!externalUrl) return { success: false, error: 'External URL is not allowed' }
     try {
@@ -20,8 +25,9 @@ export function registerPlatformIpc(ipcMain: IpcMain): void {
     }
   })
 
-  ipcMain.handle('feedback:provider-vote', async (_, payload: unknown) => {
+  ipcMain.handle(platformIpc.providerVote.channel, async (_, rawPayload: unknown) => {
     try {
+      const payload = platformIpc.providerVote.validate(rawPayload)
       await submitProviderVote(payload)
       return { success: true }
     } catch (err) {
@@ -29,7 +35,8 @@ export function registerPlatformIpc(ipcMain: IpcMain): void {
     }
   })
 
-  ipcMain.handle('import:copy-template', () => {
+  ipcMain.handle(platformIpc.copyImportTemplate.channel, (_, rawPayload: unknown) => {
+    platformIpc.copyImportTemplate.validate(rawPayload)
     try {
       clipboard.writeText(templateCsv())
       return { success: true }

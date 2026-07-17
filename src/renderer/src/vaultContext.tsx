@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useReducer, useCallback, useEffect } from 'react'
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useMemo, useRef } from 'react'
 import type {
+  EnvEntry,
   EnvProject,
   Provider,
   ProviderGroup,
@@ -10,14 +11,20 @@ import type {
   VaultTreeItemRef,
 } from './types'
 import { normaliseVault } from './vaultFormat'
+import { findFolder, findSecret, flatSecrets, orderedFolderItems } from './lib/vaultTree'
+import { ensureProjectEnvironments } from './lib/projectEnvironments'
 import { DEFAULT_LOCAL_FOLDERS } from '../../shared/defaultLocalFolders'
 import { providerTypeCategory, serviceCategoryLabel } from '#service-categories'
+import type { VaultMutationCommand } from '../../shared/vaultIpcContracts'
+import { toast } from 'sonner'
 
 const SECRET_REVEAL_CONFIRM_PHRASE = 'REVEAL SECRET'
 
+export { findFolder, findSecret, flatSecrets, orderedFolderItems } from './lib/vaultTree'
+
 // ── State ──────────────────────────────────────────────────────────────────────
 
-type Screen = 'checking' | 'needs_setup' | 'locked' | 'unlocked'
+type Screen = 'checking' | 'needs_setup' | 'recovery' | 'locked' | 'unlocked'
 
 interface State {
   screen:           Screen
@@ -31,11 +38,13 @@ interface State {
 
 type Action =
   | { type: 'SET_SCREEN';    screen: Screen }
+  | { type: 'SET_RECOVERY'; error: string }
   | { type: 'UNLOCK';        vault: VaultRoot; justCompletedSetup?: boolean }
   | { type: 'LOCK' }
   | { type: 'SELECT_FOLDER'; id: string | null }
   | { type: 'SELECT_SECRET'; id: string | null }
   | { type: 'UPDATE_VAULT';  vault: VaultRoot }
+  | { type: 'REMOTE_VAULT_CHANGED'; vault: VaultRoot; revision: number }
   | { type: 'TRACK_USAGE'; secretId: string; usedAt: string }
   | { type: 'SET_REVISION'; revision: number }
   | { type: 'SET_ERROR';     error: string | null }
@@ -51,6 +60,11 @@ export interface VaultFolderSortOptions {
   direction: VaultFolderSortDirection
 }
 
+export interface ProviderMutationAuthorization {
+  verificationGrant?: string
+  expectedRevision: number
+}
+
 export interface ImportedFolderTreeResult {
   folderId: string
   firstSecretId: string | null
@@ -58,6 +72,7 @@ export interface ImportedFolderTreeResult {
 }
 
 export interface RevealedSecretField {
+  id?: string
   key: string
   value: string
   sensitive: boolean
@@ -72,12 +87,20 @@ export interface VaultTreeMoveTarget {
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case 'SET_SCREEN':    return { ...s, screen: a.screen, error: null }
-    case 'UNLOCK':        return { ...s, screen: 'unlocked', vault: a.vault, selectedFolderId: a.vault.root.id, error: null, justCompletedSetup: a.justCompletedSetup === true }
-    case 'LOCK':          return { ...s, screen: 'locked', vault: null, selectedFolderId: null, selectedSecretId: null, justCompletedSetup: false }
+    case 'SET_RECOVERY':  return { ...s, screen: 'recovery', vault: null, error: a.error }
+    case 'UNLOCK':        return { ...s, screen: 'unlocked', vault: a.vault, selectedFolderId: a.vault.root.id, error: null, saving: false, justCompletedSetup: a.justCompletedSetup === true }
+    case 'LOCK':          return { ...s, screen: 'locked', vault: null, selectedFolderId: null, selectedSecretId: null, saving: false, justCompletedSetup: false }
     case 'SELECT_FOLDER': return { ...s, selectedFolderId: a.id, selectedSecretId: null }
     case 'SELECT_SECRET': return { ...s, selectedSecretId: a.id }
-    case 'UPDATE_VAULT':  return { ...s, vault: a.vault }
-    case 'SET_REVISION': return s.vault ? { ...s, vault: { ...s.vault, revision: a.revision } } : s
+    case 'UPDATE_VAULT':  return { ...s, vault: a.vault, ...reconcileSnapshotSelection(s, a.vault) }
+    case 'REMOTE_VAULT_CHANGED': {
+      if (!s.vault || a.revision <= (s.vault.revision ?? 0)) return s
+      return { ...s, vault: a.vault, error: null, ...reconcileSnapshotSelection(s, a.vault) }
+    }
+    case 'SET_REVISION': {
+      if (!s.vault || a.revision <= (s.vault.revision ?? 0)) return s
+      return { ...s, vault: { ...s.vault, revision: a.revision } }
+    }
     case 'TRACK_USAGE': {
       if (!s.vault) return s
       const result = findSecret(s.vault.root, a.secretId)
@@ -104,70 +127,128 @@ function reducer(s: State, a: Action): State {
   }
 }
 
-// ── Tree helpers ───────────────────────────────────────────────────────────────
-
-export function flatSecrets(
-  node: VaultFolder,
-  path: string[] = [],
-): { secret: VaultSecret; folderId: string; folderPath: string }[] {
-  const crumb = [...path, node.name]
-  return [
-    ...node.secrets.map(s => ({ secret: s, folderId: node.id, folderPath: crumb.join(' › ') })),
-    ...node.children.flatMap(c => flatSecrets(c, crumb)),
-  ]
+export function reconcileSnapshotSelection(
+  state: Pick<State, 'selectedFolderId' | 'selectedSecretId'>,
+  vault: VaultRoot,
+): Pick<State, 'selectedFolderId' | 'selectedSecretId'> {
+  const selectedSecret = state.selectedSecretId
+    ? findSecret(vault.root, state.selectedSecretId)
+    : null
+  const selectedFolderId = state.selectedFolderId && findFolder(vault.root, state.selectedFolderId)
+    ? state.selectedFolderId
+    : selectedSecret?.folderId ?? vault.root.id
+  return {
+    selectedFolderId,
+    selectedSecretId: selectedSecret ? state.selectedSecretId : null,
+  }
 }
 
-export function findFolder(node: VaultFolder, id: string): VaultFolder | null {
-  if (node.id === id) return node
-  for (const c of node.children) { const f = findFolder(c, id); if (f) return f }
-  return null
+export class RendererVaultSessionChangedError extends Error {
+  constructor() {
+    super('Vault session changed; unlock and try again')
+    this.name = 'RendererVaultSessionChangedError'
+  }
 }
 
-export function findSecret(node: VaultFolder, id: string): { secret: VaultSecret; folderId: string } | null {
-  for (const s of node.secrets) { if (s.id === id) return { secret: s, folderId: node.id } }
-  for (const c of node.children) { const f = findSecret(c, id); if (f) return f }
-  return null
-}
+/**
+ * Monotonic renderer-session witness shared by authentication, queued writes,
+ * and late IPC responses. A session epoch is invalidated before lock/sign-out,
+ * so work authored by an earlier unlocked vault can never become current again
+ * merely because the same vault is subsequently unlocked.
+ */
+export class RendererVaultSessionGuard {
+  private epochValue = 0
+  private unlockedValue = false
 
-export function orderedFolderItems(folder: VaultFolder): VaultTreeItemRef[] {
-  const children = new Set(folder.children.map(child => child.id))
-  const secrets = new Set(folder.secrets.map(secret => secret.id))
-  const seen = new Set<string>()
-  const items: VaultTreeItemRef[] = []
-
-  for (const item of folder.itemOrder ?? []) {
-    if (item.kind !== 'folder' && item.kind !== 'secret') continue
-    const exists = item.kind === 'folder' ? children.has(item.id) : secrets.has(item.id)
-    const key = `${item.kind}:${item.id}`
-    if (!exists || seen.has(key)) continue
-    seen.add(key)
-    items.push({ kind: item.kind, id: item.id })
+  get epoch(): number {
+    return this.epochValue
   }
 
-  for (const secret of folder.secrets) {
-    const key = `secret:${secret.id}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      items.push({ kind: 'secret', id: secret.id })
-    }
-  }
-  for (const child of folder.children) {
-    const key = `folder:${child.id}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      items.push({ kind: 'folder', id: child.id })
-    }
+  get unlocked(): boolean {
+    return this.unlockedValue
   }
 
-  return items
+  captureAuthAttempt(): number {
+    return this.epochValue
+  }
+
+  isAuthAttemptCurrent(epoch: number): boolean {
+    return !this.unlockedValue && epoch === this.epochValue
+  }
+
+  begin(): number {
+    this.epochValue += 1
+    this.unlockedValue = true
+    return this.epochValue
+  }
+
+  end(): number {
+    this.epochValue += 1
+    this.unlockedValue = false
+    return this.epochValue
+  }
+
+  isCurrent(epoch: number): boolean {
+    return this.unlockedValue && epoch === this.epochValue
+  }
 }
 
-function prepareUnlockedVault(raw: unknown): { vault: VaultRoot; changed: boolean } {
+/**
+ * Serialises renderer mutations while checking the session both before and
+ * after each async commit. The second check is what prevents an old response
+ * from being observed after lock followed by a fresh unlock.
+ */
+export class RendererVaultMutationQueue {
+  private tail: Promise<void> = Promise.resolve()
+
+  reset(): void {
+    this.tail = Promise.resolve()
+  }
+
+  enqueue<T>(
+    sessionEpoch: number,
+    isCurrent: (epoch: number) => boolean,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const pending = this.tail.then(async () => {
+      if (!isCurrent(sessionEpoch)) throw new RendererVaultSessionChangedError()
+      const result = await operation()
+      if (!isCurrent(sessionEpoch)) throw new RendererVaultSessionChangedError()
+      return result
+    })
+    this.tail = pending.then(() => undefined, () => undefined)
+    return pending
+  }
+}
+
+export function canInstallVaultSnapshot(
+  current: VaultRoot | null,
+  candidate: VaultRoot,
+  allowEqualRevision = false,
+): boolean {
+  if (!current) return true
+  if (current.root.id !== candidate.root.id) return false
+  const currentRevision = current.revision ?? 1
+  const candidateRevision = candidate.revision ?? 1
+  return allowEqualRevision
+    ? candidateRevision >= currentRevision
+    : candidateRevision > currentRevision
+}
+
+function prepareUnlockedVault(raw: unknown): {
+  vault: VaultRoot
+  changed: boolean
+  defaultFolders: { id: string; name: string }[]
+} {
   return ensureDefaultLocalFolders(normaliseVault(raw))
 }
 
-function ensureDefaultLocalFolders(vault: VaultRoot): { vault: VaultRoot; changed: boolean } {
-  if (vault.preferences?.localDefaultFoldersCreated) return { vault, changed: false }
+function ensureDefaultLocalFolders(vault: VaultRoot): {
+  vault: VaultRoot
+  changed: boolean
+  defaultFolders: { id: string; name: string }[]
+} {
+  if (vault.preferences?.localDefaultFoldersCreated) return { vault, changed: false, defaultFolders: [] }
 
   const existingNames = new Set(vault.root.children.map(folder => folder.name.trim().toLowerCase()))
   const knownIds = collectFolderIds(vault.root)
@@ -191,7 +272,7 @@ function ensureDefaultLocalFolders(vault: VaultRoot): { vault: VaultRoot; change
   }
 
   if (missingFolders.length === 0) {
-    return { vault: { ...vault, preferences }, changed: true }
+    return { vault: { ...vault, preferences }, changed: true, defaultFolders: [] }
   }
 
   const root = {
@@ -203,7 +284,11 @@ function ensureDefaultLocalFolders(vault: VaultRoot): { vault: VaultRoot; change
     ],
   }
 
-  return { vault: { ...vault, root, preferences }, changed: true }
+  return {
+    vault: { ...vault, root, preferences },
+    changed: true,
+    defaultFolders: missingFolders.map(folder => ({ id: folder.id, name: folder.name })),
+  }
 }
 
 function collectFolderIds(root: VaultFolder, ids = new Set<string>()): Set<string> {
@@ -245,371 +330,43 @@ function mapFolder(root: VaultFolder, id: string, fn: (f: VaultFolder) => VaultF
   return { ...root, children: root.children.map(c => mapFolder(c, id, fn)) }
 }
 
-function removeFolder(root: VaultFolder, id: string): VaultFolder {
+function commandResultRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null
+}
+
+function commandResultString(value: unknown, key: string): string | null {
+  const field = commandResultRecord(value)?.[key]
+  return typeof field === 'string' && field ? field : null
+}
+
+function commandFolderImportResult(value: unknown): ImportedFolderTreeResult | null {
+  const result = commandResultRecord(value)
+  if (!result || typeof result.folderId !== 'string') return null
   return {
-    ...root,
-    children: root.children.filter(c => c.id !== id).map(c => removeFolder(c, id)),
-    itemOrder: orderedFolderItems(root).filter(item => !(item.kind === 'folder' && item.id === id)),
+    folderId: result.folderId,
+    firstSecretId: typeof result.firstSecretId === 'string' ? result.firstSecretId : null,
+    secretCount: typeof result.secretCount === 'number' && Number.isInteger(result.secretCount)
+      ? result.secretCount
+      : 0,
   }
 }
 
-function removeSecretFromFolder(root: VaultFolder, folderId: string, secretId: string): VaultFolder {
-  return mapFolder(root, folderId, folder => ({
-    ...folder,
-    secrets: folder.secrets.filter(secret => secret.id !== secretId),
-    itemOrder: orderedFolderItems(folder).filter(item => !(item.kind === 'secret' && item.id === secretId)),
-  }))
+function commandMoveResult(value: unknown): {
+  selectedFolderId?: string
+  selectedSecretId?: string
+} | null {
+  const result = commandResultRecord(value)
+  if (!result) return null
+  const selectedFolderId = typeof result.selectedFolderId === 'string' ? result.selectedFolderId : undefined
+  const selectedSecretId = typeof result.selectedSecretId === 'string' ? result.selectedSecretId : undefined
+  return selectedFolderId || selectedSecretId ? { selectedFolderId, selectedSecretId } : null
 }
 
-function findFolderParent(node: VaultFolder, id: string): { folder: VaultFolder; parentId: string } | null {
-  for (const child of node.children) {
-    if (child.id === id) return { folder: child, parentId: node.id }
-    const nested = findFolderParent(child, id)
-    if (nested) return nested
-  }
-  return null
-}
-
-function findSecretLocation(node: VaultFolder, id: string): { secret: VaultSecret; folderId: string } | null {
-  for (const secret of node.secrets) {
-    if (secret.id === id) return { secret, folderId: node.id }
-  }
-  for (const child of node.children) {
-    const nested = findSecretLocation(child, id)
-    if (nested) return nested
-  }
-  return null
-}
-
-function folderContainsFolder(folder: VaultFolder, id: string): boolean {
-  return folder.children.some(child => child.id === id || folderContainsFolder(child, id))
-}
-
-function insertTreeItem(
-  root: VaultFolder,
-  folderId: string,
-  item: { kind: 'folder'; value: VaultFolder } | { kind: 'secret'; value: VaultSecret },
-  target: VaultTreeMoveTarget,
-): VaultFolder {
-  return mapFolder(root, folderId, folder => {
-    const nextRef: VaultTreeItemRef = {
-      kind: item.kind,
-      id: item.kind === 'folder' ? item.value.id : item.value.id,
-    }
-    const currentOrder = orderedFolderItems(folder).filter(ref => !(ref.kind === nextRef.kind && ref.id === nextRef.id))
-    let insertAt = currentOrder.length
-
-    if (target.position !== 'inside' && target.target) {
-      const targetIndex = currentOrder.findIndex(ref => ref.kind === target.target!.kind && ref.id === target.target!.id)
-      if (targetIndex >= 0) insertAt = target.position === 'before' ? targetIndex : targetIndex + 1
-    }
-
-    const itemOrder = [
-      ...currentOrder.slice(0, insertAt),
-      nextRef,
-      ...currentOrder.slice(insertAt),
-    ]
-
-    return item.kind === 'folder'
-      ? { ...folder, children: [...folder.children, item.value], itemOrder }
-      : { ...folder, secrets: [...folder.secrets, item.value], itemOrder }
-  })
-}
-
-function sortFolderTreeItems(root: VaultFolder, folderId: string, options: VaultFolderSortOptions): VaultFolder {
-  return mapFolder(root, folderId, folder => ({
-    ...folder,
-    itemOrder: sortFolderItemRefs(folder, options),
-  }))
-}
-
-function sortFolderItemRefs(folder: VaultFolder, options: VaultFolderSortOptions): VaultTreeItemRef[] {
-  const refs = orderedFolderItems(folder)
-  const direction = options.direction === 'asc' ? 1 : -1
-
-  return [...refs].sort((a, b) => {
-    const aMeta = folderSortMeta(folder, a)
-    const bMeta = folderSortMeta(folder, b)
-    const valueDelta = compareSortValue(aMeta[options.key], bMeta[options.key])
-    if (valueDelta !== 0) return valueDelta * direction
-    const titleDelta = aMeta.title.localeCompare(bMeta.title)
-    if (titleDelta !== 0) return titleDelta
-    return a.kind.localeCompare(b.kind)
-  })
-}
-
-function folderSortMeta(folder: VaultFolder, ref: VaultTreeItemRef): {
-  title: string
-  createdAt: number
-  updatedAt: number
-  usageCount: number
-  lastUsedAt: number
-} {
-  if (ref.kind === 'secret') {
-    const secret = folder.secrets.find(item => item.id === ref.id)
-    if (!secret) return emptySortMeta()
-    return {
-      title: secret.name,
-      createdAt: timestamp(secret.createdAt),
-      updatedAt: timestamp(secret.updatedAt),
-      usageCount: secret.usageCount ?? 0,
-      lastUsedAt: timestamp(secret.lastUsedAt),
-    }
-  }
-
-  const child = folder.children.find(item => item.id === ref.id)
-  if (!child) return emptySortMeta()
-  return folderAggregateSortMeta(child)
-}
-
-function folderAggregateSortMeta(folder: VaultFolder): ReturnType<typeof folderSortMeta> {
-  const childMetas = [
-    ...folder.secrets.map(secret => ({
-      title: secret.name,
-      createdAt: timestamp(secret.createdAt),
-      updatedAt: timestamp(secret.updatedAt),
-      usageCount: secret.usageCount ?? 0,
-      lastUsedAt: timestamp(secret.lastUsedAt),
-    })),
-    ...folder.children.map(folderAggregateSortMeta),
-  ]
-  return {
-    title: folder.name,
-    createdAt: minPositive(childMetas.map(item => item.createdAt)),
-    updatedAt: Math.max(0, ...childMetas.map(item => item.updatedAt)),
-    usageCount: childMetas.reduce((sum, item) => sum + item.usageCount, 0),
-    lastUsedAt: Math.max(0, ...childMetas.map(item => item.lastUsedAt)),
-  }
-}
-
-function emptySortMeta(): ReturnType<typeof folderSortMeta> {
-  return { title: '', createdAt: 0, updatedAt: 0, usageCount: 0, lastUsedAt: 0 }
-}
-
-function timestamp(value?: string): number {
-  if (!value) return 0
-  const time = new Date(value).getTime()
-  return Number.isNaN(time) ? 0 : time
-}
-
-function minPositive(values: number[]): number {
-  const positive = values.filter(value => value > 0)
-  return positive.length > 0 ? Math.min(...positive) : 0
-}
-
-function compareSortValue(a: string | number, b: string | number): number {
-  if (typeof a === 'string' || typeof b === 'string') return String(a).localeCompare(String(b))
-  return a - b
-}
-
-function moveVaultTreeItem(
-  root: VaultFolder,
-  item: VaultTreeItemRef,
-  target: VaultTreeMoveTarget,
-): { root: VaultFolder; selectedFolderId?: string; selectedSecretId?: string } | null {
-  if (target.position !== 'inside' && target.target?.kind === item.kind && target.target.id === item.id) {
-    return null
-  }
-
-  if (item.kind === 'folder') {
-    if (item.id === root.id || target.folderId === item.id) return null
-    const source = findFolderParent(root, item.id)
-    if (!source) return null
-    if (folderContainsFolder(source.folder, target.folderId)) return null
-
-    const detachedRoot = removeFolder(root, item.id)
-    if (!findFolder(detachedRoot, target.folderId)) return null
-    return {
-      root: insertTreeItem(detachedRoot, target.folderId, { kind: 'folder', value: source.folder }, target),
-      selectedFolderId: item.id,
-    }
-  }
-
-  const source = findSecretLocation(root, item.id)
-  if (!source) return null
-  const detachedRoot = removeSecretFromFolder(root, source.folderId, item.id)
-  if (!findFolder(detachedRoot, target.folderId)) return null
-  return {
-    root: insertTreeItem(detachedRoot, target.folderId, { kind: 'secret', value: source.secret }, target),
-    selectedFolderId: target.folderId,
-    selectedSecretId: item.id,
-  }
-}
-
-function insertProvider(providers: Provider[], provider: Provider, targetGroupId: string | null, targetProviderId?: string, position?: 'before' | 'after'): Provider[] {
-  const nextProvider = { ...provider, groupId: targetGroupId ?? undefined }
-  const remaining = providers.filter(p => p.id !== provider.id)
-
-  if (targetProviderId && position) {
-    const index = remaining.findIndex(p => p.id === targetProviderId)
-    if (index >= 0) {
-      const insertAt = position === 'before' ? index : index + 1
-      return [...remaining.slice(0, insertAt), nextProvider, ...remaining.slice(insertAt)]
-    }
-  }
-
-  const lastInGroup = remaining.reduce((last, p, index) => ((p.groupId ?? null) === targetGroupId ? index : last), -1)
-  const insertAt = lastInGroup >= 0 ? lastInGroup + 1 : remaining.length
-  return [...remaining.slice(0, insertAt), nextProvider, ...remaining.slice(insertAt)]
-}
-
-interface ClonedImportedFolder {
-  oldId: string
-  folder: VaultFolder
-  firstSecretId: string | null
-  secretCount: number
-}
-
-const IMPORTED_SECRET_TYPES = new Set<VaultSecret['type']>([
-  'password',
-  'apiKey',
-  'sshKey',
-  'secureNote',
-  'custom',
-  'image',
-])
-
-function cloneImportedFolderTree(
-  folder: VaultFolder,
-  selectedSecretIds: Set<string> | undefined,
-  now: string,
-): ClonedImportedFolder | null {
-  const secretPairs = folder.secrets
-    .filter(secret => !selectedSecretIds || selectedSecretIds.has(secret.id))
-    .map(secret => ({
-      oldId: secret.id,
-      secret: cloneImportedSecret(secret, now),
-    }))
-
-  const childPairs = folder.children
-    .map(child => cloneImportedFolderTree(child, selectedSecretIds, now))
-    .filter((child): child is ClonedImportedFolder => Boolean(child))
-
-  if (selectedSecretIds && secretPairs.length === 0 && childPairs.length === 0) return null
-
-  const secretIdByOld = new Map(secretPairs.map(pair => [pair.oldId, pair.secret.id]))
-  const folderIdByOld = new Map(childPairs.map(pair => [pair.oldId, pair.folder.id]))
-  const itemOrder: VaultTreeItemRef[] = []
-  const seen = new Set<string>()
-
-  for (const item of orderedFolderItems(folder)) {
-    const id = item.kind === 'folder'
-      ? folderIdByOld.get(item.id)
-      : secretIdByOld.get(item.id)
-    if (!id) continue
-    const key = `${item.kind}:${id}`
-    if (seen.has(key)) continue
-    seen.add(key)
-    itemOrder.push({ kind: item.kind, id })
-  }
-
-  for (const pair of secretPairs) {
-    const key = `secret:${pair.secret.id}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      itemOrder.push({ kind: 'secret', id: pair.secret.id })
-    }
-  }
-  for (const pair of childPairs) {
-    const key = `folder:${pair.folder.id}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      itemOrder.push({ kind: 'folder', id: pair.folder.id })
-    }
-  }
-
-  const clonedFolder: VaultFolder = {
-    ...folder,
-    id: crypto.randomUUID(),
-    name: folder.name.trim() || 'Imported folder',
-    children: childPairs.map(pair => pair.folder),
-    secrets: secretPairs.map(pair => pair.secret),
-    itemOrder,
-  }
-
-  return {
-    oldId: folder.id,
-    folder: clonedFolder,
-    firstSecretId: firstSecretInFolder(clonedFolder),
-    secretCount: secretPairs.length + childPairs.reduce((sum, pair) => sum + pair.secretCount, 0),
-  }
-}
-
-function cloneImportedSecret(secret: VaultSecret, now: string): VaultSecret {
-  const rawFields = Array.isArray((secret as { fields?: unknown }).fields)
-    ? (secret as { fields: unknown[] }).fields
-    : []
-  const fields = rawFields
-    .filter((field): field is Record<string, unknown> => Boolean(field && typeof field === 'object' && !Array.isArray(field)))
-    .map(field => ({
-      key: typeof field.key === 'string' && field.key.trim() ? field.key : 'Value',
-      value: typeof field.value === 'string' ? field.value : '',
-      sensitive: field.sensitive === true,
-    }))
-
-  const type = IMPORTED_SECRET_TYPES.has(secret.type) ? secret.type : 'custom'
-
-  return {
-    ...secret,
-    id: crypto.randomUUID(),
-    name: typeof secret.name === 'string' && secret.name.trim() ? secret.name : 'Imported secret',
-    type,
-    fields,
-    notes: typeof secret.notes === 'string' ? secret.notes : '',
-    createdAt: safeIsoDate(secret.createdAt, now),
-    updatedAt: safeIsoDate(secret.updatedAt, now),
-    description: typeof secret.description === 'string' ? secret.description : undefined,
-    scope: typeof secret.scope === 'string' ? secret.scope : undefined,
-    tags: Array.isArray(secret.tags) ? secret.tags.filter((tag): tag is string => typeof tag === 'string') : undefined,
-    expiresAt: typeof secret.expiresAt === 'string' ? secret.expiresAt : undefined,
-    usedIn: Array.isArray(secret.usedIn) ? secret.usedIn.filter((item): item is string => typeof item === 'string') : undefined,
-    lastUsedAt: typeof secret.lastUsedAt === 'string' ? secret.lastUsedAt : undefined,
-    usageCount: typeof secret.usageCount === 'number' && Number.isFinite(secret.usageCount) ? secret.usageCount : undefined,
-    providerLink: secret.providerLink && typeof secret.providerLink === 'object' ? secret.providerLink : undefined,
-    agentAvailable: secret.agentAvailable === true ? true : undefined,
-  }
-}
-
-function safeIsoDate(value: unknown, fallback: string): string {
-  return typeof value === 'string' && !Number.isNaN(Date.parse(value)) ? value : fallback
-}
-
-function firstSecretInFolder(folder: VaultFolder): string | null {
-  for (const item of orderedFolderItems(folder)) {
-    if (item.kind === 'secret' && folder.secrets.some(secret => secret.id === item.id)) return item.id
-    if (item.kind === 'folder') {
-      const child = folder.children.find(candidate => candidate.id === item.id)
-      if (!child) continue
-      const found = firstSecretInFolder(child)
-      if (found) return found
-    }
-  }
-  return null
-}
-
-function duplicateFolderName(parent: VaultFolder, originalName: string): string {
-  const base = `${originalName.trim() || 'Folder'} copy`
-  const names = new Set(parent.children.map(folder => folder.name.trim().toLowerCase()))
-  if (!names.has(base.toLowerCase())) return base
-  let index = 2
-  while (names.has(`${base} ${index}`.toLowerCase())) index += 1
-  return `${base} ${index}`
-}
-
-function insertFolderAfter(parent: VaultFolder, originalId: string, folder: VaultFolder): VaultFolder {
-  const currentOrder = orderedFolderItems(parent)
-  const originalIndex = currentOrder.findIndex(item => item.kind === 'folder' && item.id === originalId)
-  const insertAt = originalIndex >= 0 ? originalIndex + 1 : currentOrder.length
-  const itemOrder = [
-    ...currentOrder.slice(0, insertAt),
-    { kind: 'folder' as const, id: folder.id },
-    ...currentOrder.slice(insertAt),
-  ]
-  return {
-    ...parent,
-    children: [...parent.children, folder],
-    itemOrder,
-  }
+function uniqueFieldByKey(secret: VaultSecret, fieldKey: string): VaultSecret['fields'][number] | null {
+  const matches = secret.fields.filter(field => field.key === fieldKey)
+  return matches.length === 1 ? matches[0] : null
 }
 
 // ── Context ────────────────────────────────────────────────────────────────────
@@ -640,13 +397,19 @@ interface Ctx {
   // Secrets
   addSecret:    (folderId: string, s: SecretDraft) => Promise<void>
   addSecrets:   (folderId: string, secrets: SecretDraft[]) => Promise<VaultSecret[]>
-  updateSecret: (folderId: string, s: VaultSecret) => Promise<void>
+  addSecretsToEnvProject: (folderId: string, projectId: string, secrets: AgentProjectSecretDraft[]) => Promise<VaultSecret[]>
+  updateSecret: (folderId: string, s: VaultSecret, authoredRevision?: number) => Promise<void>
+  setSecretProviderLink: (
+    folderId: string,
+    secretId: string,
+    link: { providerId: string; remoteName: string; status: 'active' | 'revoked' | 'missing' } | null,
+  ) => Promise<void>
   deleteSecret: (folderId: string, secretId: string) => Promise<void>
   trackUsage:   (folderId: string, secretId: string) => void
-  copySecretField: (secretId: string, fieldKey: string, options?: { clearAfterMs?: number }) => Promise<boolean>
-  copySecretImageField: (secretId: string, fieldKey: string) => Promise<boolean>
-  revealSecretField: (secretId: string, fieldKey: string, options?: { pin?: string }) => Promise<string | null>
-  revealSecretImageField: (secretId: string, fieldKey: string, options?: { pin?: string }) => Promise<string | null>
+  copySecretField: (secretId: string, fieldKey: string, options?: { clearAfterMs?: number; fieldId?: string }) => Promise<boolean>
+  copySecretImageField: (secretId: string, fieldKey: string, fieldId?: string) => Promise<boolean>
+  revealSecretField: (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => Promise<string | null>
+  revealSecretImageField: (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => Promise<string | null>
   revealSecretFields: (secretId: string, options?: { pin?: string }) => Promise<RevealedSecretField[] | null>
 
   // Reveal PIN
@@ -654,9 +417,14 @@ interface Ctx {
   clearRevealPin: (masterPassword: string) => Promise<{ success?: boolean; wrongPassword?: boolean; error?: string }>
 
   // Providers
-  addProvider:    (p: Omit<Provider, 'id'>) => Promise<void>
-  updateProvider: (p: Provider) => Promise<void>
-  updateProviderAndSecret: (p: Provider, folderId: string, s: VaultSecret) => Promise<void>
+  addProvider:    (p: Omit<Provider, 'id'>, authorization?: ProviderMutationAuthorization) => Promise<void>
+  updateProvider: (p: Provider, authorization?: ProviderMutationAuthorization) => Promise<void>
+  updateProviderAndSecret: (
+    p: Provider,
+    folderId: string,
+    s: VaultSecret,
+    authorization?: ProviderMutationAuthorization,
+  ) => Promise<void>
   deleteProvider: (id: string) => Promise<void>
   addProviderGroup:    (name: string) => Promise<void>
   renameProviderGroup: (id: string, name: string) => Promise<void>
@@ -664,9 +432,10 @@ interface Ctx {
   moveProvider: (providerId: string, groupId: string | null, targetProviderId?: string, position?: 'before' | 'after') => Promise<void>
 
   // Env projects
-  addEnvProject:    (p: Omit<EnvProject, 'id'>) => Promise<EnvProject | null>
+  addEnvProject:    (p: Omit<EnvProject, 'id'>, replaceProjectId?: string) => Promise<EnvProject | null>
   updateEnvProject: (p: EnvProject) => Promise<void>
   updateEnvProjects: (projects: EnvProject[]) => Promise<void>
+  activateEnvProject: (projectId: string, replaceProjectId?: string) => Promise<void>
   deleteEnvProject: (id: string) => Promise<void>
 
   // Preferences
@@ -675,6 +444,12 @@ interface Ctx {
 
 const VaultCtx = createContext<Ctx | null>(null)
 
+type AgentProjectSecretDraft = {
+  envKey: string
+  fieldKey: string
+  secret: SecretDraft
+}
+
 export function VaultProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, {
     screen: 'checking', vault: null,
@@ -682,50 +457,169 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     error: null, saving: false,
     justCompletedSetup: false,
   })
+  const vaultRef = useRef<VaultRoot | null>(null)
+  const sessionGuardRef = useRef(new RendererVaultSessionGuard())
+  const mutationQueueRef = useRef(new RendererVaultMutationQueue())
 
   useEffect(() => {
-    window.vault.status().then(({ needsSetup }) =>
-      dispatch({ type: 'SET_SCREEN', screen: needsSetup ? 'needs_setup' : 'locked' })
-    )
+    if (!sessionGuardRef.current.unlocked || !state.vault) return
+    if (canInstallVaultSnapshot(vaultRef.current, state.vault, true)) {
+      vaultRef.current = state.vault
+    }
+  }, [state.vault])
+
+  const installNewerSnapshot = useCallback((vault: VaultRoot, action: 'update' | 'remote'): VaultRoot => {
+    const current = vaultRef.current
+    if (!sessionGuardRef.current.unlocked || !current) return current ?? vault
+    if (!canInstallVaultSnapshot(current, vault)) return current
+    vaultRef.current = vault
+    if (action === 'remote') {
+      dispatch({ type: 'REMOTE_VAULT_CHANGED', vault, revision: vault.revision ?? 1 })
+    } else {
+      dispatch({ type: 'UPDATE_VAULT', vault })
+    }
+    return vault
   }, [])
+
+  useEffect(() => {
+    window.vault.status()
+      .then(({ needsSetup, incomplete, error }) => {
+        if (incomplete) {
+          dispatch({
+            type: 'SET_RECOVERY',
+            error: error ?? 'Vault authentication state is incomplete. Restore a validated backup.',
+          })
+          return
+        }
+        dispatch({ type: 'SET_SCREEN', screen: needsSetup ? 'needs_setup' : 'locked' })
+      })
+      .catch((err) => dispatch({
+        type: 'SET_RECOVERY',
+        error: `Vaultage could not inspect the local vault safely: ${err instanceof Error ? err.message : String(err)}`,
+      }))
+  }, [])
+
+  useEffect(() => window.vault.onVaultChanged(change => {
+    if (!change || typeof change.revision !== 'number' || !change.data) return
+    try {
+      const vault = normaliseVault(change.data)
+      installNewerSnapshot(vault, 'remote')
+    } catch (err) {
+      console.error('[vault] Rejected invalid vault-change event:', err)
+    }
+  }), [installNewerSnapshot])
 
   // ── Persistence ──────────────────────────────────────────────────────────────
 
-  const persist = useCallback(async (vault: VaultRoot) => {
+  const commitVaultCommand = useCallback(async (
+    mutationId: string,
+    expectedRevision: number,
+    command: VaultMutationCommand,
+    sessionEpoch: number,
+  ): Promise<{ vault: VaultRoot; result: unknown }> => {
     dispatch({ type: 'SET_SAVING', saving: true })
     try {
-      const res = await window.vault.save(JSON.stringify(vault))
-      if (!res.success) throw new Error(res.error)
-      dispatch({
-        type: 'UPDATE_VAULT',
-        vault: res.data
-          ? normaliseVault(res.data)
-          : { ...vault, revision: res.revision ?? vault.revision },
-      })
+      const invoke = () => window.vault.mutate({ mutationId, expectedRevision, command })
+      let res
+      try {
+        res = await invoke()
+      } catch {
+        // A transport failure can happen after the main process durably commits.
+        // Retry once with the same idempotency key; the receipt path returns the
+        // prior result without applying or auditing the command twice.
+        if (!sessionGuardRef.current.isCurrent(sessionEpoch)) {
+          throw new RendererVaultSessionChangedError()
+        }
+        res = await invoke()
+      }
+      if (!sessionGuardRef.current.isCurrent(sessionEpoch)) {
+        throw new RendererVaultSessionChangedError()
+      }
+      if (!res.success && res.stale && res.data) {
+        const latest = normaliseVault(res.data)
+        installNewerSnapshot(latest, 'remote')
+      }
+      if (!res.success) throw new Error(res.error ?? 'Could not save vault')
+      if (!res.data) throw new Error('Vault mutation did not return an updated snapshot')
+      const saved = normaliseVault(res.data)
+      const installed = installNewerSnapshot(saved, 'update')
+      return { vault: installed, result: res.result }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Could not save vault'
+      if (err instanceof RendererVaultSessionChangedError) throw err
+      dispatch({ type: 'SET_ERROR', error: message })
+      toast.error(message)
+      throw err
     } finally {
-      dispatch({ type: 'SET_SAVING', saving: false })
+      if (sessionGuardRef.current.isCurrent(sessionEpoch)) {
+        dispatch({ type: 'SET_SAVING', saving: false })
+      }
     }
-  }, [])
+  }, [installNewerSnapshot])
+
+  const runVaultCommand = useCallback(<T,>(
+    command: VaultMutationCommand,
+    resolve: (result: unknown, vault: VaultRoot) => T,
+    authoredRevision?: number,
+  ): Promise<T> => {
+    const authoredAgainst = vaultRef.current
+    if (!authoredAgainst) return Promise.reject(new Error('Vaultage is locked'))
+    const sessionEpoch = sessionGuardRef.current.epoch
+    const expectedRevision = authoredRevision ?? authoredAgainst.revision ?? 1
+    const mutationId = crypto.randomUUID()
+    // Snapshot the user's intent before it waits behind another commit. React
+    // objects must not be able to change the eventual IPC payload by reference.
+    const queuedCommand = structuredClone(command)
+    return mutationQueueRef.current.enqueue(
+      sessionEpoch,
+      epoch => Boolean(vaultRef.current) && sessionGuardRef.current.isCurrent(epoch),
+      async () => {
+        // Use the revision that the UI actually read while authoring this
+        // command. Reading the revision only after the queue drains would let a
+        // stale full-entity update masquerade as a newer intent.
+        const committed = await commitVaultCommand(mutationId, expectedRevision, queuedCommand, sessionEpoch)
+        return resolve(committed.result, committed.vault)
+      },
+    )
+  }, [commitVaultCommand])
+
+  const persistDefaultFolders = useCallback((prepared: ReturnType<typeof prepareUnlockedVault>) => {
+    if (!prepared.changed) return
+    void runVaultCommand(
+      { type: 'bootstrap.defaults', folders: prepared.defaultFolders },
+      () => undefined,
+    ).catch(err => console.error('[vault] Failed to save default folders:', err))
+  }, [runVaultCommand])
 
   // ── Auth ─────────────────────────────────────────────────────────────────────
 
   const setup = useCallback(async (password: string) => {
+    const authEpoch = sessionGuardRef.current.captureAuthAttempt()
     dispatch({ type: 'SET_ERROR', error: null })
     const res = await window.vault.setup(password)
+    if (!sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) return
     if (res.success && res.data) {
       const prepared = prepareUnlockedVault(res.data)
+      sessionGuardRef.current.begin()
+      mutationQueueRef.current.reset()
+      vaultRef.current = prepared.vault
       dispatch({ type: 'UNLOCK', vault: prepared.vault, justCompletedSetup: true })
-      if (prepared.changed) void persist(prepared.vault).catch(err => console.error('[vault] Failed to save default folders:', err))
+      persistDefaultFolders(prepared)
     } else dispatch({ type: 'SET_ERROR', error: res.error ?? 'Setup failed' })
-  }, [persist])
+  }, [persistDefaultFolders])
 
   const unlockTouchID = useCallback(async () => {
+    const authEpoch = sessionGuardRef.current.captureAuthAttempt()
     dispatch({ type: 'SET_ERROR', error: null })
     const res = await window.vault.touchID()
+    if (!sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) return { cancelled: true }
     if (res.success && res.data) {
       const prepared = prepareUnlockedVault(res.data)
+      sessionGuardRef.current.begin()
+      mutationQueueRef.current.reset()
+      vaultRef.current = prepared.vault
       dispatch({ type: 'UNLOCK', vault: prepared.vault })
-      if (prepared.changed) void persist(prepared.vault).catch(err => console.error('[vault] Failed to save default folders:', err))
+      persistDefaultFolders(prepared)
     } else if (!res.cancelled) dispatch({ type: 'SET_ERROR', error: res.error ?? 'Touch ID failed' })
     return {
       notFound: res.notFound,
@@ -733,30 +627,60 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       authFailed: res.authFailed,
       touchIdInvalid: res.touchIdInvalid,
     }
-  }, [persist])
+  }, [persistDefaultFolders])
 
   const unlockPassword = useCallback(async (password: string) => {
+    const authEpoch = sessionGuardRef.current.captureAuthAttempt()
     dispatch({ type: 'SET_ERROR', error: null })
     const res = await window.vault.password(password)
+    if (!sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) return { success: false }
     if (res.success && res.data) {
       const prepared = prepareUnlockedVault(res.data)
+      sessionGuardRef.current.begin()
+      mutationQueueRef.current.reset()
+      vaultRef.current = prepared.vault
       dispatch({ type: 'UNLOCK', vault: prepared.vault })
-      if (prepared.changed) void persist(prepared.vault).catch(err => console.error('[vault] Failed to save default folders:', err))
+      persistDefaultFolders(prepared)
     } else dispatch({ type: 'SET_ERROR', error: res.error ?? 'Unlock failed' })
     return { success: res.success, wrongPassword: res.wrongPassword, touchIdRestored: res.touchIdRestored }
-  }, [persist])
+  }, [persistDefaultFolders])
 
   const lock = useCallback(async () => {
-    await window.vault.lock()
+    sessionGuardRef.current.end()
+    mutationQueueRef.current.reset()
+    vaultRef.current = null
     dispatch({ type: 'LOCK' })
+    await window.vault.lock()
   }, [])
 
   const signOut = useCallback(async () => {
     dispatch({ type: 'SET_ERROR', error: null })
-    const res = await window.vault.signOut()
+    // Invalidate queued and in-flight work before the destructive auth call.
+    // If main rejects sign-out, begin a fresh renderer epoch around the same
+    // still-unlocked snapshot rather than reviving the invalidated epoch.
+    const invalidatedEpoch = sessionGuardRef.current.end()
+    mutationQueueRef.current.reset()
+    let res
+    try {
+      res = await window.vault.signOut()
+    } catch (error) {
+      if (sessionGuardRef.current.epoch === invalidatedEpoch) {
+        sessionGuardRef.current.begin()
+        mutationQueueRef.current.reset()
+        dispatch({ type: 'SET_SAVING', saving: false })
+      }
+      const message = error instanceof Error ? error.message : 'Could not sign out'
+      dispatch({ type: 'SET_ERROR', error: message })
+      throw error
+    }
+    if (sessionGuardRef.current.epoch !== invalidatedEpoch) return
     if (res.success) {
+      vaultRef.current = null
       dispatch({ type: 'LOCK' })
     } else {
+      sessionGuardRef.current.begin()
+      mutationQueueRef.current.reset()
+      dispatch({ type: 'SET_SAVING', saving: false })
       const error = res.error ?? 'Could not sign out'
       dispatch({ type: 'SET_ERROR', error })
       throw new Error(error)
@@ -771,133 +695,146 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   // ── Folders ──────────────────────────────────────────────────────────────────
 
   const addFolder = useCallback(async (parentId: string, name: string) => {
-    if (!state.vault) return
     const folder: VaultFolder = { id: crypto.randomUUID(), name, children: [], secrets: [], itemOrder: [] }
-    await persist({
-      ...state.vault,
-      root: mapFolder(state.vault.root, parentId, f => ({
-        ...f,
-        children: [...f.children, folder],
-        itemOrder: [...orderedFolderItems(f), { kind: 'folder', id: folder.id }],
-      })),
-    })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'folder.create', parentId, folder }, () => undefined)
+  }, [runVaultCommand])
 
   const renameFolder = useCallback(async (id: string, name: string) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, root: mapFolder(state.vault.root, id, f => ({ ...f, name })) })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'folder.rename', folderId: id, name }, () => undefined)
+  }, [runVaultCommand])
 
   const deleteFolder = useCallback(async (id: string) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, root: removeFolder(state.vault.root, id) })
-    if (state.selectedFolderId === id) dispatch({ type: 'SELECT_FOLDER', id: state.vault.root.id })
-  }, [state.vault, state.selectedFolderId, persist])
+    const rootId = await runVaultCommand(
+      { type: 'folder.delete', folderId: id },
+      (result, vault) => commandResultString(result, 'rootId') ?? vault.root.id,
+    )
+    if (state.selectedFolderId === id) dispatch({ type: 'SELECT_FOLDER', id: rootId })
+  }, [state.selectedFolderId, runVaultCommand])
 
   const duplicateFolder = useCallback(async (id: string) => {
-    if (!state.vault || id === state.vault.root.id) return
-    const source = findFolderParent(state.vault.root, id)
-    if (!source) return
-    const cloned = cloneImportedFolderTree(source.folder, undefined, new Date().toISOString())
-    if (!cloned) return
-    const copy: VaultFolder = {
-      ...cloned.folder,
-      name: duplicateFolderName(findFolder(state.vault.root, source.parentId) ?? state.vault.root, source.folder.name),
-    }
-    await persist({
-      ...state.vault,
-      root: mapFolder(state.vault.root, source.parentId, parent => insertFolderAfter(parent, id, copy)),
-    })
-    dispatch({ type: 'SELECT_FOLDER', id: copy.id })
-    if (cloned.firstSecretId) dispatch({ type: 'SELECT_SECRET', id: cloned.firstSecretId })
-  }, [state.vault, persist])
+    const duplicated = await runVaultCommand(
+      { type: 'folder.duplicate', folderId: id },
+      result => commandFolderImportResult(result),
+    )
+    if (!duplicated) return
+    dispatch({ type: 'SELECT_FOLDER', id: duplicated.folderId })
+    if (duplicated.firstSecretId) dispatch({ type: 'SELECT_SECRET', id: duplicated.firstSecretId })
+  }, [runVaultCommand])
 
   const moveTreeItem = useCallback(async (item: VaultTreeItemRef, target: VaultTreeMoveTarget) => {
-    if (!state.vault) return
-    const moved = moveVaultTreeItem(state.vault.root, item, target)
+    const moved = await runVaultCommand(
+      { type: 'folder.move-item', item, target },
+      result => commandMoveResult(result),
+    )
     if (!moved) return
-    await persist({ ...state.vault, root: moved.root })
     if (moved.selectedFolderId) dispatch({ type: 'SELECT_FOLDER', id: moved.selectedFolderId })
     if (moved.selectedSecretId) dispatch({ type: 'SELECT_SECRET', id: moved.selectedSecretId })
-  }, [state.vault, persist])
+  }, [runVaultCommand])
 
   const sortFolderItems = useCallback(async (folderId: string, options: VaultFolderSortOptions) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, root: sortFolderTreeItems(state.vault.root, folderId, options) })
-  }, [state.vault, persist])
+    await runVaultCommand(
+      { type: 'folder.sort', folderId, key: options.key, direction: options.direction },
+      () => undefined,
+    )
+  }, [runVaultCommand])
 
   const importFolderTree = useCallback(async (
     parentId: string,
     folder: VaultFolder,
     selectedSecretIds?: Set<string>,
   ): Promise<ImportedFolderTreeResult> => {
-    if (!state.vault) return { folderId: parentId, firstSecretId: null, secretCount: 0 }
-    const cloned = cloneImportedFolderTree(folder, selectedSecretIds, new Date().toISOString())
-    if (!cloned || cloned.secretCount === 0) {
-      return { folderId: parentId, firstSecretId: null, secretCount: 0 }
-    }
-    await persist({
-      ...state.vault,
-      root: mapFolder(state.vault.root, parentId, f => ({
-        ...f,
-        children: [...f.children, cloned.folder],
-        itemOrder: [...orderedFolderItems(f), { kind: 'folder', id: cloned.folder.id }],
-      })),
-    })
-    return {
-      folderId: cloned.folder.id,
-      firstSecretId: cloned.firstSecretId,
-      secretCount: cloned.secretCount,
-    }
-  }, [state.vault, persist])
+    return runVaultCommand(
+      {
+        type: 'folder.import',
+        parentId,
+        folder,
+        selectedSecretIds: selectedSecretIds ? [...selectedSecretIds] : undefined,
+      },
+      result => commandFolderImportResult(result)
+        ?? { folderId: parentId, firstSecretId: null, secretCount: 0 },
+    )
+  }, [runVaultCommand])
 
   // ── Secrets ──────────────────────────────────────────────────────────────────
 
   const addSecrets = useCallback(async (folderId: string, secrets: SecretDraft[]) => {
-    if (!state.vault || secrets.length === 0) return []
+    if (secrets.length === 0) return []
     const now = new Date().toISOString()
     const created: VaultSecret[] = secrets.map(s => ({
       ...s,
+      fields: s.fields.map(field => ({ ...field, id: field.id ?? crypto.randomUUID() })),
       id: crypto.randomUUID(),
       createdAt: now,
       updatedAt: now,
     }))
-    await persist({
-      ...state.vault,
-      root: mapFolder(state.vault.root, folderId, f => ({
-        ...f,
-        secrets: [...f.secrets, ...created],
-        itemOrder: [
-          ...orderedFolderItems(f),
-          ...created.map(secret => ({ kind: 'secret' as const, id: secret.id })),
-        ],
-      })),
-    })
+    await runVaultCommand({ type: 'secret.create-many', folderId, secrets: created }, () => undefined)
     return created
-  }, [state.vault, persist])
+  }, [runVaultCommand])
 
   const addSecret = useCallback(async (folderId: string, data: SecretDraft) => {
     await addSecrets(folderId, [data])
   }, [addSecrets])
 
-  const updateSecret = useCallback(async (folderId: string, secret: VaultSecret) => {
-    if (!state.vault) return
-    const updated = { ...secret, updatedAt: new Date().toISOString() }
-    await persist({ ...state.vault, root: mapFolder(state.vault.root, folderId, f => ({ ...f, secrets: f.secrets.map(s => s.id === secret.id ? updated : s) })) })
-  }, [state.vault, persist])
+  const addSecretsToEnvProject = useCallback(async (
+    folderId: string,
+    projectId: string,
+    drafts: AgentProjectSecretDraft[],
+  ) => {
+    if (drafts.length === 0) return []
+    const now = new Date().toISOString()
+    const created: VaultSecret[] = drafts.map(({ secret }) => ({
+      ...secret,
+      fields: secret.fields.map(field => ({ ...field, id: field.id ?? crypto.randomUUID() })),
+      id: crypto.randomUUID(),
+      createdAt: now,
+      updatedAt: now,
+    }))
+    const entries: EnvEntry[] = drafts.map((draft, index) => ({
+      envKey: draft.envKey,
+      fieldKey: draft.fieldKey,
+      fieldId: uniqueFieldByKey(created[index], draft.fieldKey)?.id,
+      secretId: created[index].id,
+    }))
+
+    await runVaultCommand({
+      type: 'secret.create-many-and-map',
+      folderId,
+      projectId,
+      secrets: created,
+      entries,
+    }, () => undefined)
+    return created
+  }, [runVaultCommand])
+
+  const updateSecret = useCallback(async (
+    folderId: string,
+    secret: VaultSecret,
+    authoredRevision?: number,
+  ) => {
+    await runVaultCommand({ type: 'secret.update', folderId, secret }, () => undefined, authoredRevision)
+  }, [runVaultCommand])
+
+  const setSecretProviderLink = useCallback(async (
+    folderId: string,
+    secretId: string,
+    link: { providerId: string; remoteName: string; status: 'active' | 'revoked' | 'missing' } | null,
+  ) => {
+    await runVaultCommand({ type: 'secret.provider-link.set', folderId, secretId, link }, () => undefined)
+  }, [runVaultCommand])
 
   const deleteSecret = useCallback(async (folderId: string, secretId: string) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, root: removeSecretFromFolder(state.vault.root, folderId, secretId) })
+    await runVaultCommand({ type: 'secret.delete', folderId, secretId }, () => undefined)
     if (state.selectedSecretId === secretId) dispatch({ type: 'SELECT_SECRET', id: null })
-  }, [state.vault, state.selectedSecretId, persist])
+  }, [state.selectedSecretId, runVaultCommand])
 
   // Fire-and-forget main-process mutation; doesn't block the copy UX.
   const trackUsage = useCallback((folderId: string, secretId: string) => {
-    if (!state.vault) return
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return
     void folderId
     dispatch({ type: 'TRACK_USAGE', secretId, usedAt: new Date().toISOString() })
     window.vault.trackUsage({ secretId }).then(res => {
+      if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return
       if (res.success && typeof res.revision === 'number') {
         dispatch({ type: 'SET_REVISION', revision: res.revision })
       } else if (!res.success) {
@@ -909,15 +846,18 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const copySecretField = useCallback(async (
     secretId: string,
     fieldKey: string,
-    options?: { clearAfterMs?: number },
+    options?: { clearAfterMs?: number; fieldId?: string },
   ) => {
-    if (!state.vault) return false
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     const usedAt = new Date().toISOString()
     const res = await window.vault.copySecretField({
       secretId,
       fieldKey,
+      fieldId: options?.fieldId,
       clearAfterMs: options?.clearAfterMs,
     })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     if (!res.success) {
       console.error('[vault] Failed to copy secret field:', res.error)
       return false
@@ -927,10 +867,12 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return true
   }, [state.vault])
 
-  const copySecretImageField = useCallback(async (secretId: string, fieldKey: string) => {
-    if (!state.vault) return false
+  const copySecretImageField = useCallback(async (secretId: string, fieldKey: string, fieldId?: string) => {
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     const usedAt = new Date().toISOString()
-    const res = await window.vault.copySecretImageField({ secretId, fieldKey })
+    const res = await window.vault.copySecretImageField({ secretId, fieldKey, fieldId })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     if (!res.success) {
       console.error('[vault] Failed to copy secret image field:', res.error)
       return false
@@ -940,12 +882,21 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return true
   }, [state.vault])
 
-  const revealSecretField = useCallback(async (secretId: string, fieldKey: string, options?: { pin?: string }) => {
-    if (!state.vault) return null
+  const revealSecretField = useCallback(async (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => {
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const usedAt = new Date().toISOString()
     const confirmationPhrase = options?.pin ? undefined : secretRevealConfirmationPhrase()
     if (confirmationPhrase === null) return null
-    const res = await window.vault.revealSecretField({ secretId, fieldKey, confirmationPhrase, pin: options?.pin })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
+    const res = await window.vault.revealSecretField({
+      secretId,
+      fieldKey,
+      fieldId: options?.fieldId,
+      confirmationPhrase,
+      pin: options?.pin,
+    })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     if (!res.success || typeof res.value !== 'string') {
       console.error('[vault] Failed to reveal secret field:', res.error)
       return null
@@ -955,12 +906,21 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     return res.value
   }, [state.vault])
 
-  const revealSecretImageField = useCallback(async (secretId: string, fieldKey: string, options?: { pin?: string }) => {
-    if (!state.vault) return null
+  const revealSecretImageField = useCallback(async (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => {
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const usedAt = new Date().toISOString()
     const confirmationPhrase = options?.pin ? undefined : secretRevealConfirmationPhrase()
     if (confirmationPhrase === null) return null
-    const res = await window.vault.revealSecretImageField({ secretId, fieldKey, confirmationPhrase, pin: options?.pin })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
+    const res = await window.vault.revealSecretImageField({
+      secretId,
+      fieldKey,
+      fieldId: options?.fieldId,
+      confirmationPhrase,
+      pin: options?.pin,
+    })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     if (!res.success || typeof res.value !== 'string') {
       console.error('[vault] Failed to reveal secret image field:', res.error)
       return null
@@ -971,11 +931,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   }, [state.vault])
 
   const revealSecretFields = useCallback(async (secretId: string, options?: { pin?: string }) => {
-    if (!state.vault) return null
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const usedAt = new Date().toISOString()
     const confirmationPhrase = options?.pin ? undefined : secretRevealConfirmationPhrase()
     if (confirmationPhrase === null) return null
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const res = await window.vault.revealSecretFields({ secretId, confirmationPhrase, pin: options?.pin })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     if (!res.success || !Array.isArray(res.fields)) {
       console.error('[vault] Failed to reveal secret fields:', res.error)
       return null
@@ -986,170 +949,187 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   }, [state.vault])
 
   const setRevealPin = useCallback(async (pin: string, masterPassword: string) => {
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) {
+      return { success: false, error: 'Vaultage is locked' }
+    }
     dispatch({ type: 'SET_ERROR', error: null })
     const res = await window.vault.setRevealPin({ pin, masterPassword })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) {
+      return { success: false, error: 'Vault session changed' }
+    }
     if (res.success && res.data) {
-      dispatch({ type: 'UPDATE_VAULT', vault: normaliseVault(res.data) })
+      const vault = normaliseVault(res.data)
+      installNewerSnapshot(vault, 'update')
     } else if (!res.success) {
       dispatch({ type: 'SET_ERROR', error: res.error ?? 'Could not set reveal PIN' })
     }
     return { success: res.success, wrongPassword: res.wrongPassword, error: res.error }
-  }, [])
+  }, [installNewerSnapshot])
 
   const clearRevealPin = useCallback(async (masterPassword: string) => {
+    const sessionEpoch = sessionGuardRef.current.epoch
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) {
+      return { success: false, error: 'Vaultage is locked' }
+    }
     dispatch({ type: 'SET_ERROR', error: null })
     const res = await window.vault.clearRevealPin({ masterPassword })
+    if (!sessionGuardRef.current.isCurrent(sessionEpoch)) {
+      return { success: false, error: 'Vault session changed' }
+    }
     if (res.success && res.data) {
-      dispatch({ type: 'UPDATE_VAULT', vault: normaliseVault(res.data) })
+      const vault = normaliseVault(res.data)
+      installNewerSnapshot(vault, 'update')
     } else if (!res.success) {
       dispatch({ type: 'SET_ERROR', error: res.error ?? 'Could not clear reveal PIN' })
     }
     return { success: res.success, wrongPassword: res.wrongPassword, error: res.error }
-  }, [])
+  }, [installNewerSnapshot])
 
   // ── Providers ────────────────────────────────────────────────────────────────
 
-  const addProvider = useCallback(async (p: Omit<Provider, 'id'>) => {
-    if (!state.vault) return
-    let providerGroups = state.vault.providerGroups ?? []
-    let groupId = p.groupId ?? null
+  const addProvider = useCallback(async (
+    p: Omit<Provider, 'id'>,
+    authorization?: ProviderMutationAuthorization,
+  ) => {
+    const category = p.groupId == null ? providerTypeCategory(p.type) : null
+    const provider: Provider = { ...p, id: crypto.randomUUID(), groupId: p.groupId ?? undefined }
+    await runVaultCommand({
+      type: 'provider.create',
+      provider,
+      categoryId: category ?? undefined,
+      categoryLabel: category ? serviceCategoryLabel(category) : undefined,
+      ...(authorization?.verificationGrant
+        ? { verificationGrant: authorization.verificationGrant }
+        : {}),
+    }, () => undefined, authorization?.expectedRevision)
+  }, [runVaultCommand])
 
-    // File the service into its catalog-category folder, reusing a matching
-    // folder when one already exists (by category, or by a same-named manual
-    // folder) and otherwise creating one that mirrors the catalog icon + name.
-    const category = groupId === null ? providerTypeCategory(p.type) : null
-    if (category) {
-      const label = serviceCategoryLabel(category)
-      const existing =
-        providerGroups.find(group => group.categoryId === category) ??
-        providerGroups.find(group => group.name.toLowerCase() === label.toLowerCase())
-      if (existing) {
-        groupId = existing.id
-        if (existing.categoryId !== category) {
-          providerGroups = providerGroups.map(group =>
-            group.id === existing.id ? { ...group, categoryId: category } : group,
-          )
-        }
-      } else {
-        const group: ProviderGroup = { id: crypto.randomUUID(), name: label, categoryId: category }
-        providerGroups = [...providerGroups, group]
-        groupId = group.id
-      }
-    }
+  const updateProvider = useCallback(async (
+    p: Provider,
+    authorization?: ProviderMutationAuthorization,
+  ) => {
+    await runVaultCommand({
+      type: 'provider.update',
+      provider: p,
+      ...(authorization?.verificationGrant
+        ? { verificationGrant: authorization.verificationGrant }
+        : {}),
+    }, () => undefined, authorization?.expectedRevision)
+  }, [runVaultCommand])
 
-    const provider: Provider = { ...p, id: crypto.randomUUID(), groupId: groupId ?? undefined }
-    await persist({
-      ...state.vault,
-      providers: [...(state.vault.providers ?? []), provider],
-      providerGroups,
-    })
-  }, [state.vault, persist])
-
-  const updateProvider = useCallback(async (p: Provider) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, providers: (state.vault.providers ?? []).map(x => x.id === p.id ? p : x) })
-  }, [state.vault, persist])
-
-  const updateProviderAndSecret = useCallback(async (p: Provider, folderId: string, secret: VaultSecret) => {
-    if (!state.vault) return
-    const updatedSecret = { ...secret, updatedAt: new Date().toISOString() }
-    await persist({
-      ...state.vault,
-      providers: (state.vault.providers ?? []).map(x => x.id === p.id ? p : x),
-      root: mapFolder(state.vault.root, folderId, f => ({
-        ...f,
-        secrets: f.secrets.map(s => s.id === secret.id ? updatedSecret : s),
-      })),
-    })
-  }, [state.vault, persist])
+  const updateProviderAndSecret = useCallback(async (
+    p: Provider,
+    folderId: string,
+    secret: VaultSecret,
+    authorization?: ProviderMutationAuthorization,
+  ) => {
+    await runVaultCommand({
+      type: 'provider.update-with-secret',
+      provider: p,
+      folderId,
+      secret,
+      ...(authorization?.verificationGrant
+        ? { verificationGrant: authorization.verificationGrant }
+        : {}),
+    }, () => undefined, authorization?.expectedRevision)
+  }, [runVaultCommand])
 
   const deleteProvider = useCallback(async (id: string) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, providers: (state.vault.providers ?? []).filter(p => p.id !== id) })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'provider.delete', providerId: id }, () => undefined)
+  }, [runVaultCommand])
 
   const addProviderGroup = useCallback(async (name: string) => {
-    if (!state.vault) return
     const group: ProviderGroup = { id: crypto.randomUUID(), name }
-    await persist({ ...state.vault, providerGroups: [...(state.vault.providerGroups ?? []), group] })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'provider-group.create', group }, () => undefined)
+  }, [runVaultCommand])
 
   const renameProviderGroup = useCallback(async (id: string, name: string) => {
-    if (!state.vault) return
-    await persist({
-      ...state.vault,
-      providerGroups: (state.vault.providerGroups ?? []).map(group => group.id === id ? { ...group, name } : group),
-    })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'provider-group.rename', groupId: id, name }, () => undefined)
+  }, [runVaultCommand])
 
   const deleteProviderGroup = useCallback(async (id: string) => {
-    if (!state.vault) return
-    await persist({
-      ...state.vault,
-      providerGroups: (state.vault.providerGroups ?? []).filter(group => group.id !== id),
-      providers: (state.vault.providers ?? []).map(provider => provider.groupId === id ? { ...provider, groupId: undefined } : provider),
-    })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'provider-group.delete', groupId: id }, () => undefined)
+  }, [runVaultCommand])
 
   const moveProvider = useCallback(async (providerId: string, groupId: string | null, targetProviderId?: string, position?: 'before' | 'after') => {
-    if (!state.vault) return
-    const provider = (state.vault.providers ?? []).find(p => p.id === providerId)
-    if (!provider || provider.id === targetProviderId) return
-    await persist({
-      ...state.vault,
-      providers: insertProvider(state.vault.providers ?? [], provider, groupId, targetProviderId, position),
-    })
-  }, [state.vault, persist])
+    await runVaultCommand({
+      type: 'provider.move',
+      providerId,
+      groupId,
+      targetProviderId,
+      position,
+    }, () => undefined)
+  }, [runVaultCommand])
 
   // ── Env projects ─────────────────────────────────────────────────────────────
 
-  const addEnvProject = useCallback(async (p: Omit<EnvProject, 'id'>) => {
-    if (!state.vault) return null
-    const project: EnvProject = { ...p, id: crypto.randomUUID() }
-    await persist({ ...state.vault, envProjects: [...(state.vault.envProjects ?? []), project] })
+  const addEnvProject = useCallback(async (p: Omit<EnvProject, 'id'>, replaceProjectId?: string) => {
+    const project = ensureProjectEnvironments({ ...p, id: crypto.randomUUID() })
+    await runVaultCommand({
+      type: 'env-project.create', project,
+      ...(replaceProjectId ? { replaceProjectId } : {}),
+    }, () => undefined)
     return project
-  }, [state.vault, persist])
+  }, [runVaultCommand])
 
   const updateEnvProject = useCallback(async (p: EnvProject) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, envProjects: (state.vault.envProjects ?? []).map(x => x.id === p.id ? p : x) })
-  }, [state.vault, persist])
+    const project = ensureProjectEnvironments(p)
+    await runVaultCommand({ type: 'env-project.update', project }, () => undefined)
+  }, [runVaultCommand])
 
   const updateEnvProjects = useCallback(async (projects: EnvProject[]) => {
-    if (!state.vault) return
-    const byId = new Map(projects.map(project => [project.id, project]))
-    await persist({
-      ...state.vault,
-      envProjects: (state.vault.envProjects ?? []).map(project => byId.get(project.id) ?? project),
-    })
-  }, [state.vault, persist])
+    await runVaultCommand({
+      type: 'env-project.update-many',
+      projects: projects.map(ensureProjectEnvironments),
+    }, () => undefined)
+  }, [runVaultCommand])
+
+  const activateEnvProject = useCallback(async (projectId: string, replaceProjectId?: string) => {
+    await runVaultCommand({
+      type: 'env-project.activate',
+      projectId,
+      ...(replaceProjectId ? { replaceProjectId } : {}),
+    }, () => undefined)
+  }, [runVaultCommand])
 
   const deleteEnvProject = useCallback(async (id: string) => {
-    if (!state.vault) return
-    await persist({ ...state.vault, envProjects: (state.vault.envProjects ?? []).filter(p => p.id !== id) })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'env-project.delete', projectId: id }, () => undefined)
+  }, [runVaultCommand])
 
   // ── Preferences ──────────────────────────────────────────────────────────────
 
   const setPreferences = useCallback(async (patch: Partial<VaultPreferences>) => {
-    if (!state.vault) return
-    const next: VaultPreferences = { ...(state.vault.preferences ?? {}), ...patch }
-    await persist({ ...state.vault, preferences: next })
-  }, [state.vault, persist])
+    await runVaultCommand({ type: 'preferences.patch', patch }, () => undefined)
+  }, [runVaultCommand])
+
+  const value = useMemo<Ctx>(() => ({
+    state, setup, unlockTouchID, unlockPassword, lock, signOut,
+    selectFolder, selectSecret,
+    addFolder, renameFolder, deleteFolder, duplicateFolder, moveTreeItem, sortFolderItems, importFolderTree,
+    addSecret, addSecrets, addSecretsToEnvProject, updateSecret, setSecretProviderLink, deleteSecret, trackUsage, copySecretField, copySecretImageField,
+    revealSecretField, revealSecretImageField, revealSecretFields,
+    setRevealPin, clearRevealPin,
+    addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
+    addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
+    addEnvProject, updateEnvProject, updateEnvProjects, activateEnvProject, deleteEnvProject,
+    setPreferences,
+  }), [
+    state,
+    setup, unlockTouchID, unlockPassword, lock, signOut,
+    selectFolder, selectSecret,
+    addFolder, renameFolder, deleteFolder, duplicateFolder, moveTreeItem, sortFolderItems, importFolderTree,
+    addSecret, addSecrets, addSecretsToEnvProject, updateSecret, setSecretProviderLink, deleteSecret, trackUsage, copySecretField, copySecretImageField,
+    revealSecretField, revealSecretImageField, revealSecretFields,
+    setRevealPin, clearRevealPin,
+    addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
+    addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
+    addEnvProject, updateEnvProject, updateEnvProjects, activateEnvProject, deleteEnvProject,
+    setPreferences,
+  ])
 
   return (
-    <VaultCtx.Provider value={{
-      state, setup, unlockTouchID, unlockPassword, lock, signOut,
-      selectFolder, selectSecret,
-      addFolder, renameFolder, deleteFolder, duplicateFolder, moveTreeItem, sortFolderItems, importFolderTree,
-      addSecret, addSecrets, updateSecret, deleteSecret, trackUsage, copySecretField, copySecretImageField,
-      revealSecretField, revealSecretImageField, revealSecretFields,
-      setRevealPin, clearRevealPin,
-      addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
-      addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
-      addEnvProject, updateEnvProject, updateEnvProjects, deleteEnvProject,
-      setPreferences,
-    }}>
+    <VaultCtx.Provider value={value}>
       {children}
     </VaultCtx.Provider>
   )

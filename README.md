@@ -3,8 +3,14 @@
 Vaultage Community is a local encrypted vault for secrets, API keys, secure
 notes, and project `.env` workflows.
 
+This repository is pre-release source for inspection and development. Vaultage
+has not published an official Community binary or customer-ready release.
+
+The supported desktop and packaging target is macOS 12 or newer. Windows and
+Linux installers are not implemented or advertised.
+
 This public source distribution includes My Vault and local Projects only. It
-does not require an account and does not include Agent workflows, CLI helpers,
+does not require an account, has no active-Project limit, and does not include Agent workflows, CLI helpers,
 Services/provider connectors, managed OAuth, token lifecycle automation,
 browser extension code, cloud sync/audit, spend dashboards, signing identities,
 or private paid modules.
@@ -13,7 +19,8 @@ Product, feature, architecture, and release docs live in [docs/](./docs/README.m
 
 ## Current Product Surface
 
-- **My Vault**: encrypted local vault with Touch ID unlock on macOS, folders,
+- **My Vault**: encrypted local vault with macOS user-presence unlock (Touch ID
+  when available; macOS may offer system-password fallback), folders,
   secrets, import/export, reveal/copy flows, and local audit viewing/export.
 - **Projects**: local project records, project scanning, env-key mapping, and
   explicit `.env` export from the unlocked local vault.
@@ -24,8 +31,9 @@ Current guarantees live in [SECURITY.md](./SECURITY.md).
 
 Important constraints:
 
-- Plaintext JSON and `.env` export flows require explicit confirmation, Touch
-  ID user presence on macOS, or exact typed confirmation on non-macOS builds.
+- Plaintext JSON and `.env` export flows require the flow-specific explicit
+  confirmation: macOS user presence where configured, or exact typed
+  confirmation where specified. Non-macOS builds are not a supported product.
 - Protected password inputs use macOS Secure Event Input while focused.
 - CSV import has explicit size and parser-shape limits before creating secrets.
 - Sensitive main-process events are written to a redacted hash-chained local

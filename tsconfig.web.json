@@ -55,6 +55,21 @@
       ],
       "#sidebar": [
         "src/renderer/src/components/Sidebar.open.tsx"
+      ],
+      "#commercial-readiness": [
+        "src/renderer/src/components/CommercialReadiness.disabled.tsx"
+      ],
+      "#commercial-project-activation": [
+        "src/renderer/src/components/CommercialProjectActivation.disabled.tsx"
+      ],
+      "#commercial-capabilities": [
+        "src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts"
+      ],
+      "#commercial-account": [
+        "src/renderer/src/commercialAccountContext.disabled.tsx"
+      ],
+      "#commercial-account-settings": [
+        "src/renderer/src/components/CommercialAccountSettings.disabled.tsx"
       ]
     }
   }

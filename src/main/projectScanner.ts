@@ -1,19 +1,28 @@
-import { promises as fs } from 'fs'
+import { constants, promises as fs } from 'fs'
 import type { Dirent } from 'fs'
-import { basename, extname, isAbsolute, join, resolve } from 'path'
-import type {
-  ProjectScanEnvFile,
-  ProjectScanEnvKey,
-  ProjectScanFileRef,
-  ProjectScanProjectType,
-  ProjectScanRequest,
-  ProjectScanResult,
-  ProjectScanService,
+import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'path'
+import {
+  MAX_PROJECT_MANUAL_FILES,
+  type ProjectDiscoverRequest,
+  type ProjectDiscoverResult,
+  type ProjectScanEnvFile,
+  type ProjectScanEnvKey,
+  type ProjectScanCandidate,
+  type ProjectScanFileRef,
+  type ProjectScanProjectType,
+  type ProjectScanRequest,
+  type ProjectScanResult,
+  type ProjectScanService,
 } from '../shared/projectScan'
 
 const MAX_SCAN_FILES = 1_200
+const MAX_DISCOVERY_DIRS = 32
+const MAX_DISCOVERY_CANDIDATES = 12
 const MAX_FILE_BYTES = 512 * 1024
 const MAX_MANUAL_FILE_BYTES = 1024 * 1024
+const MAX_MANUAL_TOTAL_BYTES = 8 * 1024 * 1024
+const MAX_SCAN_TOTAL_BYTES = 32 * 1024 * 1024
+const MAX_READ_CONCURRENCY = 8
 const MAX_ENV_VALUE_CHARS = 16_384
 
 const IGNORED_DIRS = new Set([
@@ -150,6 +159,16 @@ interface FileRead {
   text: string
 }
 
+interface PreparedScanFile extends ScanFile {
+  size: number
+}
+
+export interface DotenvAssignment {
+  key: string
+  value: string
+  line: number
+}
+
 function confidence(score: number): 'high' | 'medium' | 'low' {
   if (score >= 4) return 'high'
   if (score >= 2) return 'medium'
@@ -165,10 +184,11 @@ function normalizeKey(key: string): string | null {
 
 function environmentFromName(filePath: string): string | undefined {
   const name = basename(filePath).toLowerCase()
-  if (/prod|production/.test(name)) return 'production'
-  if (/stag|stage/.test(name)) return 'staging'
-  if (/dev|development|local/.test(name)) return 'development'
-  if (/test|testing/.test(name)) return 'testing'
+  const tokens = name.split(/[^a-z0-9]+/).filter(Boolean)
+  if (tokens.some(token => token === 'prod' || token === 'production')) return 'production'
+  if (tokens.some(token => token === 'stag' || token === 'stage' || token === 'staging')) return 'staging'
+  if (tokens.some(token => token === 'test' || token === 'testing')) return 'testing'
+  if (tokens.some(token => token === 'dev' || token === 'development' || token === 'local')) return 'development'
   return undefined
 }
 
@@ -186,7 +206,7 @@ function shouldScanFile(filePath: string): boolean {
 
 function safeExcerpt(line: string): string {
   return line
-    .replace(/(['"`])[^'"`]{12,}\1/g, '$1[redacted]$1')
+    .replace(/(['"`])(?:\\.|[^'"`])*\1/g, '$1[redacted]$1')
     .replace(/=\s*.+$/, '= [redacted]')
     .trim()
     .slice(0, 160)
@@ -217,6 +237,10 @@ async function collectProjectFiles(rootPath: string): Promise<{ files: ScanFile[
     for (const entry of entries) {
       if (files.length >= MAX_SCAN_FILES) break
       const next = join(dir, entry.name)
+      if (entry.isSymbolicLink()) {
+        skipped += 1
+        continue
+      }
       if (entry.isDirectory()) {
         if (IGNORED_DIRS.has(entry.name)) continue
         await walk(next, depth + 1)
@@ -236,15 +260,66 @@ async function collectProjectFiles(rootPath: string): Promise<{ files: ScanFile[
   return { files, skipped, warnings }
 }
 
-async function readScanFile(file: ScanFile): Promise<FileRead | null> {
-  const stat = await fs.stat(file.path).catch(() => null)
-  if (!stat?.isFile()) return null
-  const maxBytes = file.manual ? MAX_MANUAL_FILE_BYTES : MAX_FILE_BYTES
-  if (stat.size > maxBytes) return null
-  const buffer = await fs.readFile(file.path).catch(() => null)
-  if (!buffer) return null
-  if (buffer.includes(0)) return null
-  return { file, text: buffer.toString('utf8') }
+async function prepareScanFiles(files: ScanFile[]): Promise<{
+  files: PreparedScanFile[]
+  skipped: number
+  warnings: string[]
+}> {
+  if (files.filter(file => file.manual).length > MAX_PROJECT_MANUAL_FILES) {
+    throw new Error(`Choose at most ${MAX_PROJECT_MANUAL_FILES} manual scan files`)
+  }
+
+  const prepared: PreparedScanFile[] = []
+  const warnings: string[] = []
+  let skipped = 0
+  let totalBytes = 0
+  let manualBytes = 0
+
+  for (const file of files) {
+    const stat = await fs.lstat(file.path).catch(() => null)
+    const maxBytes = file.manual ? MAX_MANUAL_FILE_BYTES : MAX_FILE_BYTES
+    if (!stat?.isFile() || stat.isSymbolicLink() || stat.size > maxBytes) {
+      skipped += 1
+      continue
+    }
+    if (file.manual && manualBytes + stat.size > MAX_MANUAL_TOTAL_BYTES) {
+      skipped += 1
+      if (!warnings.some(warning => warning.includes('manual-file byte budget'))) {
+        warnings.push(`Skipped manual files beyond the ${formatByteLimit(MAX_MANUAL_TOTAL_BYTES)} manual-file byte budget.`)
+      }
+      continue
+    }
+    if (totalBytes + stat.size > MAX_SCAN_TOTAL_BYTES) {
+      skipped += 1
+      if (!warnings.some(warning => warning.includes('total scan byte budget'))) {
+        warnings.push(`Stopped reading files beyond the ${formatByteLimit(MAX_SCAN_TOTAL_BYTES)} total scan byte budget.`)
+      }
+      continue
+    }
+    prepared.push({ ...file, size: stat.size })
+    totalBytes += stat.size
+    if (file.manual) manualBytes += stat.size
+  }
+
+  return { files: prepared, skipped, warnings }
+}
+
+async function readScanFile(file: PreparedScanFile): Promise<FileRead | null> {
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null
+  try {
+    handle = await fs.open(file.path, constants.O_RDONLY | noFollowFlag())
+    const pathStat = await fs.lstat(file.path)
+    if (pathStat.isSymbolicLink()) return null
+    const stat = await handle.stat()
+    if (!stat.isFile() || stat.size !== file.size) return null
+    const buffer = await handle.readFile()
+    if (buffer.length > file.size || buffer.includes(0)) return null
+    return { file, text: buffer.toString('utf8') }
+  } catch {
+    return null
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
 }
 
 function addSource(target: ProjectScanEnvKey, source: ProjectScanFileRef) {
@@ -257,14 +332,87 @@ function addSource(target: ProjectScanEnvKey, source: ProjectScanFileRef) {
   if (!exists) target.sources.push(source)
 }
 
-function parseDotenvValue(raw: string): string {
-  let value = raw.trim()
-  const hashIndex = value.search(/\s+#/)
-  if (hashIndex >= 0) value = value.slice(0, hashIndex).trim()
-  if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
-    value = value.slice(1, -1)
+export function parseDotenvValue(raw: string): string {
+  const value = raw.trimStart()
+  if (!value) return ''
+
+  const quote = value[0]
+  if (quote === '"' || quote === "'") {
+    let parsed = ''
+    let escaped = false
+    for (let index = 1; index < value.length; index += 1) {
+      const char = value[index]
+      if (quote === '"' && escaped) {
+        parsed += dotenvEscape(char)
+        escaped = false
+        continue
+      }
+      if (quote === '"' && char === '\\') {
+        escaped = true
+        continue
+      }
+      if (char === quote) return parsed.slice(0, MAX_ENV_VALUE_CHARS)
+      parsed += char
+    }
+    if (escaped) parsed += '\\'
+    return parsed.slice(0, MAX_ENV_VALUE_CHARS)
   }
-  return value.replace(/\\n/g, '\n').slice(0, MAX_ENV_VALUE_CHARS)
+
+  const commentIndex = value.search(/\s+#/)
+  return (commentIndex >= 0 ? value.slice(0, commentIndex) : value)
+    .trimEnd()
+    .slice(0, MAX_ENV_VALUE_CHARS)
+}
+
+export function parseDotenvAssignments(text: string): DotenvAssignment[] {
+  const lines = text.split(/\r?\n/)
+  const assignments: DotenvAssignment[] = []
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const lineNumber = index + 1
+    const match = lines[index].match(/^\uFEFF?\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
+    if (!match) continue
+
+    let raw = match[2] ?? ''
+    const quote = raw.trimStart()[0]
+    while (
+      (quote === '"' || quote === "'") &&
+      !hasClosingDotenvQuote(raw.trimStart(), quote) &&
+      index + 1 < lines.length
+    ) {
+      index += 1
+      raw += `\n${lines[index]}`
+    }
+    assignments.push({ key: match[1], value: parseDotenvValue(raw), line: lineNumber })
+  }
+
+  return assignments
+}
+
+function hasClosingDotenvQuote(value: string, quote: '"' | "'"): boolean {
+  let escaped = false
+  for (let index = 1; index < value.length; index += 1) {
+    const char = value[index]
+    if (quote === '"' && escaped) {
+      escaped = false
+      continue
+    }
+    if (quote === '"' && char === '\\') {
+      escaped = true
+      continue
+    }
+    if (char === quote) return true
+  }
+  return false
+}
+
+function dotenvEscape(char: string): string {
+  if (char === 'n') return '\n'
+  if (char === 'r') return '\r'
+  if (char === 't') return '\t'
+  if (char === '"') return '"'
+  if (char === '\\') return '\\'
+  return `\\${char}`
 }
 
 function serviceForKey(key: string): { id: string; label: string } | null {
@@ -300,38 +448,43 @@ function extractEnvKeys(reads: FileRead[]): { envKeys: ProjectScanEnvKey[]; envF
     const filePath = read.file.path
     const lines = read.text.split(/\r?\n/)
     const fileEnvironment = environmentFromName(filePath)
-    let envFileKeyCount = 0
-
-    for (let index = 0; index < lines.length; index += 1) {
-      const line = lines[index]
-      const lineNumber = index + 1
-      const dotenvMatch = line.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/)
-
-      if (dotenvMatch && isEnvFile(filePath)) {
-        const key = normalizeKey(dotenvMatch[1].toUpperCase())
+    if (isEnvFile(filePath)) {
+      let envFileKeyCount = 0
+      for (const assignment of parseDotenvAssignments(read.text)) {
+        const key = normalizeKey(assignment.key.toUpperCase())
         if (!key) continue
         const envKey = get(key)
         envFileKeyCount += 1
         envKey.environment = envKey.environment ?? fileEnvironment
         addSource(envKey, {
           path: filePath,
-          line: lineNumber,
+          line: assignment.line,
           kind: 'env-file',
           excerpt: `${key}= [redacted]`,
           manual: read.file.manual,
         })
-        const value = parseDotenvValue(dotenvMatch[2] ?? '')
-        if (value) {
+        if (assignment.value) {
           envKey.values.push({
-            value,
+            value: assignment.value,
             sourceFile: filePath,
-            line: lineNumber,
+            line: assignment.line,
             environment: fileEnvironment,
             manual: read.file.manual,
           })
         }
-        continue
       }
+      envFiles.push({
+        path: filePath,
+        environment: fileEnvironment,
+        keyCount: envFileKeyCount,
+        manual: read.file.manual,
+      })
+      continue
+    }
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index]
+      const lineNumber = index + 1
 
       for (const pattern of ENV_REFERENCE_PATTERNS) {
         pattern.lastIndex = 0
@@ -352,14 +505,6 @@ function extractEnvKeys(reads: FileRead[]): { envKeys: ProjectScanEnvKey[]; envF
       }
     }
 
-    if (isEnvFile(filePath)) {
-      envFiles.push({
-        path: filePath,
-        environment: fileEnvironment,
-        keyCount: envFileKeyCount,
-        manual: read.file.manual,
-      })
-    }
   }
 
   return {
@@ -481,32 +626,199 @@ function inferServices(envKeys: ProjectScanEnvKey[], deps: string[]): ProjectSca
 export async function scanProject(request: ProjectScanRequest): Promise<ProjectScanResult> {
   if (!request.path || !isAbsolute(request.path)) throw new Error('Project path must be absolute')
   const rootPath = resolve(request.path)
-  const stat = await fs.stat(rootPath).catch(() => null)
-  if (!stat?.isDirectory()) throw new Error('Project path is not a folder')
+  const stat = await fs.lstat(rootPath).catch(() => null)
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error('Project path is not a regular folder')
+  const canonicalRoot = await fs.realpath(rootPath)
 
-  const collected = await collectProjectFiles(rootPath)
-  const manualFiles = [...new Set((request.manualFiles ?? []).filter(Boolean).map(file => resolve(file)))]
+  const collected = await collectProjectFiles(canonicalRoot)
+  const requestedManualFiles = [...new Set((request.manualFiles ?? []).filter(Boolean).map(file => resolve(file)))]
+  const manualFiles: string[] = []
+  for (const manualFile of requestedManualFiles) {
+    const stat = await fs.lstat(manualFile).catch(() => null)
+    if (!stat?.isFile() || stat.isSymbolicLink()) throw new Error('Manual scan file is not a regular file')
+    const canonicalFile = await fs.realpath(manualFile)
+    if (!isPathInside(canonicalRoot, canonicalFile)) {
+      throw new Error('Manual scan files must be contained in the selected project folder')
+    }
+    await assertNoSymlinkSegments(canonicalRoot, canonicalFile)
+    manualFiles.push(canonicalFile)
+  }
   const allFiles = [
     ...collected.files,
     ...manualFiles.map(path => ({ path, manual: true })),
   ].filter((file, index, arr) => arr.findIndex(other => other.path === file.path) === index)
 
-  const reads = (await Promise.all(allFiles.map(readScanFile))).filter((read): read is FileRead => Boolean(read))
+  const prepared = await prepareScanFiles(allFiles)
+  const reads = (await mapWithConcurrency(prepared.files, MAX_READ_CONCURRENCY, readScanFile))
+    .filter((read): read is FileRead => Boolean(read))
   const { envKeys, envFiles } = extractEnvKeys(reads)
   const deps = dependencyNames(reads)
   const projectTypes = inferProjectTypes(reads, deps)
   const services = inferServices(envKeys, deps)
 
   return {
-    rootPath,
+    rootPath: canonicalRoot,
     scannedAt: new Date().toISOString(),
     scannedFileCount: reads.length,
-    skippedFileCount: collected.skipped + Math.max(0, allFiles.length - reads.length),
+    skippedFileCount: collected.skipped + prepared.skipped + Math.max(0, prepared.files.length - reads.length),
     manualFiles,
     projectTypes,
     services,
     envFiles,
     envKeys,
-    warnings: collected.warnings,
+    warnings: [...collected.warnings, ...prepared.warnings],
   }
+}
+
+export async function discoverProjectCandidates(request: ProjectDiscoverRequest): Promise<ProjectDiscoverResult> {
+  if (!request.parentPath || !isAbsolute(request.parentPath)) throw new Error('Parent path must be absolute')
+  const parentPath = resolve(request.parentPath)
+  const stat = await fs.lstat(parentPath).catch(() => null)
+  if (!stat?.isDirectory() || stat.isSymbolicLink()) throw new Error('Parent path is not a regular folder')
+  const canonicalParent = await fs.realpath(parentPath)
+
+  const warnings: string[] = []
+  const candidates: ProjectScanCandidate[] = []
+  const seen = new Set<string>()
+  const roots = await discoverCandidateRoots(canonicalParent, warnings)
+
+  for (const rootPath of roots.slice(0, MAX_DISCOVERY_CANDIDATES)) {
+    if (seen.has(rootPath)) continue
+    seen.add(rootPath)
+    try {
+      const result = await scanProject({ path: rootPath })
+      if (!isInterestingProjectCandidate(result)) continue
+      candidates.push(projectScanCandidate(result))
+      warnings.push(...result.warnings.map(warning => `${basename(rootPath)}: ${warning}`))
+    } catch {
+      // A candidate can disappear or be unreadable between directory listing and
+      // scan. Discovery should keep returning the usable projects it found.
+    }
+  }
+
+  return {
+    parentPath: canonicalParent,
+    scannedAt: new Date().toISOString(),
+    candidates: candidates
+      .sort((a, b) => candidateScore(b) - candidateScore(a) || a.name.localeCompare(b.name))
+      .slice(0, MAX_DISCOVERY_CANDIDATES),
+    warnings,
+  }
+}
+
+async function discoverCandidateRoots(parentPath: string, warnings: string[]): Promise<string[]> {
+  const roots: string[] = []
+  if (await hasProjectMarker(parentPath)) roots.push(parentPath)
+
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(parentPath, { withFileTypes: true })
+  } catch {
+    throw new Error('Could not read parent folder')
+  }
+
+  const childDirs = entries
+    .filter(entry => entry.isDirectory() && !IGNORED_DIRS.has(entry.name))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .slice(0, MAX_DISCOVERY_DIRS)
+
+  if (childDirs.length < entries.filter(entry => entry.isDirectory()).length) {
+    warnings.push(`Checked the first ${MAX_DISCOVERY_DIRS} child folders to keep discovery fast.`)
+  }
+
+  for (const entry of childDirs) {
+    const childPath = join(parentPath, entry.name)
+    if (await hasProjectMarker(childPath)) roots.push(childPath)
+  }
+
+  return roots
+}
+
+async function hasProjectMarker(dir: string): Promise<boolean> {
+  const entries = await fs.readdir(dir, { withFileTypes: true }).catch(() => [])
+  return entries.some(entry => {
+    if (entry.isFile()) {
+      return SCANNABLE_FILENAMES.has(entry.name) ||
+        entry.name.startsWith('.env.') ||
+        /^(package-lock|pnpm-lock|yarn)\.(json|yaml|lock)$/.test(entry.name)
+    }
+    if (entry.isDirectory()) return ['src', 'app', 'pages', 'public'].includes(entry.name)
+    return false
+  })
+}
+
+function isInterestingProjectCandidate(result: ProjectScanResult): boolean {
+  return result.projectTypes.length > 0 ||
+    result.envFiles.length > 0 ||
+    result.envKeys.length > 0 ||
+    result.services.length > 0
+}
+
+function projectScanCandidate(result: ProjectScanResult): ProjectScanCandidate {
+  return {
+    path: result.rootPath,
+    name: basename(result.rootPath),
+    envKeyCount: result.envKeys.length,
+    envFileCount: result.envFiles.length,
+    serviceCount: result.services.length,
+    services: result.services.slice(0, 4).map(service => service.label),
+    projectTypes: result.projectTypes.slice(0, 3).map(projectType => projectType.label),
+    scannedFileCount: result.scannedFileCount,
+    warningCount: result.warnings.length,
+  }
+}
+
+function candidateScore(candidate: ProjectScanCandidate): number {
+  return candidate.envFileCount * 8 +
+    candidate.envKeyCount * 4 +
+    candidate.serviceCount * 3 +
+    candidate.projectTypes.length * 2 +
+    Math.min(candidate.scannedFileCount, 20)
+}
+
+function noFollowFlag(): number {
+  return typeof constants.O_NOFOLLOW === 'number' ? constants.O_NOFOLLOW : 0
+}
+
+function formatByteLimit(bytes: number): string {
+  return `${Math.round(bytes / (1024 * 1024))} MiB`
+}
+
+function isPathInside(parentPath: string, candidatePath: string): boolean {
+  const rel = relative(parentPath, candidatePath)
+  return rel !== '' && rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel)
+}
+
+async function assertNoSymlinkSegments(rootPath: string, candidatePath: string): Promise<void> {
+  const rel = relative(rootPath, candidatePath)
+  if (!rel || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) {
+    throw new Error('Manual scan files must be contained in the selected project folder')
+  }
+
+  let current = rootPath
+  for (const segment of rel.split(sep)) {
+    current = join(current, segment)
+    const stat = await fs.lstat(current).catch(() => null)
+    if (!stat) throw new Error('Manual scan file is unavailable')
+    if (stat.isSymbolicLink()) throw new Error('Symbolic links are not allowed in project scans')
+  }
+}
+
+async function mapWithConcurrency<T, U>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<U>,
+): Promise<U[]> {
+  const results = new Array<U>(values.length)
+  let nextIndex = 0
+  const workers = Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (true) {
+      const index = nextIndex
+      nextIndex += 1
+      if (index >= values.length) return
+      results[index] = await mapper(values[index])
+    }
+  })
+  await Promise.all(workers)
+  return results
 }

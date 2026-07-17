@@ -25,7 +25,7 @@ pnpm test
 pnpm exec tsc --noEmit --pretty false -p tsconfig.node.json
 pnpm exec tsc --noEmit --pretty false -p tsconfig.web.json
 pnpm audit --dev
-pnpm verify:open-source-stage
+pnpm verify:release
 ```
 
 ## Commit/PR Expectations

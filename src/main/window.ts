@@ -3,6 +3,8 @@ import { join } from 'path'
 import { IS_MAC } from './keychain'
 import { disableSecureInput } from './secureInput'
 
+export const MENU_PANEL_PARTITION = 'vaultage-menu-panel'
+
 export function iconPath(): string {
   const file = IS_MAC ? 'icon.icns' : 'icon.ico'
   return app.isPackaged
@@ -36,9 +38,11 @@ export function createMainWindow(onClosed: () => void): BrowserWindow {
     process.env['ELECTRON_RENDERER_URL'] ??
     `file://${join(__dirname, '../renderer/index.html')}`,
   )
-  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
-    console.log(`[Renderer Console] [Level ${level}] [Line ${line} of ${sourceId}]: ${message}`)
-  })
+  if (!app.isPackaged) {
+    win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+      console.log(`[Renderer Console] [Level ${level}] [Line ${line} of ${sourceId}]: ${message}`)
+    })
+  }
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.webContents.on('will-navigate', (event) => {
     event.preventDefault()
@@ -52,4 +56,61 @@ export function createMainWindow(onClosed: () => void): BrowserWindow {
   })
 
   return win
+}
+
+export function createMenuPanelWindow(onClosed: () => void): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 400,
+    height: 640,
+    minWidth: 340,
+    minHeight: 520,
+    maxWidth: 460,
+    maxHeight: 760,
+    show: false,
+    frame: false,
+    resizable: false,
+    movable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    backgroundColor: '#111111',
+    transparent: true,
+    vibrancy: 'popover',
+    visualEffectState: 'active',
+    titleBarStyle: 'hidden',
+    webPreferences: {
+      preload:          join(__dirname, '../preload/menuPanel.js'),
+      partition:        MENU_PANEL_PARTITION,
+      sandbox:          true,
+      contextIsolation: true,
+      nodeIntegration:  false,
+    },
+  })
+
+  win.loadURL(rendererUrl('menu-bar'))
+  // The panel is a plaintext-capable secondary surface. Keep it protected for
+  // its full lifetime so a reveal cannot race a window-level protection toggle.
+  win.setContentProtection(true)
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  win.webContents.on('will-navigate', (event) => {
+    event.preventDefault()
+  })
+  win.on('blur', () => {
+    disableSecureInput()
+    win.hide()
+  })
+  win.on('closed', () => {
+    disableSecureInput()
+    onClosed()
+  })
+
+  return win
+}
+
+function rendererUrl(surface?: string): string {
+  const base = process.env['ELECTRON_RENDERER_URL'] ??
+    `file://${join(__dirname, '../renderer/index.html')}`
+  if (!surface) return base
+  const separator = base.includes('?') ? '&' : '?'
+  return `${base}${separator}surface=${encodeURIComponent(surface)}`
 }

@@ -38,30 +38,44 @@ Coordinated disclosure:
 Vaultage is designed around a local-first trust boundary:
 
 - Vault data is encrypted locally.
-- The decrypted vault key lives only in memory while unlocked.
-- Touch ID is used for unlock convenience and user-presence confirmation on macOS.
+- A working key copy exists in main-process memory while unlocked. At rest,
+  the key is wrapped under a scrypt-derived key and may also exist in a
+  this-device-only macOS Keychain item gated by local user presence. Touch ID
+  is used when available; macOS may offer system-password fallback.
 - Public Community builds expose only My Vault and Projects.
 - Private/Pro Agent mode is local-only and must be explicitly enabled while the vault is unlocked.
 - Plaintext export paths require explicit confirmation and must be treated as sensitive.
 - Private/Pro provider credentials are stored inside the encrypted vault and provider API calls run behind a worker-thread RPC boundary. ADR-024 keeps Agent and provider workflows in the paid/private surface.
 - Sensitive main-process events are recorded in a redacted hash-chained local audit log foundation.
+- Optional paid-beta accounts add a metadata-only cloud control plane for
+  identity, device authorization, billing state, signed entitlements, account
+  export, deletion, and recovery notifications. It does not receive vault
+  plaintext, vault root keys, master passwords, or local project values.
 
 ## In Scope
 
 - Desktop app main/preload/renderer code.
 - Private/Pro Local Agent API on `127.0.0.1`.
 - Vault encryption, unlock, lock, backup, import, and export behavior.
-- Provider integration code currently shipped in the desktop app.
+- Provider integration code implemented in the private desktop source.
+- Paid-beta account, session-refresh, device-enrollment/revocation, billing,
+  webhook, entitlement, recovery-notification, export, and deletion surfaces.
+- Commercial desktop and browser-extension entitlement enforcement, including
+  offline/grace transitions and closed-Free limits.
+- Cloudflare Worker service bindings, queues, D1/R2 lifecycle controls,
+  rate limits, redacted operational logging, and deployable configuration
+  defined for the paid-beta control plane in the private cloud repository.
+  Source or configuration presence is not evidence of live activation.
 - Build and packaging configuration.
-- Future open-core package boundaries and public protocol/schema docs.
+- Current generated open-core source boundaries and public protocol/schema docs.
 
 ## Out of Scope For Now
 
-A paid hosted/sync tier is not implemented yet. Managed OAuth, token lifecycle
-automation, browser extension workflows, cloud token custody, account security,
-logging, abuse controls, sync, and cloud audit retention require their own
-threat model and review before any beta. Vaultage's current plan rejects
-request-path provider proxying.
+Managed provider OAuth, provider-token custody, encrypted cloud vault copies,
+multi-device vault sync, cloud audit retention, and cloud spend aggregation are
+not part of the paid-beta launch scope. Those deferred capabilities require
+their own threat-model updates and release review before activation. Vaultage's
+current plan rejects request-path provider proxying.
 
 ## Sensitive Data Handling
 
@@ -83,3 +97,6 @@ A public release must not happen until:
 - Electron is on a patched supported line.
 - A security contact and disclosure process exist.
 - The free/open and paid/closed code boundaries are documented.
+- Paid-beta identity, billing, entitlement, recovery, export, and deletion
+  boundaries pass their private-cloud release gates and staged operational drills
+  before external activation.

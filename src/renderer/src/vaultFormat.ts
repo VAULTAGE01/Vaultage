@@ -1,6 +1,11 @@
 import type { VaultFolder, VaultRoot, VaultTreeItemRef } from './types'
+import {
+  VAULT_VALIDATION_LIMITS,
+  validateVaultImportPayload,
+  validateVaultRoot,
+} from '../../shared/vaultValidation'
 
-export const MAX_VAULT_IMPORT_JSON_BYTES = 10 * 1024 * 1024
+export const MAX_VAULT_IMPORT_JSON_BYTES = VAULT_VALIDATION_LIMITS.maxJsonBytes
 
 export function parseVaultJson(json: unknown): VaultRoot {
   if (typeof json !== 'string') throw new Error('Vault JSON must be a string')
@@ -15,7 +20,10 @@ export function parseVaultJson(json: unknown): VaultRoot {
     throw new Error('Vault JSON must be valid JSON')
   }
 
-  return normaliseVault(unwrapVaultExport(parsed))
+  const imported = validateVaultImportPayload(parsed, { boundary: 'import' })
+  const vault = normaliseVault(imported)
+  validateVaultRoot(vault, { boundary: 'import' })
+  return vault
 }
 
 // Keep legacy pre-provider vaults readable while v2 format stabilizes.
@@ -23,7 +31,7 @@ export function normaliseVault(raw: unknown): VaultRoot {
   const v = asRecord(raw, 'Vault payload')
   if (typeof v.version !== 'number') throw new Error('Vault version must be a number')
 
-  return {
+  const normalised = {
     ...v,
     version: v.version,
     revision: typeof v.revision === 'number' && Number.isInteger(v.revision) && v.revision > 0 ? v.revision : 1,
@@ -32,15 +40,7 @@ export function normaliseVault(raw: unknown): VaultRoot {
     providerGroups: optionalArray(v.providerGroups, 'providerGroups'),
     envProjects: optionalArray(v.envProjects, 'envProjects'),
   } as VaultRoot
-}
-
-function unwrapVaultExport(raw: unknown): unknown {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return raw
-  const record = raw as Record<string, unknown>
-  if (record.format === 'vaultage.export.v1' && record.vault !== undefined) {
-    return record.vault
-  }
-  return raw
+  return normalised
 }
 
 function normaliseFolder(raw: unknown, path: string): VaultFolder {

@@ -16,6 +16,9 @@
       "#agent-auth-token": [
         "src/main/agentAuthToken.disabled.ts"
       ],
+      "#agent-discovery": [
+        "src/main/agentDiscovery.disabled.ts"
+      ],
       "#agent-ipc": [
         "src/main/agentIpc.disabled.ts"
       ],
@@ -24,6 +27,18 @@
       ],
       "#agent-server": [
         "src/main/agentServer.disabled.ts"
+      ],
+      "#extension-handoff": [
+        "src/main/extensionHandoff.disabled.ts"
+      ],
+      "#extension-candidate-vault": [
+        "src/main/extensionCandidateVault.disabled.ts"
+      ],
+      "#extension-native-host-composition": [
+        "src/main/extensionNativeHostComposition.disabled.ts"
+      ],
+      "#extension-native-host-ipc": [
+        "src/main/extensionNativeHostIpc.disabled.ts"
       ],
       "#provider-ipc": [
         "src/main/providerIpc.disabled.ts"
@@ -39,6 +54,9 @@
       ],
       "#provider-lifecycle-ops": [
         "src/main/providerLifecycleOps.disabled.ts"
+      ],
+      "#commercial-runtime": [
+        "src/main/commercialRuntime.disabled.ts"
       ]
     }
   }

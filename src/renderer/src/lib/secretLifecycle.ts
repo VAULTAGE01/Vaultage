@@ -64,7 +64,7 @@ export function getProviderLinkStatusLabel(status: SecretLifecycleStatus): strin
   }
 }
 
-export function getProviderLinkStatusTone(status: SecretLifecycleStatus): SecretLifecycle['statusTone'] {
+function getProviderLinkStatusTone(status: SecretLifecycleStatus): SecretLifecycle['statusTone'] {
   switch (status) {
     case 'active': return 'success'
     case 'revoked': return 'danger'
@@ -73,7 +73,7 @@ export function getProviderLinkStatusTone(status: SecretLifecycleStatus): Secret
   }
 }
 
-export function getSecretProjectUsages(projects: EnvProject[], secretId: string): SecretProjectUsage[] {
+function getSecretProjectUsages(projects: EnvProject[], secretId: string): SecretProjectUsage[] {
   return projects.flatMap(project =>
     project.entries
       .filter(entry => entry.secretId === secretId)

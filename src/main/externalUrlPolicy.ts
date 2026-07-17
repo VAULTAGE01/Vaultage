@@ -2,8 +2,19 @@ const ALLOWED_EXTERNAL_URL_HOSTS = new Set([
   'vaultage.dev',
   'www.vaultage.dev',
   'dash.cloudflare.com',
+  'github.com',
+  'gitlab.com',
   'vercel.com',
   'dashboard.doppler.com',
+  'console.aws.amazon.com',
+  'console.cloud.google.com',
+  'console.firebase.google.com',
+  'portal.azure.com',
+  'platform.openai.com',
+  'supabase.com',
+  'app.netlify.com',
+  'console.twilio.com',
+  'resend.com',
 ])
 
 export function resolveAllowedExternalUrl(input: unknown): string | null {
