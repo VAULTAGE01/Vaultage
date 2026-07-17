@@ -40,6 +40,9 @@ export default defineConfig({
         '#agent-server': openCoreBuild
           ? resolve('src/main/agentServer.disabled.ts')
           : resolve('src/main/agentServer.ts'),
+        '#agent-auto-approval': openCoreBuild
+          ? resolve('src/main/agentAutoApproval.disabled.ts')
+          : resolve('src/main/agentAutoApproval.ts'),
         '#extension-handoff': openCoreBuild
           ? resolve('src/main/extensionHandoff.disabled.ts')
           : resolve('src/main/extensionHandoff.ts'),

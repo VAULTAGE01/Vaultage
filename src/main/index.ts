@@ -6,7 +6,12 @@ import { AuditFailureGuard } from './auditFailureGuard'
 import { ensureAgentApiToken } from '#agent-auth-token'
 import { removeAgentDiscovery, writeAgentDiscovery } from '#agent-discovery'
 import { agentInstructionsSnippet, registerAgentIpc } from '#agent-ipc'
-import { resolveAgentReleaseSelections } from '#agent-release'
+import {
+  resolveAgentProjectRelease,
+  resolveAgentReleaseSelections,
+  type AgentReleaseEntry,
+} from '#agent-release'
+import { AgentAutoApprovalStore } from '#agent-auto-approval'
 import { AgentServerController, validateAgentApiPort } from '#agent-server'
 import {
   findExtensionHandoffArg,
@@ -92,6 +97,8 @@ let menuPanelWindow: BrowserWindow | null = null
 let quitPreparing = false
 let quitPrepared = false
 let commercialRuntime: CommercialRuntimeAccess | null = null
+const agentAutoApprovalStore = new AgentAutoApprovalStore()
+let agentAutoApprovalSessionId = randomUUID()
 const AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS = 30_000
 configureQuickRevealPinThrottleStore(
   new QuickRevealPinThrottleFileStore(join(VAULT_DIR, 'reveal-pin-throttle')),
@@ -159,6 +166,7 @@ const authController = new AuthController({
     installKey: (key, expectedEpoch) => {
       const installed = vaultSession.installKey(key, expectedEpoch)
       if (installed) {
+        agentAutoApprovalSessionId = randomUUID()
         providerRuntime.clearSessionAuthorizations()
         syncWindowContentProtection()
         syncMenuBar()
@@ -183,7 +191,11 @@ const authController = new AuthController({
     readVault,
     createVaultState,
     commitAuthCredentials,
-    commitRestoredVaultState,
+    commitRestoredVaultState: async (snapshot, key, assertCurrent) => {
+      await agentAutoApprovalStore.clear()
+      agentAutoApprovalSessionId = randomUUID()
+      await commitRestoredVaultState(snapshot, key, assertCurrent)
+    },
   },
   randomId: randomUUID,
   recordAudit,
@@ -200,6 +212,93 @@ const agentServer = new AgentServerController({
   },
   removeDiscovery: removeAgentDiscovery,
   getAuthToken: () => agentApiToken,
+  authenticateAgentClient: async (token) => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) return null
+    try {
+      const client = await agentAutoApprovalStore.authenticateClient(lease.key, token)
+      lease.assertCurrent()
+      return client && {
+        id: client.id,
+        label: client.label,
+        tokenFingerprint: client.tokenFingerprint,
+        generation: client.generation,
+      }
+    } finally {
+      lease.release()
+    }
+  },
+  tryAutoApproval: async ({ token, clientId, projectPath, requestedKeys }) => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) return null
+    try {
+      const vault = await readVault(lease.key)
+      lease.assertCurrent()
+      const resolved = resolveAgentProjectRelease(vault, projectPath, requestedKeys)
+      const selections = resolved.entries.map(entry => ({
+        envKey: entry.envKey,
+        secretId: entry.secretId,
+        fieldId: entry.fieldId,
+        fieldKey: entry.fieldKey,
+        scope: entry.scope!.trim().toLowerCase(),
+      }))
+      const match = await agentAutoApprovalStore.match(lease.key, {
+        token,
+        projectId: resolved.projectId,
+        environmentId: resolved.environmentId,
+        environmentScope: resolved.environmentScope,
+        projectPath: resolved.projectPath,
+        selections,
+        delivery: 'response',
+        production: false,
+        sessionId: agentAutoApprovalSessionId,
+      })
+      lease.assertCurrent()
+      if (!match || match.client.id !== clientId) return null
+      return {
+        grantId: match.grant.id,
+        clientId: match.client.id,
+        clientLabel: match.client.label,
+        projectId: resolved.projectId,
+        environmentId: resolved.environmentId,
+        environmentScope: resolved.environmentScope,
+        entries: resolved.entries,
+        expiresAt: match.grant.expiresAt,
+      }
+    } finally {
+      lease.release()
+    }
+  },
+  createAutoApprovalGrant: async ({ clientId, projectPath, entries, ttlMs }) => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) throw new Error('Not authenticated')
+    try {
+      const vault = await readVault(lease.key)
+      lease.assertCurrent()
+      const resolved = resolveAgentProjectRelease(vault, projectPath, entries.map(entry => entry.envKey))
+      const expected = agentEntryIdentities(resolved.entries)
+      const approved = agentEntryIdentities(entries)
+      if (JSON.stringify(expected) !== JSON.stringify(approved)) {
+        throw new Error('Project mapping changed before scoped approval was stored')
+      }
+      const grant = await agentAutoApprovalStore.createGrant(lease.key, {
+        clientId,
+        projectId: resolved.projectId,
+        environmentId: resolved.environmentId,
+        environmentScope: resolved.environmentScope,
+        projectPath: resolved.projectPath,
+        selections: expected,
+        delivery: 'response',
+        production: false,
+        sessionId: agentAutoApprovalSessionId,
+        ttlMs,
+      })
+      lease.assertCurrent()
+      return { id: grant.id }
+    } finally {
+      lease.release()
+    }
+  },
   getWindow: () => mainWindow,
   confirmUserPresence: (prompt, phrase) => authController.confirmAgentApproval(prompt, phrase),
   resolveReleaseSelections: async (selections) => {
@@ -235,11 +334,27 @@ const agentServer = new AgentServerController({
     return { secretId: committed.secretId }
   },
   recordAudit,
+  recordAuditDurable: async (type, details) => {
+    if (auditFailureGuard.isBlocked) throw new Error('Audit integrity guard is blocking secret release')
+    recordAudit(type, details)
+    await flushAuditQueue()
+    if (auditFailureGuard.isBlocked) throw new Error('Audit event could not be durably recorded')
+  },
   authorizeCapability: async capability => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
     return commercialRuntime.acquireCapabilityLease(capability)
   },
 })
+
+function agentEntryIdentities(entries: readonly AgentReleaseEntry[]) {
+  return entries.map(entry => ({
+    envKey: entry.envKey,
+    secretId: entry.secretId,
+    fieldId: entry.fieldId,
+    fieldKey: entry.fieldKey,
+    scope: entry.scope?.trim().toLowerCase() ?? '',
+  })).sort((left, right) => left.envKey.localeCompare(right.envKey))
+}
 
 const auditFailureGuard = new AuditFailureGuard({
   lockVault: () => lockVault(true, 'audit-integrity-failure', false),
@@ -436,6 +551,51 @@ const extensionNativeHostRegistrar = createExtensionNativeHostRegistrar({
 })
 registerAgentIpc(mainWindowIpc, agentServer, {
   hasVaultKey: () => vaultSession.isUnlocked(),
+  confirmUserPresence: (prompt) => authController.confirmAgentApproval(prompt),
+  listAgentAccess: async () => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) throw new Error('Not authenticated')
+    try {
+      const inventory = await agentAutoApprovalStore.list(lease.key, agentAutoApprovalSessionId)
+      lease.assertCurrent()
+      return inventory
+    } finally {
+      lease.release()
+    }
+  },
+  createAgentClient: async (label) => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) throw new Error('Not authenticated')
+    try {
+      const issued = await agentAutoApprovalStore.createClient(lease.key, label)
+      lease.assertCurrent()
+      return issued
+    } finally {
+      lease.release()
+    }
+  },
+  revokeAgentClient: async (clientId) => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) throw new Error('Not authenticated')
+    try {
+      const revoked = await agentAutoApprovalStore.revokeClient(lease.key, clientId)
+      lease.assertCurrent()
+      return revoked
+    } finally {
+      lease.release()
+    }
+  },
+  revokeAgentAutoApproval: async (grantId) => {
+    const lease = vaultSession.leaseCurrentKey()
+    if (!lease) throw new Error('Not authenticated')
+    try {
+      const revoked = await agentAutoApprovalStore.revokeGrant(lease.key, grantId)
+      lease.assertCurrent()
+      return revoked
+    } finally {
+      lease.release()
+    }
+  },
   getAgentApiToken: async () => {
     if (!agentApiToken) agentApiToken = await ensureAgentApiToken()
     return agentApiToken
@@ -497,6 +657,7 @@ async function lockVault(
   commercialRuntime?.suspend('Local vault locked')
   projectPathCapabilities.revokeAll()
   providerRuntime.clearSessionAuthorizations()
+  agentAutoApprovalSessionId = randomUUID()
   const wasUnlocked = vaultSession.isUnlocked()
   await vaultSession.invalidate()
   disableSecureInput()
