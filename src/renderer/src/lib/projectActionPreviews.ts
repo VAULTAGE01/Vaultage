@@ -15,7 +15,7 @@ export function projectDeletionConfirmation({
     `Delete project “${projectName}” from Vaultage?`,
     '',
     `This removes ${countLabel(environmentCount, 'environment')} and ${countLabel(mappingCount, 'secret mapping')} from the encrypted project configuration.`,
-    'Saved secrets, remote service values, project source files, and existing .env files will not be deleted.',
+    'Saved secrets, project source files, existing .env files, and values at connected targets will not be deleted.',
   ].join('\n')
 }
 
@@ -23,8 +23,8 @@ export function clearEnvironmentMappingsConfirmation(environmentName: string, ma
   return [
     `Clear ${countLabel(mappingCount, 'mapping')} from “${environmentName}”?`,
     '',
-    'The target folder or provider remains connected, but no vault values will be mapped to environment keys.',
-    'Saved secrets and existing local or remote environment values will not be deleted.',
+    'The connected target remains, but no vault values will be mapped to environment keys.',
+    'Saved secrets and existing values at the target will not be deleted.',
   ].join('\n')
 }
 

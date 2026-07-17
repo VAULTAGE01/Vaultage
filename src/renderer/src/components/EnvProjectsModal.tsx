@@ -428,7 +428,7 @@ function environmentStatusLabel(status: ProjectEnvironmentStatus): string {
     case 'ready': return 'Ready'
     case 'needs-mapping': return 'Needs maps'
     case 'needs-target': return 'Needs target'
-    case 'planned': return 'Planned'
+    case 'unavailable': return 'Unavailable'
   }
 }
 
@@ -437,7 +437,7 @@ function environmentStatusClass(status: ProjectEnvironmentStatus): string {
     case 'ready': return 'text-emerald-300'
     case 'needs-mapping': return 'text-amber-300'
     case 'needs-target': return 'text-rose-300'
-    case 'planned': return 'text-muted'
+    case 'unavailable': return 'text-muted'
   }
 }
 
@@ -1355,7 +1355,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
               <>
                 <div className="border-b border-border px-6 py-4 flex-shrink-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Add Project</p>
-                  <h3 className="mt-1 text-sm font-semibold text-text">Create product vault</h3>
+                  <h3 className="mt-1 text-sm font-semibold text-text">Create Project</h3>
                 </div>
 
                 <div className="flex-1 space-y-5 overflow-y-auto px-6 py-5">
@@ -1495,7 +1495,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                 </div>
                 <h3 className="text-sm font-semibold text-text mb-1">No Project Selected</h3>
                   <p className="text-xs text-muted text-center max-w-[250px]">
-                  Select a product vault to map secrets across local and cloud environments, or create a new one.
+                  Select a Project to map vault fields to its local environment, or create a new one.
                 </p>
               </div>
             ) : (

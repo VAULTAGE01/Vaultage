@@ -44,6 +44,31 @@ describe('menu panel usage batching', () => {
     expect(recordSecretUsage).toHaveBeenCalledTimes(2)
     expect(mocks.updateVault).not.toHaveBeenCalled()
   })
+
+  it('reports and enforces live paid capabilities while retaining stop controls for cleanup', async () => {
+    const stopAgent = vi.fn()
+    const { ipcMain, handlers } = fakeIpcMain()
+    registerMenuPanelIpc(ipcMain, deps({
+      isAgentListening: () => true,
+      hasAgentCapability: () => false,
+      hasBrowserCapability: () => false,
+      stopAgent,
+    }))
+
+    await expect(handlers.get('menu-panel:status')?.({}, undefined)).resolves.toMatchObject({
+      success: true,
+      agentAvailable: false,
+      agentListening: true,
+      browserAvailable: false,
+      browserEnabled: false,
+    })
+    await expect(handlers.get('menu-panel:action')?.({}, { action: 'startAgent' })).resolves.toEqual({
+      success: false,
+      error: 'Vaultage Pro Agent access is required',
+    })
+    await expect(handlers.get('menu-panel:action')?.({}, { action: 'stopAgent' })).resolves.toEqual({ success: true })
+    expect(stopAgent).toHaveBeenCalledOnce()
+  })
 })
 
 function deps(overrides: Partial<MenuPanelIpcDeps> = {}): MenuPanelIpcDeps {
@@ -59,8 +84,10 @@ function deps(overrides: Partial<MenuPanelIpcDeps> = {}): MenuPanelIpcDeps {
     readVault: vi.fn(),
     pendingCount: () => 0,
     isAgentListening: () => false,
+    hasAgentCapability: () => true,
     agentPort: () => 32123,
     isBrowserEnabled: () => false,
+    hasBrowserCapability: () => true,
     showMainWindow: vi.fn(),
     navigateMainWindow: vi.fn(),
     closePanel: vi.fn(),

@@ -16,14 +16,14 @@ describe('project and environment consequence previews', () => {
       mappingCount: 12,
     })
     expect(message).toContain('removes 3 environments and 12 secret mappings')
-    expect(message).toContain('Saved secrets, remote service values, project source files, and existing .env files will not be deleted.')
+    expect(message).toContain('Saved secrets, project source files, existing .env files, and values at connected targets will not be deleted.')
   })
 
   it('previews mapping removal while explicitly preserving targets and existing values', () => {
     const message = clearEnvironmentMappingsConfirmation('Staging', 1)
     expect(message).toContain('Clear 1 mapping')
-    expect(message).toContain('target folder or provider remains connected')
-    expect(message).toContain('existing local or remote environment values will not be deleted')
+    expect(message).toContain('connected target remains')
+    expect(message).toContain('existing values at the target will not be deleted')
   })
 
   it('explains target disconnection separately for local and cloud environments', () => {

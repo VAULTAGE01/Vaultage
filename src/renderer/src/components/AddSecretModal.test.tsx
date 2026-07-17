@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from 'vitest'
 import type { VaultRoot, VaultSecret } from '../types'
 
 const updateSecret = vi.fn()
+const capabilityHolder = vi.hoisted(() => ({
+  value: {
+    agent: false,
+    services: false,
+    extension: false,
+    accountActivationUsable: false,
+  },
+}))
 
 const testVault: VaultRoot = {
   version: 2,
@@ -33,6 +41,10 @@ vi.mock('../vaultContext', () => ({
     addSecret: vi.fn(),
     updateSecret,
   }),
+}))
+
+vi.mock('#commercial-capabilities', () => ({
+  useCommercialCapabilities: () => capabilityHolder.value,
 }))
 
 import AddSecretModal, {
@@ -79,6 +91,7 @@ describe('AddSecretModal edit concurrency', () => {
   })
 
   it('server-renders the editor shell without throwing or exposing a stored value', () => {
+    capabilityHolder.value.agent = false
     const html = renderToStaticMarkup(
       <AddSecretModal folderId="root" existing={existingSecret()} onClose={vi.fn()} />,
     )

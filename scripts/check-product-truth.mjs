@@ -100,7 +100,7 @@ if (privateTree) {
   requireMatch(
     'src/renderer/src/components/AgentView.tsx',
     agentView,
-    /agentRequestsEnabled[\s\S]{0,140}'Open project history, syncs, mappings, and agent events\.'[\s\S]{0,100}'Open project history, syncs, and mappings\.'/u,
+    /agentRequestsEnabled[\s\S]{0,180}'Open project history, explicit \.env exports, mappings, and agent events\.'[\s\S]{0,120}'Open project history, explicit \.env exports, and mappings\.'/u,
     'closed Free Project audit copy must not advertise Agent events',
   )
   requireMatch(

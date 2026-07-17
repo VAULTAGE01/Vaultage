@@ -45,8 +45,10 @@ type PanelStatus = {
   unlocked: boolean
   pendingCount: number
   agentListening: boolean
+  agentAvailable: boolean
   agentPort: number
   browserEnabled: boolean
+  browserAvailable: boolean
   quickRevealPinEnabled: boolean
   openCoreBuild: boolean
 }
@@ -112,8 +114,10 @@ function panelStatusFromResponse(response: MenuPanelStatusResult): PanelStatus {
     unlocked: response.unlocked === true,
     pendingCount: response.pendingCount ?? 0,
     agentListening: response.agentListening === true,
+    agentAvailable: response.agentAvailable === true,
     agentPort: response.agentPort ?? 43777,
     browserEnabled: response.browserEnabled === true,
+    browserAvailable: response.browserAvailable === true,
     quickRevealPinEnabled: response.quickRevealPinEnabled === true,
     openCoreBuild: response.openCoreBuild === true,
   }
@@ -216,11 +220,16 @@ export default function MenuBarPanel() {
   const subtitle = useMemo(() => {
     if (!status) return 'Loading...'
     if (!status.unlocked) return `${status.appName} is locked`
-    if (status.pendingCount > 0) return `${status.pendingCount} approval${status.pendingCount === 1 ? '' : 's'} pending`
+    const agentVisible = status.agentAvailable || status.agentListening
+    const browserVisible = status.browserAvailable || status.browserEnabled
+    if (status.openCoreBuild || (!agentVisible && !browserVisible)) return 'Vault unlocked'
+    if (agentVisible && status.pendingCount > 0) {
+      return `${status.pendingCount} approval${status.pendingCount === 1 ? '' : 's'} pending`
+    }
     return [
-      status.agentListening ? 'Agent on' : 'Agent off',
-      status.browserEnabled ? 'Browser on' : 'Browser off',
-    ].join(' / ')
+      agentVisible ? (status.agentListening ? 'Agent on' : 'Agent off') : '',
+      browserVisible ? (status.browserEnabled ? 'Browser on' : 'Browser off') : '',
+    ].filter(Boolean).join(' / ')
   }, [status])
 
   const counts = useMemo(() => tabCounts(results), [results])
@@ -374,7 +383,10 @@ export default function MenuBarPanel() {
 
   const appName = status?.appName ?? 'Vaultage'
   const unlocked = status?.unlocked === true
-  const agentControlsVisible = status ? !status.openCoreBuild : true
+  const privateBuild = status?.openCoreBuild === false
+  const agentControlsVisible = status?.agentAvailable === true || status?.agentListening === true
+  const browserControlsVisible = status?.browserAvailable === true || status?.browserEnabled === true
+  const controlColumns = 1 + Number(agentControlsVisible) + Number(browserControlsVisible)
   const agentAction: MenuPanelAction = status?.agentListening ? 'stopAgent' : 'startAgent'
   const browserAction: MenuPanelAction = status?.browserEnabled ? 'stopBrowser' : 'startBrowser'
   const screenTitle = screen === 'home'
@@ -427,7 +439,7 @@ export default function MenuBarPanel() {
 
       {screen === 'home' && (
         <div className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3">
-          {status?.pendingCount ? (
+          {agentControlsVisible && status?.pendingCount ? (
             <button
               type="button"
               onClick={() => void runPanelAction('openPendingRequests')}
@@ -492,7 +504,12 @@ export default function MenuBarPanel() {
 
           <section>
             <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Controls</p>
-            <div className="grid grid-cols-3 gap-1.5">
+            <div
+              className={[
+                'grid gap-1.5',
+                controlColumns === 3 ? 'grid-cols-3' : controlColumns === 2 ? 'grid-cols-2' : 'grid-cols-1',
+              ].join(' ')}
+            >
               <button
                 type="button"
                 onClick={() => unlocked ? void runPanelAction('lock') : void runPanelAction('openApp')}
@@ -525,7 +542,7 @@ export default function MenuBarPanel() {
                   </p>
                 </button>
               )}
-              {agentControlsVisible && (
+              {browserControlsVisible && (
                 <button
                   type="button"
                   onClick={() => void runPanelAction(browserAction)}
@@ -546,7 +563,7 @@ export default function MenuBarPanel() {
             </div>
           </section>
 
-          <div className="mt-auto grid grid-cols-3 gap-1.5 pt-1">
+          <div className={`mt-auto grid ${privateBuild ? 'grid-cols-3' : 'grid-cols-2'} gap-1.5 pt-1`}>
             <button
               type="button"
               onClick={() => void runPanelAction('openApp')}
@@ -556,15 +573,17 @@ export default function MenuBarPanel() {
               {panelActionBusy === 'openApp' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
               Open
             </button>
-            <button
-              type="button"
-              onClick={() => void runPanelAction('settings')}
-              disabled={Boolean(panelActionBusy)}
-              className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-white/[0.06] px-2 text-[11px] font-semibold text-text-secondary transition hover:bg-white/[0.09] hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              <Settings className="h-3.5 w-3.5" />
-              Settings
-            </button>
+            {privateBuild && (
+              <button
+                type="button"
+                onClick={() => void runPanelAction('settings')}
+                disabled={Boolean(panelActionBusy)}
+                className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-white/[0.06] px-2 text-[11px] font-semibold text-text-secondary transition hover:bg-white/[0.09] hover:text-accent disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                <Settings className="h-3.5 w-3.5" />
+                Settings
+              </button>
+            )}
             <button
               type="button"
               onClick={() => void runPanelAction('quit')}

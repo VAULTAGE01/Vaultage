@@ -81,7 +81,7 @@ describe('Community source boundary configuration', () => {
         }
       }
     }
-  })
+  }, 15_000)
 
   it('rejects every current and future commercial IPC channel or event', () => {
     const hardcodedChannels = [

@@ -116,7 +116,7 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
     const options: ScopeOption[] = [{
       key: 'vault',
       label: 'Entire vault',
-      description: `${vaultSecretCount} secret${vaultSecretCount !== 1 ? 's' : ''}, folders, metadata, services, and env links.`,
+      description: `${vaultSecretCount} secret${vaultSecretCount !== 1 ? 's' : ''}, folders, metadata, and project configurations.`,
       count: vaultSecretCount,
       scope: { kind: 'vault' },
       icon: Database,
@@ -140,7 +140,7 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
       options.push({
         key: `secret:${id}`,
         label: `${labelPrefix}: ${found.secret.name}`,
-        description: 'One secret with its fields, metadata, and service link.',
+        description: 'One secret with its fields and metadata.',
         count: 1,
         scope: { kind: 'secret', id },
         icon: KeyRound,
