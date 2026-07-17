@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import {
+  findPrivateAgentCompositionLeaks,
   findPrivateIpcNamespaceLeaks,
   findPrivatePreloadIpcChannelLeaks,
 } from './open-source-config.mjs'
@@ -54,6 +55,9 @@ for (const term of forbiddenMainTerms) {
   if (mainIndex.includes(term)) {
     fail(`open main bundle contains forbidden provider term: ${term}`)
   }
+}
+for (const term of findPrivateAgentCompositionLeaks(mainIndex)) {
+  fail(`open main bundle contains forbidden private Agent composition term: ${term}`)
 }
 for (const term of findPrivateIpcNamespaceLeaks(mainIndex)) {
   fail(`open main bundle contains forbidden private IPC channel: ${term}`)

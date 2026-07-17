@@ -1,14 +1,19 @@
 import type { BrowserWindow, IpcMain } from 'electron'
-import type { AgentServerController } from '#agent-server'
 import type { AuditEventType } from './audit'
 import { type AppMode, isAppMode } from './security'
 import { modeIpcContracts, modeIpcEvents } from '../shared/modeIpcContracts'
+
+export interface ModeAgentController {
+  setApiEnabledState(enabled: boolean): void
+  cancelPendingAgentRequests(reason: string): void
+  syncListenerState(): Promise<void>
+}
 
 export interface ModeIpcDeps {
   getMode: () => AppMode
   setMode: (mode: AppMode) => void
   getWindow: () => BrowserWindow | null
-  agentServer: AgentServerController
+  agentServer: ModeAgentController
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void
   authorizeServices?: () => Promise<void>
 }

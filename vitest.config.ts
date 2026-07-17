@@ -28,10 +28,6 @@ export default defineConfig({
           : './src/renderer/src/components/CommercialReadiness.tsx',
         import.meta.url,
       )),
-      '#agent-server': fileURLToPath(new URL(
-        openCoreBuild ? './src/main/agentServer.disabled.ts' : './src/main/agentServer.ts',
-        import.meta.url,
-      )),
       '#commercial-capabilities': fileURLToPath(new URL(
         openCoreBuild
           ? './src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts'

@@ -1,9 +1,10 @@
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
+  findPrivateAgentCompositionLeaks,
   findPrivatePreloadIpcChannelLeaks,
   isPrivateOverlaySourcePath,
   isReviewedDisabledSeamPath,
@@ -100,6 +101,17 @@ describe('Community source boundary configuration', () => {
       .toEqual([])
   })
 
+  it('rejects private Agent credential and standing-grant composition terms', () => {
+    expect(findPrivateAgentCompositionLeaks(
+      'const match = tryAutoApproval({ requestedKeys, environmentScope, grantId })',
+    )).toEqual(['tryAutoApproval', 'requestedKeys', 'environmentScope', 'grantId'])
+    expect(findPrivateAgentCompositionLeaks('registerAgentComposition({ server })')).toEqual([])
+    expect(findPrivateAgentCompositionLeaks(readFileSync(
+      resolve(import.meta.dirname, '..', 'src/main/agentComposition.disabled.ts'),
+      'utf8',
+    ))).toEqual([])
+  })
+
   it('strips complete release-loader markers and rejects partial or unmarked private loaders', () => {
     const marked = [
       'public-before',
@@ -155,6 +167,29 @@ describe('Community source boundary configuration', () => {
       )
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('forbidden private IPC channel: commercial:')
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
+  })
+
+  it('makes the compiled Community artifact gate fail on private Agent composition', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'vaultage-open-agent-boundary-'))
+    try {
+      writeFixture(fixture, 'out/main/index.js', 'function tryAutoApproval(requestedKeys) {}')
+      writeFixture(fixture, 'out/preload/index.js', '/* Community preload */')
+      writeFixture(fixture, 'out/preload/menuPanel.js', '/* menu panel */')
+      writeFixture(
+        fixture,
+        'out/renderer/assets/index.js',
+        ['darkGrey', 'opacity-28', 'mix-blend-screen', 'rgba(210,220,214,0.052)', 'rgba(210,220,214,0.055)'].join(' '),
+      )
+      const result = spawnSync(
+        process.execPath,
+        [resolve(import.meta.dirname, 'check-open-artifact.mjs')],
+        { cwd: fixture, encoding: 'utf8' },
+      )
+      expect(result.status).toBe(1)
+      expect(result.stderr).toContain('forbidden private Agent composition term: tryAutoApproval')
     } finally {
       rmSync(fixture, { recursive: true, force: true })
     }
