@@ -22,8 +22,9 @@ Status labels:
 
 ## Compatibility APIs Not Exposed In The Community Shell
 
-The shared main process retains compatibility IPC for backup/restore,
-password/sign-out controls, reveal-PIN management, and broader export scopes.
+The shared main process retains compatibility IPC for restore,
+password/sign-out controls, and reveal-PIN management. Encrypted file backup
+and portable full-vault export are exposed directly through Export.
 The current Community sidebar does not expose a Settings screen for those
 controls, so they are not classified as user-visible Community features.
 
@@ -31,7 +32,7 @@ controls, so they are not classified as user-visible Community features.
 
 | Capability | Community status |
 | --- | --- |
-| Settings modal, password change/sign-out, backup/restore, reveal-PIN setup, and full-vault export | Not exposed by the Community shell; compatibility IPC is not a user-facing promise |
+| Settings modal, password change/sign-out, restore, and reveal-PIN setup | Not exposed by the Community shell; compatibility IPC is not a user-facing promise |
 | Agent request server, approvals, discovery file, and CLI | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
 | Services/provider connections and remote token lifecycle | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
 | Browser-extension pairing and save handoff | Private/Pro; live implementation and renderer IPC contracts excluded; throwing/no-op compile seams retained |
@@ -49,7 +50,7 @@ controls, so they are not classified as user-visible Community features.
 | Shipped | Pinned secrets | Users can pin secrets to the local dashboard. | `src/renderer/src/lib/pinning.ts`, `src/renderer/src/components/PinSecretButton.tsx` |
 | Shipped | Global search | Search across secrets and metadata. | `src/renderer/src/components/GlobalSearch.tsx` |
 | Shipped | CSV import | Imports browser/password-manager-style CSV and generic spreadsheet rows with preview. | `src/renderer/src/lib/csvImport.ts`, `src/renderer/src/components/ImportModal.tsx` |
-| Shipped | Scoped export | The selected-secret detail exposes its scoped export flow with plaintext confirmation where needed. Full-vault export is not exposed by the Community shell. | `src/renderer/src/components/SecretDetail.open.tsx`, `src/renderer/src/components/ExportModal.tsx` |
+| Shipped | Scoped export, full-vault export, and encrypted file backup | The Community sidebar exposes direct full-vault portable export and raw encrypted-file backup, while selected-secret detail supports narrower export scopes. Plaintext formats require explicit confirmation. Restore remains a compatibility API outside the Community shell. | `src/renderer/src/components/Sidebar.open.tsx`, `src/renderer/src/components/SecretDetail.open.tsx`, `src/renderer/src/components/ExportModal.tsx` |
 | Shipped | Redacted renderer snapshots | Sensitive saved-field values are redacted before vault snapshots reach React. | `src/main/vaultRedaction.ts`, `src/renderer/src/vaultContext.tsx` |
 
 ## Projects

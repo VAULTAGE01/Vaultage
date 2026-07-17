@@ -1,11 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { mkdir, mkdtemp, readFile, rm, stat } from 'fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IpcMain } from 'electron'
 import type { AuthController } from './auth'
 import { registerProjectIpc } from './projectIpc'
-import { ProjectPathCapabilityStore } from './projectCapabilities'
+import { CREATE_PROJECT_GRANT_TARGET, ProjectPathCapabilityStore } from './projectCapabilities'
 import { projectIpcContracts } from '../shared/projectIpcContracts'
 
 type IpcHandler = (event: unknown, payload: unknown) => Promise<unknown>
@@ -170,6 +170,98 @@ describe('project .env export IPC', () => {
   })
 })
 
+describe('project scan policy IPC', () => {
+  it('withholds an exact scan result when its commercial lease becomes stale', async () => {
+    const folder = await temporaryFolder()
+    await writeFile(join(folder, 'package.json'), '{"name":"scan-policy"}')
+    const harness = await scanHarness({
+      folder,
+      assertLeaseCurrent: () => { throw new Error('Project scan authorization changed; try again') },
+    })
+
+    await expect(harness.scan()).resolves.toMatchObject({
+      success: false,
+      error: 'Project scan authorization changed; try again',
+    })
+    expect(harness.acquireProjectScanLease).toHaveBeenCalledWith(
+      expect.any(Object),
+      await realpath(folder),
+      undefined,
+      undefined,
+    )
+  })
+
+  it('withholds an exact scan result when the vault changes during scanning', async () => {
+    const folder = await temporaryFolder()
+    await writeFile(join(folder, 'package.json'), '{"name":"scan-revision"}')
+    let revision = 7
+    const harness = await scanHarness({
+      folder,
+      getVaultRevision: () => revision,
+      assertLeaseCurrent: () => { revision = 8 },
+    })
+
+    await expect(harness.scan()).resolves.toMatchObject({
+      success: false,
+      error: 'Vault changed during project scan; try again',
+    })
+  })
+
+  it('rejects discovery before scanning or granting an unauthorized candidate', async () => {
+    const parent = await temporaryFolder()
+    const candidate = join(parent, 'candidate-app')
+    await mkdir(candidate)
+    await writeFile(join(candidate, 'package.json'), '{"name":"candidate-app"}')
+    const harness = await scanHarness({
+      folder: parent,
+      discovery: true,
+      acquireProjectScanLease: async () => {
+        throw new Error('The Free plan active-project limit is full')
+      },
+    })
+
+    await expect(harness.discover('project-a')).resolves.toMatchObject({
+      success: false,
+      error: 'The Free plan active-project limit is full',
+    })
+    expect(harness.acquireProjectScanLease).toHaveBeenCalledWith(
+      expect.any(Object),
+      await realpath(candidate),
+      undefined,
+      'project-a',
+    )
+    await expect(harness.pathCapabilities.requireProjectFolder(
+      harness.rendererId,
+      candidate,
+      CREATE_PROJECT_GRANT_TARGET,
+    )).rejects.toThrow('access expired')
+  })
+
+  it('withholds discovered candidates and grants when authorization expires after scanning', async () => {
+    const parent = await temporaryFolder()
+    const candidate = join(parent, 'candidate-app')
+    await mkdir(candidate)
+    await writeFile(join(candidate, 'package.json'), '{"name":"candidate-app"}')
+    const harness = await scanHarness({
+      folder: parent,
+      discovery: true,
+      assertLeaseCurrent: async () => {
+        throw new Error('Project scan authorization changed; try again')
+      },
+    })
+
+    await expect(harness.discover()).resolves.toMatchObject({
+      success: false,
+      error: 'Project scan authorization changed; try again',
+    })
+    await expect(harness.pathCapabilities.requireProjectFolder(
+      harness.rendererId,
+      candidate,
+      CREATE_PROJECT_GRANT_TARGET,
+    )).rejects.toThrow('access expired')
+  })
+})
+
 function exportHarness(options: {
   folder: string
   environmentKind?: 'local' | 'cloud'
@@ -225,6 +317,7 @@ function exportHarness(options: {
     readVault: async () => vault,
     authController: { confirmProjectEnvExport } as unknown as AuthController,
     recordAudit,
+    acquireProjectScanLease: async () => ({ assertCurrent: async () => undefined }),
     acquireProjectExportLease: options.acquireProjectExportLease
       ?? (async () => ({ assertCurrent: assertLeaseCurrent })),
     confirmProjectExportSummary,
@@ -240,6 +333,62 @@ function exportHarness(options: {
     exportEnv: () => handler({}, {
       projectId: 'project-1',
       environmentId: 'environment-local',
+    }),
+  }
+}
+
+async function scanHarness(options: {
+  folder: string
+  discovery?: boolean
+  getVaultRevision?: () => number
+  assertLeaseCurrent?: () => void | Promise<void>
+  acquireProjectScanLease?: () => Promise<{ assertCurrent(): Promise<void> }>
+}) {
+  const handlers = new Map<string, IpcHandler>()
+  const ipcMain = {
+    handle: (channel: string, handler: IpcHandler) => { handlers.set(channel, handler) },
+  } as unknown as IpcMain
+  const key = Buffer.alloc(32, 1)
+  const rendererId = 91
+  const pathCapabilities = new ProjectPathCapabilityStore()
+  await pathCapabilities.grantFolder(
+    rendererId,
+    options.folder,
+    options.discovery ? 'scan-parent' : 'project-local-path',
+  )
+  const vault = {
+    version: 2,
+    revision: 7,
+    root: { id: 'root', name: 'My Vault', children: [], secrets: [] },
+    envProjects: [],
+  }
+  const acquireProjectScanLease = vi.fn(options.acquireProjectScanLease
+    ?? (async () => ({ assertCurrent: async () => options.assertLeaseCurrent?.() })))
+
+  registerProjectIpc(ipcMain, {
+    getVaultKey: () => key,
+    getVaultRevision: options.getVaultRevision ?? (() => 7),
+    readVault: async () => vault,
+    authController: {} as AuthController,
+    recordAudit: vi.fn(),
+    acquireProjectScanLease,
+    acquireProjectExportLease: async () => ({ assertCurrent: () => undefined }),
+    confirmProjectExportSummary: async () => true,
+    pathCapabilities,
+  })
+
+  const event = { sender: { id: rendererId } }
+  const scan = handlers.get(projectIpcContracts.scan.channel)
+  const discover = handlers.get(projectIpcContracts.discover.channel)
+  if (!scan || !discover) throw new Error('Project scan handlers were not registered')
+  return {
+    acquireProjectScanLease,
+    pathCapabilities,
+    rendererId,
+    scan: () => scan(event, { path: options.folder }),
+    discover: (replaceProjectId?: string) => discover(event, {
+      parentPath: options.folder,
+      ...(replaceProjectId ? { replaceProjectId } : {}),
     }),
   }
 }

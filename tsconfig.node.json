@@ -50,7 +50,7 @@
         "src/main/providerWorkerClient.disabled.ts"
       ],
       "#provider-basic-ops": [
-        "src/main/providerLifecycleOps.disabled.ts"
+        "src/main/providerBasicOps.disabled.ts"
       ],
       "#provider-lifecycle-ops": [
         "src/main/providerLifecycleOps.disabled.ts"

@@ -19,7 +19,7 @@ export interface CommercialRuntimeAccess {
   requireCapability(capability: ProCapability): Promise<void>
   acquireCapabilityLease(capability: ProCapability): Promise<CommercialCapabilityLease>
   authorizeVaultMutation(currentVault: unknown, command: Record<string, unknown>): Promise<Record<string, unknown>>
-  authorizeProjectScan(currentVault: unknown, path: string, projectId?: string, replaceProjectId?: string): Promise<void>
+  acquireProjectScanLease(currentVault: unknown, path: string, projectId?: string, replaceProjectId?: string): Promise<CommercialProjectScanLease>
   acquireProjectExportLease(currentVault: unknown, projectId: string): Promise<CommercialProjectExportLease>
   resume(): Promise<void>
   suspend(reason?: string): void
@@ -33,6 +33,10 @@ export interface CommercialCapabilityLease {
 
 export interface CommercialProjectExportLease {
   assertCurrent(): void
+}
+
+export interface CommercialProjectScanLease {
+  assertCurrent(): Promise<void>
 }
 
 interface InstallCommercialRuntimeOptions {
@@ -56,8 +60,32 @@ export async function installCommercialRuntime(
   let suspended = false
   let disposed = false
   let generation = 0
-  const assertAvailable = (): void => {
-    if (suspended || disposed) throw new Error('Project export authorization changed; try again')
+  const assertAvailable = (operation: 'scan' | 'export'): void => {
+    if (suspended || disposed) throw new Error(`Project ${operation} authorization changed; try again`)
+  }
+  const acquireProjectScanLease = async (): Promise<CommercialProjectScanLease> => {
+    assertAvailable('scan')
+    const acquiredGeneration = generation
+    return Object.freeze({
+      assertCurrent: async () => {
+        assertAvailable('scan')
+        if (generation !== acquiredGeneration) {
+          throw new Error('Project scan authorization changed; try again')
+        }
+      },
+    })
+  }
+  const acquireProjectExportLease = async (): Promise<CommercialProjectExportLease> => {
+    assertAvailable('export')
+    const acquiredGeneration = generation
+    return Object.freeze({
+      assertCurrent: () => {
+        assertAvailable('export')
+        if (generation !== acquiredGeneration) {
+          throw new Error('Project export authorization changed; try again')
+        }
+      },
+    })
   }
   const policy: CommunityPolicy = {
     edition: 'community',
@@ -69,25 +97,17 @@ export async function installCommercialRuntime(
     canReadProjects: true,
     canExportProjects: true,
   }
+  const capabilityError = (capability: ProCapability): Error => new Error(
+    `Commercial capability ${capability} is unavailable in Vaultage Community`,
+  )
   return {
     policy: async () => policy,
-    hasCapability: async () => true,
-    requireCapability: async () => undefined,
-    acquireCapabilityLease: async capability => Object.freeze({ capability, assertCurrent: () => undefined }),
+    hasCapability: async () => false,
+    requireCapability: async capability => { throw capabilityError(capability) },
+    acquireCapabilityLease: async capability => { throw capabilityError(capability) },
     authorizeVaultMutation: async (_currentVault, command) => command,
-    authorizeProjectScan: async () => undefined,
-    acquireProjectExportLease: async () => {
-      assertAvailable()
-      const acquiredGeneration = generation
-      return Object.freeze({
-        assertCurrent: () => {
-          assertAvailable()
-          if (generation !== acquiredGeneration) {
-            throw new Error('Project export authorization changed; try again')
-          }
-        },
-      })
-    },
+    acquireProjectScanLease,
+    acquireProjectExportLease,
     resume: async () => {
       if (disposed) throw new Error('Commercial runtime is disposed')
       suspended = false

@@ -8,6 +8,8 @@ import {
   isPrivateOverlaySourcePath,
   isReviewedDisabledSeamPath,
   reviewedDisabledSeamPaths,
+  openNodeAliasPaths,
+  openWebAliasPaths,
   stripClosedReleaseConfiguration,
 } from './open-source-config.mjs'
 
@@ -66,6 +68,18 @@ describe('Community source boundary configuration', () => {
     // security-critical direction: every disabled file that exists is reviewed.
     expect(disabledSources.filter(path => !reviewedDisabledSeamPaths.has(path)))
       .toEqual([])
+  })
+
+  it('keeps every declared Community alias target present and reviewed', () => {
+    const root = resolve(import.meta.dirname, '..')
+    for (const paths of [...Object.values(openNodeAliasPaths), ...Object.values(openWebAliasPaths)]) {
+      for (const path of paths) {
+        expect(sourceFilesBelow(root).includes(path), path).toBe(true)
+        if (/\.disabled\.[cm]?[jt]sx?$/.test(path)) {
+          expect(reviewedDisabledSeamPaths.has(path), path).toBe(true)
+        }
+      }
+    }
   })
 
   it('rejects every current and future commercial IPC channel or event', () => {

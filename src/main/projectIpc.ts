@@ -17,6 +17,10 @@ export interface ProjectExportAuthorizationLease {
   assertCurrent(): void
 }
 
+export interface ProjectScanAuthorizationLease {
+  assertCurrent(): Promise<void>
+}
+
 export interface ProjectExportConfirmationSummary {
   projectName: string
   environmentName: string
@@ -32,7 +36,12 @@ export interface ProjectIpcDeps {
   readVault: (key: Buffer) => Promise<unknown>
   authController: AuthController
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void
-  authorizeProjectScan?: (vault: unknown, path: string, projectId?: string, replaceProjectId?: string) => Promise<void> | void
+  acquireProjectScanLease: (
+    vault: unknown,
+    path: string,
+    projectId?: string,
+    replaceProjectId?: string,
+  ) => Promise<ProjectScanAuthorizationLease>
   acquireProjectExportLease: (
     vault: unknown,
     projectId: string,
@@ -110,10 +119,23 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
         payload.manualFiles ?? [],
       )
       const currentVault = await deps.readVault(vaultKey)
+      const authorizedVaultRevision = vaultRevisionFrom(currentVault, deps.getVaultRevision())
       if (deps.getVaultKey() !== vaultKey) return { success: false, error: 'Vaultage locked during project scan' }
-      await deps.authorizeProjectScan?.(currentVault, path, payload.projectId, payload.replaceProjectId)
+      if (deps.getVaultRevision() !== authorizedVaultRevision) {
+        return { success: false, error: 'Vault changed during project scan authorization; try again' }
+      }
+      const commercialLease = await deps.acquireProjectScanLease(
+        currentVault,
+        path,
+        payload.projectId,
+        payload.replaceProjectId,
+      )
       const result = await scanProject({ path, manualFiles })
+      await commercialLease.assertCurrent()
       if (deps.getVaultKey() !== vaultKey) return { success: false, error: 'Vaultage locked during project scan' }
+      if (deps.getVaultRevision() !== authorizedVaultRevision) {
+        return { success: false, error: 'Vault changed during project scan; try again' }
+      }
       return { success: true, result }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
@@ -126,8 +148,30 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
     try {
       const payload = projectIpc.discover.validate(rawPayload)
       const parentPath = await capabilities.requireScanParent(event.sender.id, payload.parentPath)
-      const result = await discoverProjectCandidates({ parentPath })
+      const currentVault = await deps.readVault(vaultKey)
+      const authorizedVaultRevision = vaultRevisionFrom(currentVault, deps.getVaultRevision())
       if (deps.getVaultKey() !== vaultKey) return { success: false, error: 'Vaultage locked during project discovery' }
+      if (deps.getVaultRevision() !== authorizedVaultRevision) {
+        return { success: false, error: 'Vault changed during project discovery authorization; try again' }
+      }
+      const commercialLeases: ProjectScanAuthorizationLease[] = []
+      const result = await discoverProjectCandidates({ parentPath }, {
+        acquireCandidateLease: async path => {
+          const lease = await deps.acquireProjectScanLease(
+            currentVault,
+            path,
+            undefined,
+            payload.replaceProjectId,
+          )
+          commercialLeases.push(lease)
+          return lease
+        },
+      })
+      for (const lease of commercialLeases) await lease.assertCurrent()
+      if (deps.getVaultKey() !== vaultKey) return { success: false, error: 'Vaultage locked during project discovery' }
+      if (deps.getVaultRevision() !== authorizedVaultRevision) {
+        return { success: false, error: 'Vault changed during project discovery; try again' }
+      }
       for (const candidate of result.candidates) {
         capabilities.grantDiscoveredFolder(event.sender.id, parentPath, candidate.path)
       }

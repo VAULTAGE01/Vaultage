@@ -257,6 +257,122 @@ describe('registerVaultDataIpc', () => {
     expect(onVaultChanged).not.toHaveBeenCalled()
   })
 
+  it('imports private linked secrets into Community as local-only records', async () => {
+    const current = sampleVault()
+    let persisted: any
+    storage.commitVaultUpdate.mockImplementation(async (_key, updater) => {
+      const output = await updater(current)
+      persisted = JSON.parse(output.json)
+      return { status: 'committed', value: output.result }
+    })
+    const providerRuntime = registerProviderIpc({} as IpcMain, undefined, () => undefined, undefined)
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerVaultDataIpc(ipcMain, deps({
+      authorizeProviderMutation: providerRuntime.authorizeVerificationMutation,
+    }))
+    const importedAt = '2026-07-17T12:00:00.000Z'
+    const sourceSecret = {
+      id: 'private-secret',
+      name: 'Imported API token',
+      type: 'apiKey',
+      fields: [{ id: 'private-field', key: 'TOKEN', value: 'portable-value', sensitive: true }],
+      notes: 'Keep this local note',
+      createdAt: importedAt,
+      updatedAt: importedAt,
+      providerLink: {
+        providerId: 'provider-private',
+        remoteName: 'Production token',
+        createdInVaultage: true,
+        status: 'active',
+      },
+    }
+
+    const result = await handlers.get('vault:mutate')?.({ sender: { id: 1 } }, {
+      mutationId: 'community-import-private-export',
+      expectedRevision: 4,
+      command: {
+        type: 'folder.import',
+        parentId: 'root',
+        folder: {
+          id: 'private-export',
+          name: 'Private export',
+          children: [],
+          secrets: [sourceSecret],
+          itemOrder: [{ kind: 'secret', id: sourceSecret.id }],
+        },
+      },
+    }) as any
+
+    expect(result).toMatchObject({ success: true, revision: 5 })
+    const importedFolder = persisted.root.children[0]
+    expect(importedFolder).toMatchObject({ name: 'Private export' })
+    expect(importedFolder.secrets[0]).toMatchObject({
+      name: 'Imported API token',
+      notes: 'Keep this local note',
+      fields: [{ key: 'TOKEN', value: 'portable-value', sensitive: true }],
+    })
+    expect(importedFolder.secrets[0]).not.toHaveProperty('providerLink')
+    expect(JSON.stringify(persisted)).not.toContain('provider-private')
+  })
+
+  it('imports only selected local records when an unselected private provider link is present', async () => {
+    const current = sampleVault()
+    let persisted: any
+    storage.commitVaultUpdate.mockImplementation(async (_key, updater) => {
+      const output = await updater(current)
+      persisted = JSON.parse(output.json)
+      return { status: 'committed', value: output.result }
+    })
+    const providerRuntime = registerProviderIpc({} as IpcMain, undefined, () => undefined, undefined)
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerVaultDataIpc(ipcMain, deps({
+      authorizeProviderMutation: providerRuntime.authorizeVerificationMutation,
+    }))
+    const timestamp = '2026-07-17T12:00:00.000Z'
+    const localSecret = {
+      id: 'selected-local', name: 'Selected local secret', type: 'apiKey',
+      fields: [{ id: 'local-field', key: 'TOKEN', value: 'selected-value', sensitive: true }],
+      notes: '',
+      createdAt: timestamp, updatedAt: timestamp,
+    }
+    const linkedSecret = {
+      ...localSecret,
+      id: 'unselected-linked',
+      name: 'Unselected linked secret',
+      providerLink: {
+        providerId: 'provider-private', remoteName: 'Remote token',
+        createdInVaultage: true, status: 'active',
+      },
+    }
+
+    const result = await handlers.get('vault:mutate')?.({ sender: { id: 1 } }, {
+      mutationId: 'community-import-selected-private-export',
+      expectedRevision: 4,
+      command: {
+        type: 'folder.import',
+        parentId: 'root',
+        selectedSecretIds: [localSecret.id],
+        folder: {
+          id: 'private-export', name: 'Private export', children: [],
+          secrets: [localSecret, linkedSecret],
+          itemOrder: [
+            { kind: 'secret', id: localSecret.id },
+            { kind: 'secret', id: linkedSecret.id },
+          ],
+        },
+      },
+    }) as any
+
+    expect(result).toMatchObject({ success: true, revision: 5 })
+    expect(persisted.root.children[0].secrets).toHaveLength(1)
+    expect(persisted.root.children[0].secrets[0]).toMatchObject({
+      name: 'Selected local secret',
+      fields: [{ key: 'TOKEN', value: 'selected-value', sensitive: true }],
+    })
+    expect(JSON.stringify(persisted)).not.toContain('provider-private')
+    expect(JSON.stringify(persisted)).not.toContain('Unselected linked secret')
+  })
+
   it('checks stale form revisions before consuming a provider verification grant', async () => {
     const current = sampleVault()
     current.revision = 5

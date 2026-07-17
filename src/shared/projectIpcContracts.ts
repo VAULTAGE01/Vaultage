@@ -106,7 +106,16 @@ function validateProjectScanPayload(payload: unknown): ProjectScanRequest {
 
 function validateProjectDiscoverPayload(payload: unknown): ProjectDiscoverRequest {
   const record = requireRecord(payload, 'project discovery payload')
-  return { parentPath: validatePathString(requireString(record.parentPath, 'parent path'), 'parent path') }
+  const allowedKeys = new Set(['parentPath', 'replaceProjectId'])
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.has(key)) throw new Error(`Unexpected project discovery field: ${key}`)
+  }
+  return {
+    parentPath: validatePathString(requireString(record.parentPath, 'parent path'), 'parent path'),
+    replaceProjectId: record.replaceProjectId === undefined
+      ? undefined
+      : validateIdentifier(requireString(record.replaceProjectId, 'replacement project id'), 'replacement project id'),
+  }
 }
 
 function validateProjectExportEnvPayload(payload: unknown): ProjectExportEnvPayload {

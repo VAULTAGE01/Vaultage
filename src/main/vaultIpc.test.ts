@@ -128,6 +128,24 @@ describe('registerVaultIpc export IPC', () => {
         },
       },
     })
+
+    for (const hostileKdf of [
+      { N: 2 ** 24 },
+      { p: 1_000_000 },
+      { keylen: 1_000_000 },
+      { salt: 'aa'.repeat(129) },
+    ]) {
+      const hostileExport = {
+        ...encryptedExport,
+        kdf: { ...(encryptedExport.kdf as Record<string, unknown>), ...hostileKdf },
+      }
+      const hostileResult = await handlers.get('vault:decrypt-export')?.({}, {
+        data: JSON.stringify(hostileExport),
+        password: 'correct horse battery staple',
+      })
+      expect(hostileResult).toMatchObject({ success: false })
+      expect(String((hostileResult as { error?: string }).error)).toMatch(/Encrypted export (?:N|p|key length|salt) is invalid/)
+    }
   }, 15_000)
 
   it('requires plaintext confirmation before JSON or CSV export', async () => {

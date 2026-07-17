@@ -63,7 +63,9 @@ export default defineConfig({
         '#provider-worker-client': openCoreBuild
           ? resolve('src/main/providerWorkerClient.disabled.ts')
           : resolve('src/main/providerWorkerClient.ts'),
-        '#provider-basic-ops': resolve('src/main/providerBasicOps.ts'),
+        '#provider-basic-ops': openCoreBuild
+          ? resolve('src/main/providerBasicOps.disabled.ts')
+          : resolve('src/main/providerBasicOps.ts'),
         '#provider-lifecycle-ops': openCoreBuild
           ? resolve('src/main/providerLifecycleOps.disabled.ts')
           : resolve('src/main/providerLifecycleOps.ts'),
