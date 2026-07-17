@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils'
 import { useMode, type AppMode } from '../modeContext.open'
 import { FolderKanban, KeyRound } from 'lucide-react'
 import type { ElementType } from 'react'
@@ -7,11 +8,7 @@ const MODES: { mode: AppMode; label: string; icon: ElementType }[] = [
   { mode: 'projects', label: 'Projects', icon: FolderKanban },
 ]
 
-function cn(...classes: (string | false | null | undefined)[]) {
-  return classes.filter(Boolean).join(' ')
-}
-
-export default function ModeSwitcher() {
+export default function ModeSwitcher({ onModeSelect }: { onModeSelect?: (mode: AppMode) => void }) {
   const { mode, setMode } = useMode()
 
   return (
@@ -23,7 +20,10 @@ export default function ModeSwitcher() {
           <button
             key={item.mode}
             type="button"
-            onClick={() => { void setMode(item.mode) }}
+            onClick={() => {
+              onModeSelect?.(item.mode)
+              void setMode(item.mode)
+            }}
             className={cn(
               'flex h-8 items-center justify-center gap-1.5 rounded-lg text-xs font-semibold transition-colors',
               selected ? 'bg-white/10 text-text shadow-sm' : 'text-muted hover:bg-white/[0.06] hover:text-text',

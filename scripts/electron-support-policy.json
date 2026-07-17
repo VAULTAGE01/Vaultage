@@ -1,0 +1,8 @@
+{
+  "checkedAt": "2026-07-11",
+  "expiresAfterDays": 45,
+  "supportedMajors": [41, 42, 43],
+  "latestStable": "43.1.0",
+  "source": "https://releases.electronjs.org/?channel=stable",
+  "policySource": "https://www.electronjs.org/docs/latest/tutorial/electron-timelines"
+}

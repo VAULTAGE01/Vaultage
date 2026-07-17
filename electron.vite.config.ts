@@ -3,6 +3,20 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
 const openCoreBuild = process.env['VAULTAGE_OPEN_CORE'] === '1'
+const disableReactRefresh = process.env['VAULTAGE_DISABLE_REACT_REFRESH'] === '1'
+let productionReleaseBuild = false
+
+
+function rendererChunk(id: string): string | undefined {
+  if (!id.includes('/node_modules/')) return undefined
+  if (id.includes('/react@') || id.includes('/react-dom@') || id.includes('/scheduler@')) {
+    return 'vendor-react'
+  }
+  if (id.includes('/lucide-react@') || id.includes('/simple-icons@')) {
+    return 'vendor-icons'
+  }
+  return 'vendor-ui'
+}
 
 export default defineConfig({
   main: {
@@ -14,6 +28,9 @@ export default defineConfig({
         '#agent-auth-token': openCoreBuild
           ? resolve('src/main/agentAuthToken.disabled.ts')
           : resolve('src/main/agentAuthToken.ts'),
+        '#agent-discovery': openCoreBuild
+          ? resolve('src/main/agentDiscovery.disabled.ts')
+          : resolve('src/main/agentDiscovery.ts'),
         '#agent-ipc': openCoreBuild
           ? resolve('src/main/agentIpc.disabled.ts')
           : resolve('src/main/agentIpc.ts'),
@@ -23,6 +40,20 @@ export default defineConfig({
         '#agent-server': openCoreBuild
           ? resolve('src/main/agentServer.disabled.ts')
           : resolve('src/main/agentServer.ts'),
+        '#extension-handoff': openCoreBuild
+          ? resolve('src/main/extensionHandoff.disabled.ts')
+          : resolve('src/main/extensionHandoff.ts'),
+        '#extension-candidate-vault': openCoreBuild
+          ? resolve('src/main/extensionCandidateVault.disabled.ts')
+          : resolve('src/main/extensionCandidateVault.ts'),
+        '#extension-native-host-composition': openCoreBuild
+          ? resolve('src/main/extensionNativeHostComposition.disabled.ts')
+          : productionReleaseBuild
+            ? resolve('src/main/extensionNativeHostComposition.production.ts')
+            : resolve('src/main/extensionNativeHostComposition.ts'),
+        '#extension-native-host-ipc': openCoreBuild
+          ? resolve('src/main/extensionNativeHostIpc.disabled.ts')
+          : resolve('src/main/extensionNativeHostIpc.ts'),
         '#provider-ipc': openCoreBuild
           ? resolve('src/main/providerIpc.disabled.ts')
           : resolve('src/main/providerIpc.ts'),
@@ -36,10 +67,13 @@ export default defineConfig({
         '#provider-lifecycle-ops': openCoreBuild
           ? resolve('src/main/providerLifecycleOps.disabled.ts')
           : resolve('src/main/providerLifecycleOps.ts'),
+        '#commercial-runtime': openCoreBuild
+          ? resolve('src/main/commercialRuntime.disabled.ts')
+          : resolve('src/main/commercialRuntime.ts'),
       },
     },
     build: {
-      minify: openCoreBuild ? 'esbuild' : false,
+      minify: 'esbuild',
       rollupOptions: {
         input: openCoreBuild
           ? { index: resolve('src/main/index.ts') }
@@ -55,8 +89,14 @@ export default defineConfig({
     build: {
       rollupOptions: {
         input: openCoreBuild
-          ? { index: resolve('src/preload/index.open.ts') }
-          : { index: resolve('src/preload/index.ts') },
+          ? {
+              index: resolve('src/preload/index.open.ts'),
+              menuPanel: resolve('src/preload/menuPanel.ts'),
+            }
+          : {
+              index: resolve('src/preload/index.ts'),
+              menuPanel: resolve('src/preload/menuPanel.ts'),
+            },
       },
     },
     plugins: [externalizeDepsPlugin()]
@@ -65,8 +105,24 @@ export default defineConfig({
     define: {
       __VAULTAGE_OPEN_CORE__: JSON.stringify(openCoreBuild),
     },
+    esbuild: {
+      jsx: 'automatic',
+    },
+    optimizeDeps: {
+      esbuildOptions: {
+        target: 'esnext',
+        supported: {
+          destructuring: true,
+        },
+      },
+    },
     build: {
-      minify: openCoreBuild ? 'esbuild' : false,
+      minify: 'esbuild',
+      rollupOptions: {
+        output: {
+          manualChunks: rendererChunk,
+        },
+      },
     },
     resolve: {
       alias: {
@@ -114,8 +170,23 @@ export default defineConfig({
         '#sidebar': openCoreBuild
           ? resolve('src/renderer/src/components/Sidebar.open.tsx')
           : resolve('src/renderer/src/components/Sidebar.tsx'),
+        '#commercial-readiness': openCoreBuild
+          ? resolve('src/renderer/src/components/CommercialReadiness.disabled.tsx')
+          : resolve('src/renderer/src/components/CommercialReadiness.tsx'),
+        '#commercial-project-activation': openCoreBuild
+          ? resolve('src/renderer/src/components/CommercialProjectActivation.disabled.tsx')
+          : resolve('src/renderer/src/components/CommercialProjectActivation.tsx'),
+        '#commercial-capabilities': openCoreBuild
+          ? resolve('src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts')
+          : resolve('src/renderer/src/lib/CommercialFeatureCapabilities.ts'),
+        '#commercial-account': openCoreBuild
+          ? resolve('src/renderer/src/commercialAccountContext.disabled.tsx')
+          : resolve('src/renderer/src/commercialAccountContext.tsx'),
+        '#commercial-account-settings': openCoreBuild
+          ? resolve('src/renderer/src/components/CommercialAccountSettings.disabled.tsx')
+          : resolve('src/renderer/src/components/CommercialAccountSettings.tsx'),
       }
     },
-    plugins: [react()]
+    plugins: disableReactRefresh ? [] : [react()]
   }
 })

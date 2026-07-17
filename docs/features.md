@@ -7,18 +7,35 @@ identities, and private paid modules are outside this source distribution.
 
 Status labels:
 
-- **Shipped**: implemented in the Community app.
+- **Shipped**: implemented in the staged Community source. This label does not
+  prove an official binary, external distribution, or customer readiness.
 - **Planned**: accepted direction, not fully built.
 
 ## Auth, Lock, And Recovery
 
 | Status | Feature | Notes | Source |
 | --- | --- | --- | --- |
-| Shipped | Master-password setup and unlock | Creates local vault, wraps the vault key, and restores Touch ID material after password unlock. | `src/main/auth.ts`, `src/renderer/src/components/AuthScreen.tsx` |
-| Shipped | Touch ID unlock | Uses bundled native helper and macOS Keychain with a local-auth prompt for Touch ID or Mac password fallback. | `src/main/keychain.ts`, `vault-keychain/` |
-| Shipped | Quick reveal PIN | Settings can create, replace, or remove a 4-digit reveal PIN after confirming the master password. | `src/main/vaultIpc.ts`, `src/main/auth.ts`, `src/main/vaultRedaction.ts` |
+| Shipped | Master-password setup and unlock | Creates the local vault, wraps the vault key, and can restore this-device-only Keychain material after password unlock. | `src/main/auth.ts`, `src/renderer/src/components/AuthScreen.tsx` |
+| Shipped | macOS user-presence unlock | Uses a bundled native helper and macOS Keychain with a local-auth prompt; Touch ID is used when available and macOS may offer system-password fallback. Production helpers authenticate the containing app path, identifier, hardened-runtime signature, and matching Apple team before accepting commands. | `src/main/keychain.ts`, `src/main/keychainPolicy.ts`, `vault-keychain/` |
 | Shipped | Manual lock and auto-lock | Clears in-memory vault key manually or on system suspend, screen lock, and app lifecycle transitions. | `src/main/index.ts`, `src/renderer/src/components/MainLayout.open.tsx` |
-| Shipped | Keyboard shortcuts | Search, lock, Vault, Projects, import, export, settings, and shortcuts modal. | `src/renderer/src/components/KeyboardShortcutsModal.tsx` |
+| Shipped | Keyboard shortcuts | The Community shell implements search, lock, My Vault, and Projects shortcuts only. | `src/renderer/src/components/MainLayout.open.tsx` |
+
+## Compatibility APIs Not Exposed In The Community Shell
+
+The shared main process retains compatibility IPC for backup/restore,
+password/sign-out controls, reveal-PIN management, and broader export scopes.
+The current Community sidebar does not expose a Settings screen for those
+controls, so they are not classified as user-visible Community features.
+
+## Explicitly Not Community UI
+
+| Capability | Community status |
+| --- | --- |
+| Settings modal, password change/sign-out, backup/restore, reveal-PIN setup, and full-vault export | Not exposed by the Community shell; compatibility IPC is not a user-facing promise |
+| Agent request server, approvals, discovery file, and CLI | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
+| Services/provider connections and remote token lifecycle | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
+| Browser-extension pairing and save handoff | Private/Pro; live implementation and renderer IPC contracts excluded; throwing/no-op compile seams retained |
+| Hosted accounts, sync/audit, billing, and spend dashboards | Not included |
 
 ## My Vault
 
@@ -32,7 +49,7 @@ Status labels:
 | Shipped | Pinned secrets | Users can pin secrets to the local dashboard. | `src/renderer/src/lib/pinning.ts`, `src/renderer/src/components/PinSecretButton.tsx` |
 | Shipped | Global search | Search across secrets and metadata. | `src/renderer/src/components/GlobalSearch.tsx` |
 | Shipped | CSV import | Imports browser/password-manager-style CSV and generic spreadsheet rows with preview. | `src/renderer/src/lib/csvImport.ts`, `src/renderer/src/components/ImportModal.tsx` |
-| Shipped | Export | Encrypted, JSON, and CSV export paths with plaintext confirmation where needed. | `src/renderer/src/components/ExportModal.tsx`, `src/main/vaultIpc.ts` |
+| Shipped | Scoped export | The selected-secret detail exposes its scoped export flow with plaintext confirmation where needed. Full-vault export is not exposed by the Community shell. | `src/renderer/src/components/SecretDetail.open.tsx`, `src/renderer/src/components/ExportModal.tsx` |
 | Shipped | Redacted renderer snapshots | Sensitive saved-field values are redacted before vault snapshots reach React. | `src/main/vaultRedaction.ts`, `src/renderer/src/vaultContext.tsx` |
 
 ## Projects
@@ -42,7 +59,7 @@ Status labels:
 | Shipped | Projects dashboard | Shows saved local projects, mapped key counts, and last export state. | `src/renderer/src/components/ProjectsView.open.tsx` |
 | Shipped | Project scanning | Scans local folders/files for env keys, env files, frameworks, and service hints. | `src/main/projectScanner.ts`, `src/shared/projectScan.ts` |
 | Shipped | Env-key mapping | Maps vault fields to project env keys. | `src/renderer/src/components/EnvProjectsModal.tsx` |
-| Shipped | Explicit `.env` export | Writes selected mapped values to local project `.env` files and can add them to `.gitignore`. | `src/main/envFile.ts`, `src/main/projectIpc.ts` |
+| Shipped | Explicit `.env` export | Resolves persisted mappings and destination in main, shows their exact main-owned summary, requires macOS user presence, and can add the file to `.gitignore`. New or changed paths require a purpose/Project-bound one-use native-picker grant that is cleared on lock. | `src/main/envFile.ts`, `src/main/projectIpc.ts`, `src/main/projectMutationAuthorization.ts` |
 
 ## Audit And Security
 
@@ -58,3 +75,15 @@ Status labels:
 Closed commercial editions may add account-gated automation and hosted
 workflows. Those modules are intentionally absent from this public Community
 source tree.
+
+## Keyboard Contract
+
+| Shortcut | Community action |
+| --- | --- |
+| `Cmd+K` | Toggle secret search |
+| `Cmd+L` | Lock the vault |
+| `Cmd+1` | Open My Vault |
+| `Cmd+2` | Open Projects |
+
+No other shortcut is part of the Community shell contract until its control is
+implemented and tested in the open entry points.

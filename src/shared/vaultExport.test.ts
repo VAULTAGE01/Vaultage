@@ -89,6 +89,56 @@ describe('vault scoped exports', () => {
     }])
   })
 
+  it('filters project environment mappings in scoped exports', () => {
+    const exported = serializeScopedVaultExportJson({
+      ...vault,
+      envProjects: [{
+        id: 'project-1',
+        name: 'Billing App',
+        path: '/tmp/billing',
+        addToGitignore: true,
+        entries: [],
+        environments: [{
+          id: 'project-1:local',
+          name: 'Local',
+          scope: 'development',
+          kind: 'local',
+          path: '/tmp/billing',
+          addToGitignore: true,
+          entries: [
+            { secretId: 'api-secret', fieldKey: 'API Key', envKey: 'STRIPE_API_KEY' },
+            { secretId: 'root-secret', fieldKey: 'Password', envKey: 'ROOT_PASSWORD' },
+          ],
+        }, {
+          id: 'project-1:prod',
+          name: 'Production',
+          scope: 'production',
+          kind: 'cloud',
+          providerId: 'provider-1',
+          entries: [{ secretId: 'root-secret', fieldKey: 'Password', envKey: 'ROOT_PASSWORD' }],
+        }],
+      }],
+    }, { kind: 'folder', id: 'api-folder' }, '2026-05-31T12:00:00.000Z')
+    const parsed = JSON.parse(exported.content)
+
+    expect(parsed.vault.envProjects).toEqual([{
+      id: 'project-1',
+      name: 'Billing App',
+      path: '/tmp/billing',
+      addToGitignore: true,
+      entries: [],
+      environments: [{
+        id: 'project-1:local',
+        name: 'Local',
+        scope: 'development',
+        kind: 'local',
+        path: '/tmp/billing',
+        addToGitignore: true,
+        entries: [{ secretId: 'api-secret', fieldKey: 'API Key', envKey: 'STRIPE_API_KEY' }],
+      }],
+    }])
+  })
+
   it('exports a single secret as CSV with escaped values', () => {
     const exported = serializeScopedVaultExportCsv(vault, { kind: 'secret', id: 'api-secret' }, '2026-05-31T12:00:00.000Z')
 

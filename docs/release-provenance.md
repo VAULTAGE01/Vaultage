@@ -1,6 +1,6 @@
 # Vaultage Community Release Provenance
 
-Status: public release verification policy draft.
+Status: enforced pre-release verification policy; legal approval remains open.
 
 ## Source
 
@@ -25,7 +25,7 @@ Public desktop builds should publish:
 - SHA-256 checksums,
 - updater metadata for official builds,
 - build provenance attestation where the hosting platform supports it,
-- SBOM before general availability.
+- CycloneDX dependency and packaged-app SBOMs.
 
 Unsigned pre-release builds must be labeled as such and must not be presented as
 production-ready.

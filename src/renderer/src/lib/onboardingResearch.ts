@@ -18,13 +18,13 @@ export function onboardingResearchSurveyUrl(): string {
   }
 }
 
-export function isOnboardingResearchReminderDue(reminderAt?: string): boolean {
+function isOnboardingResearchReminderDue(reminderAt?: string): boolean {
   if (!reminderAt) return false
   const timestamp = Date.parse(reminderAt)
   return Number.isFinite(timestamp) && timestamp <= Date.now()
 }
 
-export function isOnboardingResearchComplete(preference?: OnboardingResearchSurveyPreference): boolean {
+function isOnboardingResearchComplete(preference?: OnboardingResearchSurveyPreference): boolean {
   return preference?.status === 'completed'
 }
 
@@ -37,12 +37,4 @@ export function shouldShowOnboardingResearchPrompt(
     (justCompletedSetup && !preference) ||
     (preference?.status === 'remind_later' && isOnboardingResearchReminderDue(preference.reminderAt))
   )
-}
-
-export function shouldShowOnboardingResearchAccessCard(
-  preference: OnboardingResearchSurveyPreference | undefined,
-): boolean {
-  if (isOnboardingResearchComplete(preference)) return false
-  if (!preference) return true
-  return preference.status === 'opened' || preference.status === 'remind_later'
 }

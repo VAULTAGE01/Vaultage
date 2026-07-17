@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useVault } from '../vaultContext'
-import { AnimatedGradient } from './AnimatedGradient'
+import AuthBackdrop from './AuthBackdrop'
 import { VaultageLogoWordmark } from './VaultageLogo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { cn } from '@/lib/utils'
 import {
   MIN_MASTER_PASSWORD_LENGTH,
   masterPasswordPolicyError,
@@ -19,6 +20,9 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+
+const openSetupPanelClassName =
+  'rounded-[28px] border border-black/10 bg-[#101612]/[0.88] p-8 shadow-[0_26px_80px_rgba(30,34,30,0.28),inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-xl'
 
 function strength(pw: string): { score: number; label: string; color: string } {
   const { score: s, label } = masterPasswordStrength(pw)
@@ -62,7 +66,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
 
   return (
     <>
-      <div className="no-drag w-[440px] animate-scale-in">
+      <div className={cn('no-drag w-[440px] animate-scale-in', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
         {/* Header */}
         <div className="text-center mb-7 flex flex-col items-center">
           <VaultageLogoWordmark className="w-64 h-16 text-white mb-3" />
@@ -111,7 +115,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
           {paidAccountPathEnabled && (
 	            <button
 	              onClick={() => setShowAccountSoon(true)}
-	              title="Preview the account path planned for paid sync and team features. Shortcut: Enter"
+	              title="Preview the optional Pro account path for Agent, Services, and browser extension access. Shortcut: Enter"
 	              className="w-full text-left p-5 rounded-2xl transition-all active:scale-[0.99] opacity-80 hover:opacity-100"
               style={{
                 background: 'rgba(255,255,255,0.02)',
@@ -138,11 +142,11 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
                         border: '1px solid rgba(56,189,248,0.2)',
                       }}
                     >
-                      Coming soon
+                      After setup
                     </span>
                   </div>
                   <p className="text-xs text-text-secondary mt-1 leading-relaxed">
-                    Planned for paid sync, team, and hosted workflow features.
+                    Sign in after setup; trusted-device enrollment activates the included 30-day Pro trial automatically.
                   </p>
                 </div>
               </div>
@@ -161,11 +165,11 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
         <Dialog open={showAccountSoon} onOpenChange={setShowAccountSoon}>
           <DialogContent className="max-w-sm">
             <DialogHeader>
-              <DialogTitle>Accounts are coming soon</DialogTitle>
+              <DialogTitle>Vaultage accounts are optional</DialogTitle>
               <DialogDescription className="text-sm text-text-secondary leading-relaxed pt-1">
-                For now, continue without an account. You'll be able to create an account
-                for paid sync, team, and hosted workflow features once they launch at{' '}
-                <span className="text-sky-400 font-medium">vaultage.dev</span>.
+                Set up your local vault first, then use Account &amp; Plan to sign in. The first
+                trusted Mac automatically activates the one-time 30-day, no-card Pro trial for Agent, Services, and browser extension access.
+                Cloud sync, teams, and hosted execution are not part of the paid beta.
               </DialogDescription>
             </DialogHeader>
             <DialogFooter>
@@ -202,7 +206,7 @@ function PasswordStep({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className="no-drag w-[400px] animate-scale-in">
+    <div className={cn('no-drag w-[400px] animate-scale-in', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
       {/* Header with back */}
       <div className="text-center mb-7 relative flex flex-col items-center">
 	        <button
@@ -334,14 +338,7 @@ export default function SetupScreen() {
 
   return (
     <div className="liquid-shell flex h-screen items-center justify-center drag-region relative overflow-hidden">
-      <AnimatedGradient
-        variant="vortex"
-        speed={0.18}
-        opacity={0.74}
-        className="absolute inset-0 pointer-events-none"
-      />
-      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(180deg,rgba(2,8,6,0.56)_0%,rgba(2,8,6,0.34)_45%,rgba(2,8,6,0.68)_100%)]" />
-      <div className="liquid-noise absolute inset-0 pointer-events-none opacity-30" />
+      <AuthBackdrop />
 
       {step === 'welcome'
         ? <WelcomeStep onContinueLocal={() => setStep('password')} />

@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { toast } from 'sonner'
 import { useVault } from '../vaultContext'
-import { AnimatedGradient } from './AnimatedGradient'
+import AuthBackdrop from './AuthBackdrop'
 import { VaultageLogoWordmark } from './VaultageLogo'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import BackupRestoreScreen from './BackupRestoreScreen'
 
 type Mode = 'touchid' | 'password'
 
@@ -44,6 +45,7 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false)
   const [hint,    setHint]    = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
+  const [showRestore, setShowRestore] = useState(false)
 
   useEffect(() => { setMounted(true); triggerTouchID() }, []) // eslint-disable-line
 
@@ -87,19 +89,14 @@ export default function AuthScreen() {
   const isTouchIDPromptOpen = isTouchIDMode && loading
   const isRecoveryHint = hint === TOUCH_ID_RECOVERY_HINT || hint === TOUCH_ID_REFRESH_HINT
 
+  if (showRestore) return <BackupRestoreScreen onCancel={() => setShowRestore(false)} />
+
   return (
     <div
       className="liquid-shell flex h-screen items-center justify-center drag-region relative overflow-hidden"
       style={{ opacity: mounted ? 1 : 0, transition: 'opacity 0.4s ease' }}
     >
-      <AnimatedGradient
-        variant="vortex"
-        speed={0.18}
-        opacity={0.74}
-        className="absolute inset-0 pointer-events-none"
-      />
-      <div className="absolute inset-0 pointer-events-none bg-[linear-gradient(180deg,rgba(2,8,6,0.56)_0%,rgba(2,8,6,0.34)_45%,rgba(2,8,6,0.68)_100%)]" />
-      <div className="liquid-noise absolute inset-0 pointer-events-none opacity-30" />
+      <AuthBackdrop />
 
       {isTouchIDPromptOpen ? (
         <div
@@ -261,9 +258,9 @@ export default function AuthScreen() {
                 </button>
               </div>
 
-	              <button
-	                onClick={handlePassword}
-	                disabled={!pw || loading}
+		              <button
+		                onClick={handlePassword}
+		                disabled={!pw || loading}
 	                title="Unlock the vault with your master password. Shortcut: Enter"
 	                className="w-full py-3 rounded-2xl font-semibold text-sm transition-all active:scale-95 hover:scale-[1.02] disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
@@ -271,11 +268,11 @@ export default function AuthScreen() {
                   color: '#000',
                   boxShadow: '0 4px 16px rgba(0,255,127,0.3)',
                 }}
-              >
-                {loading ? 'Unlocking...' : 'Unlock'}
-              </button>
+	              >
+	                {loading ? 'Unlocking...' : 'Unlock'}
+	              </button>
 
-              <div className="text-center">
+	              <div className="text-center">
                 <Button
                   variant="link"
                   size="sm"
@@ -293,6 +290,16 @@ export default function AuthScreen() {
           <p className="mt-8 text-center text-[11px] tracking-wide text-subtle">
             AES-256-GCM · scrypt · macOS Keychain
           </p>
+          <div className="mt-2 text-center">
+            <Button
+              variant="link"
+              size="sm"
+              className="text-[11px] text-muted hover:text-text-secondary"
+              onClick={() => setShowRestore(true)}
+            >
+              Restore a validated backup
+            </Button>
+          </div>
         </div>
       )}
     </div>

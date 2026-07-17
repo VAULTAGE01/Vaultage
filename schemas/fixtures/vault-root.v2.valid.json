@@ -1,0 +1,70 @@
+{
+  "version": 2,
+  "revision": 7,
+  "root": {
+    "id": "root",
+    "name": "Example Vault",
+    "children": [],
+    "secrets": [
+      {
+        "id": "secret-1",
+        "name": "Example API key",
+        "type": "apiKey",
+        "fields": [
+          { "key": "API Key", "value": "fixture-value", "sensitive": true }
+        ],
+        "notes": "",
+        "createdAt": "2026-07-11T12:00:00.000Z",
+        "updatedAt": "2026-07-11T12:00:00.000Z",
+        "expiresAt": "2027-07-11",
+        "providerLink": {
+          "providerId": "provider-1",
+          "remoteName": "EXAMPLE_API_KEY",
+          "createdInVaultage": false,
+          "status": "active"
+        }
+      }
+    ],
+    "itemOrder": [
+      { "kind": "secret", "id": "secret-1" }
+    ]
+  },
+  "providers": [
+    {
+      "id": "provider-1",
+      "name": "Example custom provider",
+      "type": "custom",
+      "config": { "baseUrl": "https://example.test", "token": "fixture-provider-token" },
+      "groupId": "group-1"
+    }
+  ],
+  "providerGroups": [
+    { "id": "group-1", "name": "Deploy", "categoryId": "deploy" }
+  ],
+  "envProjects": [
+    {
+      "id": "project-1",
+      "name": "Example app",
+      "path": "/tmp/example-app",
+      "entries": [
+        { "secretId": "secret-1", "fieldKey": "API Key", "envKey": "EXAMPLE_API_KEY" }
+      ],
+      "addToGitignore": true,
+      "environments": [
+        {
+          "id": "project-1:production",
+          "name": "Production",
+          "scope": "production",
+          "kind": "cloud",
+          "entries": [],
+          "providerId": "provider-1",
+          "syncRule": "manual"
+        }
+      ]
+    }
+  ],
+  "preferences": {
+    "localDefaultFoldersCreated": true,
+    "localDashboardPinnedOrder": ["secret:secret-1", "project:project-1", "service:provider-1"]
+  }
+}

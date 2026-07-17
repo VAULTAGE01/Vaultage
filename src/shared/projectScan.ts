@@ -1,5 +1,7 @@
 export type ProjectScanConfidence = 'high' | 'medium' | 'low'
 
+export const MAX_PROJECT_MANUAL_FILES = 32
+
 export interface ProjectScanFileRef {
   path: string
   line?: number
@@ -61,4 +63,31 @@ export interface ProjectScanResult {
 export interface ProjectScanRequest {
   path: string
   manualFiles?: string[]
+  /** Existing project identity; omitted only while evaluating a new project. */
+  projectId?: string
+  /** Closed-Free active slot selected for an atomic new-project replacement. */
+  replaceProjectId?: string
+}
+
+export interface ProjectDiscoverRequest {
+  parentPath: string
+}
+
+export interface ProjectScanCandidate {
+  path: string
+  name: string
+  envKeyCount: number
+  envFileCount: number
+  serviceCount: number
+  services: string[]
+  projectTypes: string[]
+  scannedFileCount: number
+  warningCount: number
+}
+
+export interface ProjectDiscoverResult {
+  parentPath: string
+  scannedAt: string
+  candidates: ProjectScanCandidate[]
+  warnings: string[]
 }

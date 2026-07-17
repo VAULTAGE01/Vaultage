@@ -1,7 +1,10 @@
 import { spawnSync } from 'child_process'
+import { rmSync } from 'fs'
 import { exit, platform } from 'process'
+import { resolve } from 'path'
 
 const env = { ...process.env, VAULTAGE_OPEN_CORE: '1' }
+rmSync(resolve(process.cwd(), 'out'), { recursive: true, force: true })
 const commands = platform === 'darwin'
   ? [
       ['bash', ['build-helper.sh']],

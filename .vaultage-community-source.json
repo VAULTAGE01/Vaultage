@@ -1,0 +1,18 @@
+{
+  "schemaVersion": 1,
+  "kind": "vaultage-community-source-provenance-v1",
+  "source": {
+    "commitSha": "dde5bcb49ce3d05833387012a17dd7c50a01041a",
+    "treeSha": "2a835faa10b07a3754eb689cdef180504f6a06df",
+    "trackedState": "clean"
+  },
+  "generator": {
+    "path": "scripts/stage-open-source.mjs",
+    "sha256": "4e6c5436b47b4714f1afafd153a7c2ca5a81abfe0f414f6110427076e063abd0"
+  },
+  "packageVersion": "0.1.0",
+  "stagedTree": {
+    "algorithm": "sha256",
+    "sha256": "c8f2708cfe2f8c9faea9050855cfa546f2668e3c97844c1e1c5d72e056230911"
+  }
+}

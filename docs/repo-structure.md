@@ -40,11 +40,14 @@ modules.
 - Community surface: My Vault, Projects, local audit, import/export, project
   scanning, env-key mapping, public docs, and disabled seams for closed
   features.
-- Private/Pro surface: Agent workflows, CLI helpers, Services/provider
-  connectors, managed OAuth, scoped-token creation, rotation/revocation,
-  premium service catalog, browser extension, hosted sync/cloud audit tier,
-  spend dashboards, signing identities, and brand assets unless explicitly
-  licensed separately.
+- Current Trial/Pro private source: Agent workflows, CLI helpers, BYO
+  Services/provider connectors, supported scoped-token creation and
+  rotation/revocation, the service catalog, and a separately release-gated
+  browser extension.
+- Deferred private ownership, not a current paid-beta capability: managed
+  OAuth, hosted sync/cloud audit and spend, teams, hosted execution, and other
+  platforms. Signing/control-plane internals and brand assets also remain
+  private unless explicitly licensed separately.
 - Community builds must not import paid overlay modules.
 
 ## Generated Paths To Keep Out Of Source

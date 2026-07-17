@@ -205,4 +205,14 @@ describe('CSV import parser', () => {
     expect(prepared[0]?.secret?.notes).toBe('shared login\nOTPAuth: otpauth://totp?secret=abc')
     expect(prepared[0]?.secret?.tags).toEqual(['browser', 'safari'])
   })
+
+  it('always imports secure-note fields as sensitive', () => {
+    const parsed = parseCsv('name,value,type\nRecovery,private text,secureNote')
+    const prepared = prepareRows(parsed.rows)
+
+    expect(parsed.errors).toEqual([])
+    expect(prepared[0]?.secret?.fields).toEqual([
+      { key: 'Content', value: 'private text', sensitive: true },
+    ])
+  })
 })

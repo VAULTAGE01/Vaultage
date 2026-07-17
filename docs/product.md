@@ -11,7 +11,8 @@ workflows.
 | My Vault | Encrypted local vault, folders, secrets, secure notes, import/export, reveal/copy controls, and local audit viewing/export. |
 | Projects | Local project records, project scanning, env-key mapping, and explicit `.env` export. |
 
-Vaultage Community does not require an account. The public source distribution
+Vaultage Community does not require an account and has no commercial
+active-Project limit. The public source distribution
 does not include closed commercial automation, hosted account features, browser
 extension code, signing identities, or private release-channel modules.
 

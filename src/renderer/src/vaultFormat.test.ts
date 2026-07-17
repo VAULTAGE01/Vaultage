@@ -50,24 +50,26 @@ function text(random: () => number, prefix: string): string {
   return value.trim()
 }
 
-function generatedSecret(random: () => number, index: string): VaultSecret {
+function generatedSecret(random: () => number, index: string, providerAvailable: boolean): VaultSecret {
   const type = pick<SecretType>(random, ['password', 'apiKey', 'sshKey', 'secureNote', 'custom', 'image'])
   const now = `2026-05-${String(int(random, 1, 28)).padStart(2, '0')}T12:00:00.000Z`
   return {
     id: `secret-${index}`,
     name: text(random, 'secret-'),
     type,
-    fields: [
-      { key: 'value', value: text(random, 'value-'), sensitive: true },
-      { key: 'label', value: text(random, 'label-'), sensitive: false },
-    ],
+    fields: type === 'image'
+      ? [{ key: '__image__', value: 'data:image/png;base64,AAAA', sensitive: true }]
+      : [
+          { key: 'value', value: text(random, 'value-'), sensitive: true },
+          { key: 'label', value: text(random, 'label-'), sensitive: false },
+        ],
     notes: text(random, 'notes-'),
     createdAt: now,
     updatedAt: now,
     description: random() > 0.55 ? text(random, 'description-') : undefined,
     scope: random() > 0.5 ? pick(random, ['production', 'staging', 'development', 'testing']) : undefined,
     tags: random() > 0.45 ? [text(random, 'tag-'), text(random, 'tag-')] : undefined,
-    providerLink: random() > 0.75
+    providerLink: providerAvailable && random() > 0.75
       ? {
           providerId: 'provider-1',
           remoteName: text(random, 'remote-'),
@@ -78,7 +80,12 @@ function generatedSecret(random: () => number, index: string): VaultSecret {
   }
 }
 
-function generatedFolder(random: () => number, path: string, depth: number): GeneratedFolder {
+function generatedFolder(
+  random: () => number,
+  path: string,
+  depth: number,
+  providerAvailable: boolean,
+): GeneratedFolder {
   const childCount = depth > 0 ? int(random, 0, 2) : 0
   const secretCount = int(random, 0, 3)
   const folder: GeneratedFolder = {
@@ -89,11 +96,11 @@ function generatedFolder(random: () => number, path: string, depth: number): Gen
 
   if (random() > 0.25 || depth === 2) {
     folder.children = Array.from({ length: childCount }, (_, index) =>
-      generatedFolder(random, `${path}-${index}`, depth - 1))
+      generatedFolder(random, `${path}-${index}`, depth - 1, providerAvailable))
   }
   if (random() > 0.25) {
     folder.secrets = Array.from({ length: secretCount }, (_, index) =>
-      generatedSecret(random, `${path}-${index}`))
+      generatedSecret(random, `${path}-${index}`, providerAvailable))
   }
 
   return folder
@@ -101,10 +108,11 @@ function generatedFolder(random: () => number, path: string, depth: number): Gen
 
 function generatedVault(seed: number): GeneratedVault {
   const random = rng(seed)
+  const providerAvailable = random() > 0.35
   return {
     version: 2,
-    root: generatedFolder(random, `root-${seed}`, 2),
-    providers: random() > 0.35
+    root: generatedFolder(random, `root-${seed}`, 2, providerAvailable),
+    providers: providerAvailable
       ? [{
           id: 'provider-1',
           name: text(random, 'provider-'),
@@ -274,10 +282,10 @@ describe('parseVaultJson', () => {
   it('rejects non-string, invalid, oversized, and corrupt JSON imports', () => {
     expect(() => parseVaultJson({})).toThrow('Vault JSON must be a string')
     expect(() => parseVaultJson('{bad json')).toThrow('Vault JSON must be valid JSON')
-    expect(() => parseVaultJson('[]')).toThrow('Vault payload must be an object')
+    expect(() => parseVaultJson('[]')).toThrow('Invalid vault at $: must be an object')
     expect(() => parseVaultJson('x'.repeat(MAX_VAULT_IMPORT_JSON_BYTES + 1)))
       .toThrow('Vault JSON is too large')
     expect(() => parseVaultJson(JSON.stringify({ version: 2, root: { id: '', name: 'Vault' } })))
-      .toThrow('root.id must be a string')
+      .toThrow('Invalid vault at $.root.id: must not be empty')
   })
 })

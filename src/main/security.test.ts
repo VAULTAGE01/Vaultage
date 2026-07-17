@@ -134,11 +134,11 @@ describe('main security policy helpers', () => {
     expect(validateSecretRevealConfirmation(undefined)).toBe(false)
   })
 
-  it('accepts only 4-digit quick reveal PINs', () => {
-    expect(validateQuickRevealPinInput('1234')).toBe('1234')
-    expect(() => validateQuickRevealPinInput('123')).toThrow('PIN must be exactly 4 digits')
-    expect(() => validateQuickRevealPinInput('12345')).toThrow('PIN must be exactly 4 digits')
-    expect(() => validateQuickRevealPinInput('12a4')).toThrow('PIN must be exactly 4 digits')
+  it('accepts only 6-digit quick reveal PINs for new PIN records', () => {
+    expect(validateQuickRevealPinInput('123456')).toBe('123456')
+    expect(() => validateQuickRevealPinInput('1234')).toThrow('PIN must be exactly 6 digits')
+    expect(() => validateQuickRevealPinInput('12345')).toThrow('PIN must be exactly 6 digits')
+    expect(() => validateQuickRevealPinInput('12a456')).toThrow('PIN must be exactly 6 digits')
     expect(() => validateQuickRevealPinInput(undefined)).toThrow('PIN must be a string')
   })
 
@@ -174,6 +174,51 @@ describe('main security policy helpers', () => {
     expect(() => validateVaultSaveJson(JSON.stringify({ version: 2, revision: 0, root: {} }))).toThrow('Vault payload revision must be a positive integer')
     expect(() => validateVaultSaveJson(JSON.stringify({ version: 2 }))).toThrow('Vault payload root must be an object')
     expect(() => validateVaultSaveJson(JSON.stringify({ version: 2, root: {}, padding: 'x'.repeat(MAX_VAULT_JSON_BYTES) }))).toThrow('Vault payload is too large')
+  })
+
+  it('distinguishes persisted metadata from renderer redaction placeholders', () => {
+    const persisted = {
+      version: 2,
+      revision: 1,
+      root: { id: 'root', name: 'Vault', children: [], secrets: [] },
+      providers: [],
+      envProjects: [],
+      preferences: {
+        quickRevealPinEnabled: true,
+        quickRevealPin: {
+          version: 1,
+          scrypt: { N: 131072, r: 8, p: 1, keylen: 32, salt: 'aa'.repeat(16) },
+          verifier: 'bb'.repeat(16),
+          updatedAt: '2026-07-11T12:00:00.000Z',
+        },
+      },
+    }
+    expect(validateVaultSaveJson(JSON.stringify(persisted))).toBe(JSON.stringify(persisted))
+
+    const rendererSnapshot = {
+      ...persisted,
+      preferences: { quickRevealPinEnabled: true },
+      root: {
+        ...persisted.root,
+        secrets: [{
+          id: 'secret-1',
+          name: 'API key',
+          type: 'apiKey',
+          fields: [{
+            key: 'API Key',
+            value: '__VAULTAGE_REDACTED_SECRET_FIELD__',
+            sensitive: true,
+          }],
+          notes: '',
+          createdAt: '2026-07-11T12:00:00.000Z',
+          updatedAt: '2026-07-11T12:00:00.000Z',
+        }],
+      },
+    }
+    expect(validateVaultSaveJson(JSON.stringify(rendererSnapshot), 'renderer'))
+      .toBe(JSON.stringify(rendererSnapshot))
+    expect(() => validateVaultSaveJson(JSON.stringify(rendererSnapshot)))
+      .toThrow('contains an unresolved redacted value')
   })
 
   it('serializes dotenv safely', () => {

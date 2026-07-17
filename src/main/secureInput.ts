@@ -1,5 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'child_process'
-import { helperPath, IS_MAC } from './keychain'
+import {
+  IS_MAC,
+  keychainHelperEnvironment,
+  trustedHelperPath,
+} from './keychain'
 
 type SecureInputResult = {
   success: boolean
@@ -16,14 +20,23 @@ export function enableSecureInput(): Promise<SecureInputResult> {
   if (secureInputStart) return secureInputStart
 
   try {
-    const child = spawn(helperPath(), ['secure-input', 'hold'], {
+    const executable = trustedHelperPath()
+    if (!executable) {
+      return Promise.resolve({
+        success: false,
+        available: true,
+        error: 'Native Secure Event Input helper failed identity verification',
+      })
+    }
+    const child = spawn(executable, ['secure-input', 'hold'], {
       stdio: ['pipe', 'pipe', 'pipe'],
+      env: keychainHelperEnvironment(),
     })
     secureInputHold = child
 
     let stderr = ''
     child.stderr.on('data', (chunk) => {
-      stderr += String(chunk).slice(0, 1000)
+      stderr = `${stderr}${String(chunk)}`.slice(0, 1000)
     })
 
     secureInputStart = new Promise((resolve) => {

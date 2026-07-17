@@ -15,7 +15,7 @@ const DialogOverlay = React.forwardRef<
   <DialogPrimitive.Overlay
     ref={ref}
     className={cn(
-      'fixed inset-0 z-50 bg-black/55 backdrop-blur-md',
+      'liquid-modal-overlay fixed inset-0 z-50',
       'data-[state=open]:animate-fade-in data-[state=closed]:animate-fade-out',
       className
     )}
@@ -35,7 +35,7 @@ const DialogContent = React.forwardRef<
       className={cn(
         '!fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%]',
         'max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)]',
-        'liquid-card w-full max-w-lg bg-card border border-border rounded-2xl shadow-modal',
+        'liquid-modal-shell no-drag w-full max-w-lg overflow-hidden rounded-2xl border p-0 shadow-modal',
         'data-[state=open]:animate-dialog-scale-in data-[state=closed]:animate-fade-out',
         'focus:outline-none',
         className
@@ -44,7 +44,7 @@ const DialogContent = React.forwardRef<
     >
       {children}
       {!hideClose && (
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-lg p-1 text-muted hover:text-text hover:bg-white/5 transition-colors focus:outline-none">
+        <DialogPrimitive.Close className="absolute right-4 top-4 z-10 rounded-lg p-1 text-muted hover:text-text hover:bg-white/5 transition-colors focus:outline-none">
           <X className="h-4 w-4" />
         </DialogPrimitive.Close>
       )}

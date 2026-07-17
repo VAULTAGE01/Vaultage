@@ -1,0 +1,27 @@
+{
+  "version": 2,
+  "revision": 0,
+  "root": {
+    "id": "root",
+    "name": "Invalid fixture",
+    "children": [],
+    "secrets": [
+      {
+        "id": "secret-1",
+        "name": "Malformed secret",
+        "type": "apiKey",
+        "fields": [
+          { "key": "API Key", "value": "fixture-value", "sensitive": "yes" }
+        ],
+        "notes": "",
+        "createdAt": "not-a-date",
+        "updatedAt": "2026-07-11T12:00:00.000Z",
+        "expiresAt": "2025-02-29"
+      }
+    ]
+  },
+  "providers": [
+    { "id": "provider-1", "name": "Unsupported", "type": "unknown", "config": {} }
+  ],
+  "envProjects": []
+}

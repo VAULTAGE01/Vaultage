@@ -2,61 +2,101 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://vaultage.dev/schemas/vault-root.v2.schema.json",
   "title": "Vaultage Decrypted Vault Root v2",
+  "description": "Canonical persisted Vaultage v2 plaintext structure. Secret values remain encrypted at rest; this schema describes the data only after authenticated decryption.",
   "type": "object",
   "additionalProperties": true,
   "required": ["version", "root"],
   "properties": {
-    "version": {
-      "type": "integer",
-      "const": 2
-    },
-    "root": {
-      "$ref": "#/$defs/folder"
-    },
+    "version": { "type": "integer", "const": 2 },
+    "revision": { "type": "integer", "minimum": 1 },
+    "root": { "$ref": "#/$defs/folder" },
     "providers": {
       "type": "array",
+      "maxItems": 1000,
       "items": { "$ref": "#/$defs/provider" },
+      "default": []
+    },
+    "providerGroups": {
+      "type": "array",
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/providerGroup" },
       "default": []
     },
     "envProjects": {
       "type": "array",
+      "maxItems": 10000,
       "items": { "$ref": "#/$defs/envProject" },
       "default": []
-    }
+    },
+    "preferences": { "$ref": "#/$defs/preferences" }
   },
   "$defs": {
-    "isoDateTime": {
+    "id": {
       "type": "string",
-      "format": "date-time"
+      "minLength": 1,
+      "maxLength": 240,
+      "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
     },
-    "uuidLike": {
-      "type": "string",
-      "minLength": 1
+    "name": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "isoDateTime": { "type": "string", "format": "date-time" },
+    "dateOrDateTime": {
+      "oneOf": [
+        { "type": "string", "format": "date" },
+        { "type": "string", "format": "date-time" }
+      ]
+    },
+    "stringList": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "type": "string", "maxLength": 4096 }
     },
     "field": {
       "type": "object",
       "additionalProperties": true,
       "required": ["key", "value", "sensitive"],
       "properties": {
-        "key": { "type": "string", "minLength": 1 },
+        "key": { "type": "string", "minLength": 1, "maxLength": 256 },
         "value": { "type": "string" },
         "sensitive": { "type": "boolean" }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "key": { "const": "__image__" } }, "required": ["key"] },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "string",
+                "maxLength": 9786966,
+                "pattern": "^data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=\\r\\n\\t ]+$"
+              },
+              "sensitive": { "const": true }
+            }
+          },
+          "else": {
+            "properties": {
+              "value": { "type": "string", "maxLength": 2097152 }
+            }
+          }
+        }
+      ]
     },
     "providerLink": {
       "type": "object",
       "additionalProperties": true,
       "required": ["providerId", "remoteName", "createdInVaultage"],
       "properties": {
-        "providerId": { "$ref": "#/$defs/uuidLike" },
-        "remoteName": { "type": "string" },
+        "providerId": { "$ref": "#/$defs/id" },
+        "remoteName": { "type": "string", "maxLength": 1024 },
         "createdInVaultage": { "type": "boolean" },
         "scopes": {
           "type": "array",
-          "items": { "type": "string" }
+          "maxItems": 1000,
+          "items": { "type": "string", "maxLength": 1024 }
         },
-        "remoteId": { "type": "string" },
-        "lastVerifiedAt": { "$ref": "#/$defs/isoDateTime" }
+        "remoteId": { "type": "string", "maxLength": 1024 },
+        "lastVerifiedAt": { "$ref": "#/$defs/isoDateTime" },
+        "status": { "enum": ["active", "revoked", "missing"] },
+        "statusUpdatedAt": { "$ref": "#/$defs/isoDateTime" }
       }
     },
     "secret": {
@@ -64,35 +104,65 @@
       "additionalProperties": true,
       "required": ["id", "name", "type", "fields", "notes", "createdAt", "updatedAt"],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidLike" },
-        "name": { "type": "string", "minLength": 1 },
-        "type": {
-          "enum": ["password", "apiKey", "sshKey", "secureNote", "custom", "image"]
-        },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "type": { "enum": ["password", "apiKey", "sshKey", "secureNote", "custom", "image"] },
         "fields": {
           "type": "array",
+          "maxItems": 256,
           "items": { "$ref": "#/$defs/field" }
         },
-        "notes": { "type": "string" },
+        "notes": { "type": "string", "maxLength": 2097152 },
         "createdAt": { "$ref": "#/$defs/isoDateTime" },
         "updatedAt": { "$ref": "#/$defs/isoDateTime" },
-        "description": { "type": "string" },
-        "scope": { "type": "string" },
+        "description": { "type": "string", "maxLength": 65536 },
+        "scope": { "type": "string", "maxLength": 256 },
         "tags": {
           "type": "array",
-          "items": { "type": "string" }
+          "maxItems": 1000,
+          "items": { "type": "string", "maxLength": 512 }
         },
-        "expiresAt": { "$ref": "#/$defs/isoDateTime" },
-        "usedIn": {
-          "type": "array",
-          "items": { "type": "string" }
-        },
+        "expiresAt": { "$ref": "#/$defs/dateOrDateTime" },
+        "usedIn": { "$ref": "#/$defs/stringList" },
         "lastUsedAt": { "$ref": "#/$defs/isoDateTime" },
-        "usageCount": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "providerLink": { "$ref": "#/$defs/providerLink" }
+        "usageCount": { "type": "integer", "minimum": 0 },
+        "providerLink": { "$ref": "#/$defs/providerLink" },
+        "agentAvailable": { "type": "boolean" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "image" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "fields": {
+                "type": "array",
+                "contains": {
+                  "type": "object",
+                  "required": ["key", "value", "sensitive"],
+                  "properties": {
+                    "key": { "const": "__image__" },
+                    "value": {
+                      "type": "string",
+                      "pattern": "^data:image/[A-Za-z0-9.+-]+;base64,[A-Za-z0-9+/=\\r\\n\\t ]+$"
+                    },
+                    "sensitive": { "const": true }
+                  }
+                },
+                "minContains": 1,
+                "maxContains": 1
+              }
+            }
+          }
+        }
+      ]
+    },
+    "itemOrderEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["folder", "secret"] },
+        "id": { "$ref": "#/$defs/id" }
       }
     },
     "folder": {
@@ -100,15 +170,22 @@
       "additionalProperties": true,
       "required": ["id", "name", "children", "secrets"],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidLike" },
-        "name": { "type": "string", "minLength": 1 },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
         "children": {
           "type": "array",
+          "maxItems": 10000,
           "items": { "$ref": "#/$defs/folder" }
         },
         "secrets": {
           "type": "array",
+          "maxItems": 50000,
           "items": { "$ref": "#/$defs/secret" }
+        },
+        "itemOrder": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/itemOrderEntry" }
         }
       }
     },
@@ -117,16 +194,40 @@
       "additionalProperties": true,
       "required": ["id", "name", "type", "config"],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidLike" },
-        "name": { "type": "string" },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
         "type": {
-          "enum": ["doppler", "vercel", "cloudflare", "custom"]
+          "enum": [
+            "doppler", "vercel", "cloudflare", "gitlab", "github", "aws", "gcp", "azure",
+            "openai", "supabase", "firebase", "netlify", "twilio", "resend", "custom"
+          ]
         },
         "config": {
           "type": "object",
-          "additionalProperties": { "type": "string" }
+          "maxProperties": 256,
+          "additionalProperties": { "type": "string", "maxLength": 2097152 }
         },
-        "lastSyncAt": { "$ref": "#/$defs/isoDateTime" }
+        "lastSyncAt": { "$ref": "#/$defs/isoDateTime" },
+        "connectionStatus": { "enum": ["configured", "verified", "error"] },
+        "lastTestedAt": { "$ref": "#/$defs/isoDateTime" },
+        "groupId": {
+          "oneOf": [
+            { "$ref": "#/$defs/id" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "providerGroup": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "categoryId": {
+          "enum": ["build", "ai", "code", "backend", "deploy", "secure", "connect", "observe", "monetize"]
+        }
       }
     },
     "envEntry": {
@@ -134,12 +235,40 @@
       "additionalProperties": true,
       "required": ["secretId", "fieldKey", "envKey"],
       "properties": {
-        "secretId": { "$ref": "#/$defs/uuidLike" },
-        "fieldKey": { "type": "string" },
+        "secretId": { "$ref": "#/$defs/id" },
+        "fieldKey": { "type": "string", "minLength": 1, "maxLength": 256 },
         "envKey": {
           "type": "string",
+          "maxLength": 512,
           "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
         }
+      }
+    },
+    "environment": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["id", "name", "scope", "kind", "entries"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "scope": { "type": "string", "maxLength": 256 },
+        "kind": { "enum": ["local", "cloud"] },
+        "entries": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": { "$ref": "#/$defs/envEntry" }
+        },
+        "path": { "type": "string", "maxLength": 32768 },
+        "providerId": { "$ref": "#/$defs/id" },
+        "providerEnvName": { "type": "string", "maxLength": 1024 },
+        "syncRule": { "enum": ["manual", "push", "pull"] },
+        "addToGitignore": { "type": "boolean" },
+        "manualScanFiles": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "type": "string", "maxLength": 32768 }
+        },
+        "lastSyncAt": { "$ref": "#/$defs/isoDateTime" }
       }
     },
     "envProject": {
@@ -147,15 +276,106 @@
       "additionalProperties": true,
       "required": ["id", "name", "path", "entries", "addToGitignore"],
       "properties": {
-        "id": { "$ref": "#/$defs/uuidLike" },
-        "name": { "type": "string" },
-        "path": { "type": "string" },
+        "id": { "$ref": "#/$defs/id" },
+        "name": { "$ref": "#/$defs/name" },
+        "path": { "type": "string", "maxLength": 32768 },
         "entries": {
           "type": "array",
+          "maxItems": 100000,
           "items": { "$ref": "#/$defs/envEntry" }
         },
         "addToGitignore": { "type": "boolean" },
-        "lastExportAt": { "$ref": "#/$defs/isoDateTime" }
+        "manualScanFiles": {
+          "type": "array",
+          "maxItems": 1000,
+          "items": { "type": "string", "maxLength": 32768 }
+        },
+        "lastExportAt": { "$ref": "#/$defs/isoDateTime" },
+        "environments": {
+          "type": "array",
+          "maxItems": 256,
+          "items": { "$ref": "#/$defs/environment" }
+        }
+      }
+    },
+    "quickRevealPin": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["version", "scrypt", "verifier", "updatedAt"],
+      "properties": {
+        "version": { "const": 1 },
+        "scrypt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["N", "r", "p", "keylen", "salt"],
+          "properties": {
+            "N": {
+              "type": "integer",
+              "enum": [
+                2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096,
+                8192, 16384, 32768, 65536, 131072, 262144, 524288,
+                1048576, 2097152, 4194304, 8388608, 16777216
+              ]
+            },
+            "r": { "type": "integer", "minimum": 1, "maximum": 1024 },
+            "p": { "type": "integer", "minimum": 1, "maximum": 1024 },
+            "keylen": { "type": "integer", "minimum": 16, "maximum": 64 },
+            "salt": { "type": "string", "minLength": 16, "maxLength": 512, "pattern": "^[0-9A-Fa-f]+$" }
+          }
+        },
+        "verifier": { "type": "string", "minLength": 32, "maxLength": 1024, "pattern": "^[0-9A-Fa-f]+$" },
+        "updatedAt": { "$ref": "#/$defs/isoDateTime" }
+      }
+    },
+    "preferences": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "localDefaultFoldersCreated": { "type": "boolean" },
+        "defaultAgentAvailable": { "type": "boolean" },
+        "agentApiPort": { "type": "integer", "minimum": 1, "maximum": 65535 },
+        "localDashboardPinnedOrder": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 256 }
+        },
+        "localDashboardOnboardingDismissed": { "type": "boolean" },
+        "activeEnvProjectIds": {
+          "type": "array",
+          "maxItems": 10000,
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1, "maxLength": 240 }
+        },
+        "quickRevealPinEnabled": { "type": "boolean" },
+        "quickRevealPin": { "$ref": "#/$defs/quickRevealPin" },
+        "accountCreated": { "type": "boolean" },
+        "onboardingResearchSurvey": {
+          "type": "object",
+          "additionalProperties": true,
+          "required": ["status", "promptedAt"],
+          "properties": {
+            "status": { "enum": ["opened", "skipped", "remind_later", "completed"] },
+            "promptedAt": { "$ref": "#/$defs/isoDateTime" },
+            "respondedAt": { "$ref": "#/$defs/isoDateTime" },
+            "reminderAt": { "$ref": "#/$defs/isoDateTime" }
+          }
+        },
+        "providerVotes": {
+          "type": "object",
+          "maxProperties": 1000,
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": true,
+            "required": ["providerId", "providerName", "votedAt"],
+            "properties": {
+              "providerId": { "type": "string", "minLength": 1, "maxLength": 240 },
+              "providerName": { "type": "string", "minLength": 1, "maxLength": 512 },
+              "votedAt": { "$ref": "#/$defs/isoDateTime" },
+              "source": { "type": "string", "maxLength": 1024 }
+            }
+          }
+        }
       }
     }
   }

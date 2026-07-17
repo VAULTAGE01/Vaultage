@@ -1,8 +1,14 @@
 import type { ServiceCategoryId } from '#service-categories'
+import type {
+  SupportedProviderType,
+  SupportedSecretType,
+} from '../../shared/vaultValidation'
 
-export type SecretType = 'password' | 'apiKey' | 'sshKey' | 'secureNote' | 'custom' | 'image'
+export type SecretType = SupportedSecretType
 
 export interface SecretField {
+  /** Stable main-process-owned identity; legacy vaults acquire one on first edit. */
+  id?:       string
   key:       string
   value:     string
   sensitive: boolean
@@ -66,7 +72,7 @@ export interface VaultTreeItemRef {
 
 // ── Providers ──────────────────────────────────────────────────────────────────
 
-export type ProviderType = 'doppler' | 'vercel' | 'cloudflare' | 'gitlab' | 'custom'
+export type ProviderType = SupportedProviderType
 
 export interface Provider {
   id:         string
@@ -74,6 +80,9 @@ export interface Provider {
   type:       ProviderType
   config:     Record<string, string>   // all config incl. credentials, stored encrypted
   lastSyncAt?: string
+  /** Configuration is not presented as live until an explicit test succeeds. */
+  connectionStatus?: 'configured' | 'verified' | 'error'
+  lastTestedAt?: string
   groupId?:   string | null
 }
 
@@ -109,18 +118,39 @@ export interface ProviderSecret {
 
 export interface EnvEntry {
   secretId: string
+  /** Stable field reference. Legacy mappings without it remain readable when the label is unambiguous. */
+  fieldId?:  string
   fieldKey: string  // which SecretField.key to read (e.g. "API Key")
   envKey:   string  // name in the .env file (e.g. "OPENAI_API_KEY")
+}
+
+export type EnvProjectEnvironmentKind = 'local' | 'cloud'
+export type EnvProjectSyncRule = 'manual' | 'push' | 'pull'
+
+export interface EnvProjectEnvironment {
+  id:              string
+  name:            string
+  scope:           string        // "development" | "staging" | "production" | custom
+  kind:            EnvProjectEnvironmentKind
+  entries:         EnvEntry[]
+  path?:           string        // local folder for local environments
+  providerId?:     string        // configured provider for cloud environments
+  providerEnvName?: string       // provider-side env/target label, when different from scope
+  syncRule?:       EnvProjectSyncRule
+  addToGitignore?: boolean
+  manualScanFiles?: string[]
+  lastSyncAt?:     string
 }
 
 export interface EnvProject {
   id:              string
   name:            string
-  path:            string        // absolute path to target project folder
-  entries:         EnvEntry[]
-  addToGitignore:  boolean
-  manualScanFiles?: string[]     // extra files to inspect for unusual project layouts
+  path:            string        // legacy/default local folder; projects can also contain environments
+  entries:         EnvEntry[]    // legacy/default local env mappings
+  addToGitignore:  boolean       // legacy/default local env safety
+  manualScanFiles?: string[]     // extra local files to inspect for unusual project layouts
   lastExportAt?:   string
+  environments?:   EnvProjectEnvironment[]
 }
 
 // ── Root ──────────────────────────────────────────────────────────────────────
@@ -146,8 +176,11 @@ export interface VaultPreferences {
   agentApiPort?: number
   onboardingResearchSurvey?: OnboardingResearchSurveyPreference
   providerVotes?: Record<string, ProviderVotePreference>
+  /** Ordered dashboard pins. Legacy raw secret IDs are still accepted; new pins use `secret:`, `project:`, and `service:` prefixes. */
   localDashboardPinnedOrder?: string[]
   localDashboardOnboardingDismissed?: boolean
+  /** Explicit Free-tier project activation order; ignored by Community and Pro. */
+  activeEnvProjectIds?: string[]
   quickRevealPinEnabled?: boolean
   quickRevealPin?: QuickRevealPinPreference
   accountCreated?: boolean
@@ -200,7 +233,7 @@ export const SECRET_TEMPLATES: Record<SecretType, SecretField[]> = {
     { key: 'Private Key', value: '', sensitive: true  },
     { key: 'Passphrase',  value: '', sensitive: true  },
   ],
-  secureNote: [{ key: 'Content',  value: '', sensitive: false }],
+  secureNote: [{ key: 'Content',  value: '', sensitive: true }],
   custom:     [],
   image:      [{ key: '__image__', value: '', sensitive: true }],
 }
@@ -222,6 +255,16 @@ export const PROVIDER_LABELS = (OPEN_CORE_BUILD ? {} : {
   vercel:     'Vercel',
   cloudflare: 'Cloudflare',
   gitlab:     'GitLab',
+  github:     'GitHub Actions',
+  aws:        'AWS Secrets Manager',
+  gcp:        'Google Secret Manager',
+  azure:      'Azure Key Vault',
+  openai:     'OpenAI Project Keys',
+  supabase:   'Supabase Secrets',
+  firebase:   'Firebase Secrets',
+  netlify:    'Netlify Env Vars',
+  twilio:     'Twilio API Keys',
+  resend:     'Resend API Keys',
   custom:     'Custom REST',
 }) as Record<ProviderType, string>
 

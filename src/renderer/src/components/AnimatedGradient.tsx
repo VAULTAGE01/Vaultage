@@ -4,10 +4,28 @@ import { cn } from '@/lib/utils'
 interface AnimatedGradientProps {
   className?: string
   variant?: 'vortex'
+  palette?: 'green' | 'darkGrey'
   speed?: number
   opacity?: number
   children?: ReactNode
 }
+
+const PALETTES = {
+  green: {
+    containerBg: '#020806',
+    background: [0.003, 0.020, 0.013],
+    depth: [0.000, 0.090, 0.050],
+    line: [0.120, 0.820, 0.430],
+    glow: [0.500, 1.000, 0.720],
+  },
+  darkGrey: {
+    containerBg: '#020806',
+    background: [0.003, 0.020, 0.013],
+    depth: [0.035, 0.048, 0.043],
+    line: [0.600, 0.660, 0.620],
+    glow: [0.880, 0.910, 0.875],
+  },
+} as const
 
 const VERTEX_SHADER = `
   attribute vec2 a_position;
@@ -29,6 +47,10 @@ const VORTEX_SHADER = `
   varying vec2 v_uv;
   uniform float u_time;
   uniform vec2 u_resolution;
+  uniform vec3 u_bg_color;
+  uniform vec3 u_depth_color;
+  uniform vec3 u_line_color;
+  uniform vec3 u_glow_color;
 
   float hash(vec2 p) {
     return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
@@ -87,18 +109,18 @@ const VORTEX_SHADER = `
     float f = fbm(r);
     float contour = sin(f * 18.0 - t * 1.2);
 
-    vec3 bgColor = vec3(0.003, 0.020, 0.013);
-    vec3 deepGreen = vec3(0.000, 0.090, 0.050);
-    vec3 lineColor = vec3(0.120, 0.820, 0.430);
-    vec3 softMint = vec3(0.500, 1.000, 0.720);
+    vec3 bgColor = u_bg_color;
+    vec3 depthColor = u_depth_color;
+    vec3 lineColor = u_line_color;
+    vec3 glowColor = u_glow_color;
 
     float line = smoothstep(0.960, 0.986, abs(contour));
     float centerGlow = 1.0 - smoothstep(0.0, 0.62, dist);
     float mist = smoothstep(0.24, 0.82, f) * centerGlow;
 
-    vec3 col = mix(bgColor, deepGreen, mist * 0.42);
+    vec3 col = mix(bgColor, depthColor, mist * 0.42);
     col = mix(col, lineColor, line * 0.72);
-    col += softMint * centerGlow * 0.055;
+    col += glowColor * centerGlow * 0.055;
     col += lineColor * line * centerGlow * 0.12;
 
     gl_FragColor = vec4(col, 1.0);
@@ -108,6 +130,7 @@ const VORTEX_SHADER = `
 export function AnimatedGradient({
   className,
   variant = 'vortex',
+  palette = 'green',
   speed = 1,
   opacity = 1,
   children,
@@ -192,6 +215,15 @@ export function AnimatedGradient({
 
     const timeLocation = gl.getUniformLocation(program, 'u_time')
     const resolutionLocation = gl.getUniformLocation(program, 'u_resolution')
+    const bgColorLocation = gl.getUniformLocation(program, 'u_bg_color')
+    const depthColorLocation = gl.getUniformLocation(program, 'u_depth_color')
+    const lineColorLocation = gl.getUniformLocation(program, 'u_line_color')
+    const glowColorLocation = gl.getUniformLocation(program, 'u_glow_color')
+    const colors = PALETTES[palette]
+    gl.uniform3fv(bgColorLocation, new Float32Array(colors.background))
+    gl.uniform3fv(depthColorLocation, new Float32Array(colors.depth))
+    gl.uniform3fv(lineColorLocation, new Float32Array(colors.line))
+    gl.uniform3fv(glowColorLocation, new Float32Array(colors.glow))
     const startTime = Date.now()
 
     let isVisible = true
@@ -251,10 +283,10 @@ export function AnimatedGradient({
       gl.deleteProgram(program)
       gl.deleteBuffer(buffer)
     }
-  }, [variant, speed])
+  }, [variant, palette, speed])
 
   return (
-    <div className={cn('relative overflow-hidden bg-[#020806]', className)}>
+    <div className={cn('relative overflow-hidden', className)} style={{ backgroundColor: PALETTES[palette].containerBg }}>
       <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" style={{ opacity }} />
       {children && <div className="relative z-10 h-full w-full">{children}</div>}
     </div>

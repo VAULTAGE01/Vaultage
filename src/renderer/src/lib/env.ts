@@ -7,23 +7,6 @@
 // staging, etc.
 // ────────────────────────────────────────────────────────────────────────────
 
-export const ENV_PRESETS = [
-  'production',
-  'staging',
-  'development',
-  'testing',
-] as const
-
-export type EnvPreset = typeof ENV_PRESETS[number]
-
-// "Lower" envs come first; promotion typically moves up this list.
-export const ENV_PROMOTION_ORDER: readonly EnvPreset[] = [
-  'development',
-  'testing',
-  'staging',
-  'production',
-]
-
 export interface EnvVisual {
   label:       string   // capitalized display label
   short:       string   // 3–4 char abbrev for tight spaces
@@ -97,29 +80,6 @@ export function isProductionScope(scope: string | null | undefined): boolean {
 }
 
 /** Order presets first (in promotion order), then everything else alphabetically. */
-export function sortScopes(scopes: string[]): string[] {
-  const presetIndex = new Map<string, number>(
-    ENV_PROMOTION_ORDER.map((s, i) => [s, i]),
-  )
-  return [...scopes].sort((a, b) => {
-    const ai = presetIndex.get(a)
-    const bi = presetIndex.get(b)
-    if (ai !== undefined && bi !== undefined) return ai - bi
-    if (ai !== undefined) return -1
-    if (bi !== undefined) return 1
-    return a.localeCompare(b)
-  })
-}
-
-/** Given a scope, return the next "higher" env to promote to. */
-export function nextPromotionScope(current: string | null | undefined): EnvPreset | null {
-  if (!current) return ENV_PROMOTION_ORDER[0]
-  const idx = (ENV_PROMOTION_ORDER as readonly string[]).indexOf(current)
-  if (idx === -1) return null
-  if (idx + 1 >= ENV_PROMOTION_ORDER.length) return null
-  return ENV_PROMOTION_ORDER[idx + 1]
-}
-
 function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1)
 }

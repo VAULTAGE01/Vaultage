@@ -3,10 +3,12 @@ import {
   MAX_ENV_ENTRIES,
   MAX_ENV_VALUE_BYTES,
 } from './security'
+import { projectExportDisplayText } from '../shared/projectAccessPolicy'
 
 export interface EnvSelection {
   envKey: string
   secretId: string
+  fieldId?: string
   fieldKey: string
 }
 
@@ -26,11 +28,13 @@ interface FolderLike {
 
 interface SecretLike {
   id?: unknown
+  name?: unknown
   scope?: unknown
   fields?: unknown
 }
 
 interface FieldLike {
+  id?: unknown
   key?: unknown
   value?: unknown
 }
@@ -50,8 +54,11 @@ export function resolveVaultEnvSelections(
     if (!secret) throw new Error(`Secret not found for ${selection.envKey}`)
 
     const fields = Array.isArray(secret.fields) ? secret.fields as FieldLike[] : []
-    const field = fields.find(item => item?.key === selection.fieldKey)
+    const field = selection.fieldId
+      ? fields.find(item => item?.id === selection.fieldId)
+      : uniqueFieldByKey(fields, selection.fieldKey)
     if (!field) throw new Error(`Field not found for ${selection.envKey}`)
+    if (field.key !== selection.fieldKey) throw new Error(`Field label is stale for ${selection.envKey}`)
     if (typeof field.value !== 'string' || field.value.length === 0) {
       throw new Error(`Field value is unavailable for ${selection.envKey}`)
     }
@@ -64,6 +71,22 @@ export function resolveVaultEnvSelections(
       value: field.value,
       scope: typeof secret.scope === 'string' ? secret.scope : undefined,
     }
+  })
+}
+
+export function summarizeVaultEnvSelections(vault: unknown, selections: unknown): string[] {
+  const safeSelections = validateEnvSelections(selections)
+  const root = vault && typeof vault === 'object' && !Array.isArray(vault)
+    ? (vault as VaultLike).root
+    : undefined
+  if (!root) throw new Error('Open vault is unavailable')
+
+  return safeSelections.map((selection) => {
+    const secret = findSecret(root, selection.secretId)
+    if (!secret) throw new Error(`Secret not found for ${selection.envKey}`)
+    const secretName = projectExportDisplayText(secret.name, selection.secretId, 160)
+    const fieldKey = projectExportDisplayText(selection.fieldKey, 'field', 160)
+    return `${selection.envKey} ← ${secretName} / ${fieldKey}`
   })
 }
 
@@ -82,12 +105,22 @@ function validateEnvSelections(input: unknown): EnvSelection[] {
     if (seenEnvKeys.has(envKey)) throw new Error(`Duplicate env key: ${envKey}`)
     seenEnvKeys.add(envKey)
 
+    const fieldId = selection.fieldId === undefined
+      ? undefined
+      : requireIdentifier(selection.fieldId, 'field id')
     return {
       envKey,
       secretId: requireIdentifier(selection.secretId, 'secret id'),
+      fieldId,
       fieldKey: requireIdentifier(selection.fieldKey, 'field key'),
     }
   })
+}
+
+function uniqueFieldByKey(fields: FieldLike[], fieldKey: string): FieldLike | undefined {
+  const matches = fields.filter(item => item?.key === fieldKey)
+  if (matches.length > 1) throw new Error('Field label is ambiguous; use its stable field identity')
+  return matches[0]
 }
 
 function requireIdentifier(value: unknown, label: string, pattern?: RegExp): string {

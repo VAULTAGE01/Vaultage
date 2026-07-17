@@ -1,49 +1,36 @@
-appId: com.eden.vaultage
-productName: Vaultage
-
-publish:
-  provider: github
-  owner: eden
-  repo: vaultapp
+appId: xyz.arcalab.vault-oc
+productName: vault-OC
 
 directories:
   buildResources: build
   output: dist
 
+asar: true
+afterPack: scripts/apply-electron-fuses.cjs
+
 files:
   - out/**/*
   - "!**/*.map"
 
-# ── macOS ──────────────────────────────────────────────────────────────────────
 mac:
   category: public.app-category.productivity
+  minimumSystemVersion: "12.0"
   icon: resources/icon.icns
   hardenedRuntime: true
   gatekeeperAssess: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.inherit.plist
-  notarize: true
+  extendInfo:
+    LSEnvironment:
+      MallocNanoZone: "0"
+  notarize: false
   extraResources:
     - from: resources/vault-keychain
-      to: vault-keychain
+      to: Vaultage Keychain
   target:
     - target: dmg
       arch: universal
 
 dmg:
   sign: false
-  title: Vaultage
-
-# ── Windows ────────────────────────────────────────────────────────────────────
-win:
-  icon: resources/icon.ico
-  target:
-    - target: nsis
-      arch: x64
-
-nsis:
-  oneClick: false
-  allowToChangeInstallationDirectory: true
-  installerIcon: resources/icon.ico
-  uninstallerIcon: resources/icon.ico
-  shortcutName: Vaultage
+  title: vault-OC

@@ -4,14 +4,23 @@ const checks = [
   ['pnpm', ['test']],
   ['pnpm', ['exec', 'tsc', '--noEmit', '--pretty', 'false', '-p', 'tsconfig.node.json']],
   ['pnpm', ['exec', 'tsc', '--noEmit', '--pretty', 'false', '-p', 'tsconfig.web.json']],
+  ['pnpm', ['check:open-types']],
   ['pnpm', ['check:boundaries']],
   ['pnpm', ['check:entitlements']],
+  ['pnpm', ['check:electron-fuses']],
+  ['pnpm', ['check:keychain-boundary']],
+  ['pnpm', ['check:release-metadata']],
+  ['pnpm', ['check:script-targets']],
   ['pnpm', ['check:schemas']],
+  ['pnpm', ['check:product-truth']],
   ['pnpm', ['check:source-drop-secrets']],
   ['pnpm', ['publish:check']],
+  ['pnpm', ['audit', '--prod']],
   ['pnpm', ['audit', '--dev']],
   ['pnpm', ['build:open-local']],
   ['pnpm', ['check:open-artifact']],
+  ['pnpm', ['check:bundle-budgets']],
+  ['pnpm', ['check:preload-surfaces']],
 ]
 
 for (const [cmd, args] of checks) {

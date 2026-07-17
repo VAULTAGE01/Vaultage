@@ -3,8 +3,12 @@ import { useVault }      from './vaultContext'
 import { ModeProvider } from '#mode-context'
 import SetupScreen      from './components/SetupScreen'
 import AuthScreen       from './components/AuthScreen'
+import BackupRestoreScreen from './components/BackupRestoreScreen'
 import MainLayout       from '#main-layout'
+import MenuBarPanel     from './components/MenuBarPanel'
 import { Toaster }      from './components/ui/sonner'
+import CommercialReadiness from '#commercial-readiness'
+import { CommercialAccountProvider } from '#commercial-account'
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -40,20 +44,30 @@ class AppErrorBoundary extends React.Component<
 function AppInner() {
   const { state } = useVault()
 
-  if (state.screen === 'checking')    return null               // brief flash while status IPC resolves
+  if (state.screen === 'checking')    return (
+    <div className="liquid-shell flex h-screen items-center justify-center text-sm text-muted">
+      Checking vault integrity…
+    </div>
+  )
   if (state.screen === 'needs_setup') return <SetupScreen />
+  if (state.screen === 'recovery')    return <BackupRestoreScreen recoveryError={state.error} />
   if (state.screen === 'locked')      return <AuthScreen />
   return (
-    <>
+    <CommercialAccountProvider>
       <AppErrorBoundary>
         <MainLayout />
       </AppErrorBoundary>
       <Toaster position="bottom-right" />
-    </>
+      <CommercialReadiness />
+    </CommercialAccountProvider>
   )
 }
 
 export default function App() {
+  if (new URLSearchParams(window.location.search).get('surface') === 'menu-bar') {
+    return <MenuBarPanel />
+  }
+
   return (
     <ModeProvider>
       <AppInner />

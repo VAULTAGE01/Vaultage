@@ -8,16 +8,23 @@ interface PinSecretButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
   compact?: boolean
 }
 
-export function PinSecretButton({
+interface PinTargetButtonProps extends PinSecretButtonProps {
+  targetLabel: string
+}
+
+export function PinTargetButton({
   pinned,
   compact,
+  targetLabel,
   className,
   title,
   ...props
-}: PinSecretButtonProps) {
-  const label = pinned ? 'Unpin Secret' : 'Pin Secret'
+}: PinTargetButtonProps) {
+  const label = pinned ? `Unpin ${targetLabel}` : `Pin ${targetLabel}`
   const description = title
-    ?? (pinned ? 'Remove this secret from the dashboard pinned grid.' : 'Pin this secret to the dashboard for quick access.')
+    ?? (pinned
+      ? `Remove this ${targetLabel.toLowerCase()} from its dashboard pinned grid.`
+      : `Pin this ${targetLabel.toLowerCase()} to its dashboard for quick access.`)
 
   return (
     <ActionTooltip label={label} description={description} shortcut="Enter" side="top">
@@ -25,11 +32,11 @@ export function PinSecretButton({
         type="button"
         aria-pressed={pinned}
         className={cn(
-          'inline-flex flex-shrink-0 items-center justify-center rounded-lg border transition-colors focus:outline-none focus:ring-1 focus:ring-accent/60',
+          'inline-flex flex-shrink-0 items-center justify-center rounded-lg border-0 bg-transparent transition-colors focus:outline-none focus:ring-1 focus:ring-accent/60',
           compact ? 'h-5 w-5' : 'h-7 w-7',
           pinned
-            ? 'border-amber-400/35 bg-amber-400/10 text-amber-300 hover:bg-amber-400/15'
-            : 'border-white/[0.08] bg-white/[0.03] text-muted hover:border-amber-400/30 hover:bg-amber-400/10 hover:text-amber-300',
+            ? 'text-amber-300 hover:text-amber-200'
+            : 'text-muted hover:text-amber-300',
           className,
         )}
         {...props}
@@ -38,4 +45,8 @@ export function PinSecretButton({
       </button>
     </ActionTooltip>
   )
+}
+
+export function PinSecretButton(props: PinSecretButtonProps) {
+  return <PinTargetButton {...props} targetLabel="Secret" />
 }

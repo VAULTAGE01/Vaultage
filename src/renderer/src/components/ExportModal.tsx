@@ -1,3 +1,4 @@
+import { cn } from '@/lib/utils'
 import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
@@ -8,8 +9,10 @@ import {
   KeyRound,
   LockKeyhole,
   ShieldCheck,
+  type LucideIcon,
 } from 'lucide-react'
 import { useVault, findFolder, findSecret, flatSecrets } from '../vaultContext'
+import type { VaultFolder } from '../types'
 import type { VaultExportFormat, VaultExportScope } from '../../../shared/vaultExport'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -21,8 +24,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-
-function cn(...cls: (string | false | null | undefined)[]) { return cls.filter(Boolean).join(' ') }
 
 const PLAINTEXT_CONFIRM_PHRASE = 'EXPORT PLAINTEXT'
 
@@ -37,7 +38,8 @@ interface ScopeOption {
   description: string
   count: number
   scope: VaultExportScope
-  icon: typeof Database
+  icon: LucideIcon
+  group: 'Vault' | 'Folders' | 'Secrets'
 }
 
 const FORMAT_OPTIONS: {
@@ -65,6 +67,16 @@ const FORMAT_OPTIONS: {
     icon: FileText,
   },
 ]
+
+function findFolderPath(folder: VaultFolder, id: string, path: string[] = []): string[] | null {
+  const nextPath = [...path, folder.name]
+  if (folder.id === id) return nextPath
+  for (const child of folder.children) {
+    const found = findFolderPath(child, id, nextPath)
+    if (found) return found
+  }
+  return null
+}
 
 function scopeKey(scope: VaultExportScope): string {
   return scope.kind === 'vault' ? 'vault' : `${scope.kind}:${scope.id}`
@@ -108,18 +120,18 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
       count: vaultSecretCount,
       scope: { kind: 'vault' },
       icon: Database,
+      group: 'Vault',
     }]
-    const addFolderOption = (id: string, labelPrefix: string) => {
-      const folder = findFolder(state.vault!.root, id)
-      if (!folder) return
+    const addFolderOption = (folder: VaultFolder, path: string[], labelPrefix = 'Folder') => {
       const count = flatSecrets(folder).length
       options.push({
-        key: `folder:${id}`,
+        key: `folder:${folder.id}`,
         label: `${labelPrefix}: ${folder.name}`,
-        description: `${count} secret${count !== 1 ? 's' : ''} in this folder and its subfolders.`,
+        description: `${count} secret${count !== 1 ? 's' : ''} in ${path.join(' / ')}.`,
         count,
-        scope: { kind: 'folder', id },
+        scope: { kind: 'folder', id: folder.id },
         icon: Folder,
+        group: 'Folders',
       })
     }
     const addSecretOption = (id: string, labelPrefix: string) => {
@@ -132,21 +144,48 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
         count: 1,
         scope: { kind: 'secret', id },
         icon: KeyRound,
+        group: 'Secrets',
       })
     }
+    const walkFolders = (folder: VaultFolder, path: string[]) => {
+      if (folder.id !== state.vault!.root.id) addFolderOption(folder, path)
+      for (const child of folder.children) walkFolders(child, [...path, child.name])
+    }
+    const walkSecrets = (folder: VaultFolder, path: string[]) => {
+      for (const secret of folder.secrets) {
+        options.push({
+          key: `secret:${secret.id}`,
+          label: `Secret: ${secret.name}`,
+          description: `${path.join(' / ')} · ${secret.fields.filter(field => field.value).length} populated field${secret.fields.filter(field => field.value).length === 1 ? '' : 's'}.`,
+          count: 1,
+          scope: { kind: 'secret', id: secret.id },
+          icon: KeyRound,
+          group: 'Secrets',
+        })
+      }
+      for (const child of folder.children) walkSecrets(child, [...path, child.name])
+    }
 
-    if (initialScope.kind === 'folder') addFolderOption(initialScope.id, 'Selected folder')
+    if (initialScope.kind === 'folder') {
+      const folder = findFolder(state.vault.root, initialScope.id)
+      const path = findFolderPath(state.vault.root, initialScope.id) ?? [folder?.name ?? 'Folder']
+      if (folder) addFolderOption(folder, path, 'Selected folder')
+    }
     if (initialScope.kind === 'secret') addSecretOption(initialScope.id, 'Selected secret')
     if (
       state.selectedFolderId &&
       state.selectedFolderId !== state.vault.root.id &&
       scopeKey(initialScope) !== `folder:${state.selectedFolderId}`
     ) {
-      addFolderOption(state.selectedFolderId, 'Current folder')
+      const folder = findFolder(state.vault.root, state.selectedFolderId)
+      const path = findFolderPath(state.vault.root, state.selectedFolderId) ?? [folder?.name ?? 'Folder']
+      if (folder) addFolderOption(folder, path, 'Current folder')
     }
     if (state.selectedSecretId && scopeKey(initialScope) !== `secret:${state.selectedSecretId}`) {
       addSecretOption(state.selectedSecretId, 'Current secret')
     }
+    walkFolders(state.vault.root, [state.vault.root.name])
+    walkSecrets(state.vault.root, [state.vault.root.name])
 
     const seen = new Set<string>()
     return options.filter(option => {
@@ -238,7 +277,7 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
           </DialogDescription>
         </DialogHeader>
 
-        <div className="flex-1 overflow-y-auto -mx-6 px-6 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-5">
           <div className="border border-border rounded-xl p-4 space-y-3">
             <div className="flex items-start gap-3">
               <div className="w-9 h-9 rounded-xl bg-accent/10 flex items-center justify-center flex-shrink-0">
@@ -263,7 +302,7 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
 
           <div className="space-y-2">
             <p className="text-xs font-semibold text-text">Scope</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div className="grid max-h-72 grid-cols-1 gap-2 overflow-y-auto pr-1 sm:grid-cols-2">
               {scopeOptions.map(option => {
                 const Icon = option.icon
                 const active = currentScopeKey === option.key

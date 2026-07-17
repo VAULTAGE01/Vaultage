@@ -1,83 +1,116 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { ProjectScanRequest } from '../shared/projectScan'
+import { auditIpcContracts, type AuditIpcApi } from '../shared/auditIpcContracts'
+import { authIpcContracts, type AuthIpcApi } from '../shared/authIpcContracts'
+import { modeIpcContracts, modeIpcEvents, type ModeIpcApi } from '../shared/modeIpcContracts'
+import { menuPanelIpcContracts, type MenuPanelIpcApi } from '../shared/menuPanelIpcContracts'
+import { platformIpcContracts, type PlatformIpcApi } from '../shared/platformIpcContracts'
+import { projectIpcContracts, type ProjectIpcApi } from '../shared/projectIpcContracts'
+import { vaultIpcContracts, vaultIpcEvents, type VaultIpcApi } from '../shared/vaultIpcContracts'
+
+const auditIpc = auditIpcContracts
+const authIpc = authIpcContracts
+const modeIpc = modeIpcContracts
+const menuPanelIpc = menuPanelIpcContracts
+const platformIpc = platformIpcContracts
+const projectIpc = projectIpcContracts
+const vaultIpc = vaultIpcContracts
+
+const authApi: AuthIpcApi = {
+  status:         () => ipcRenderer.invoke(authIpc.status.channel),
+  setup:          (password) => ipcRenderer.invoke(authIpc.setup.channel, password),
+  touchID:        () => ipcRenderer.invoke(authIpc.touchID.channel),
+  confirmTouchID: (prompt) => ipcRenderer.invoke(authIpc.confirm.channel, { prompt }),
+  password:       (password) => ipcRenderer.invoke(authIpc.password.channel, password),
+  changePassword: (payload) => ipcRenderer.invoke(authIpc.changePassword.channel, payload),
+}
+
+const vaultDataApi: VaultIpcApi = {
+  mutate:          (payload) => ipcRenderer.invoke(vaultIpc.mutate.channel, payload),
+  trackUsage:      (payload) => ipcRenderer.invoke(vaultIpc.trackUsage.channel, payload),
+  copySecretField: (payload) => ipcRenderer.invoke(vaultIpc.copySecretField.channel, payload),
+  copySecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.copySecretImageField.channel, payload),
+  revealSecretField: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretField.channel, payload),
+  revealSecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretImageField.channel, payload),
+  revealSecretFields: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretFields.channel, payload),
+  setRevealPin:    (payload) => ipcRenderer.invoke(vaultIpc.setRevealPin.channel, payload),
+  clearRevealPin:  (payload) => ipcRenderer.invoke(vaultIpc.clearRevealPin.channel, payload),
+  lock:            () => ipcRenderer.invoke(vaultIpc.lock.channel),
+  signOut:         () => ipcRenderer.invoke(vaultIpc.signOut.channel),
+  backup:          () => ipcRenderer.invoke(vaultIpc.backup.channel),
+  restoreBackup:   (payload) => ipcRenderer.invoke(vaultIpc.restoreBackup.channel, payload),
+  exportJson:      (payload) => ipcRenderer.invoke(vaultIpc.exportJson.channel, payload),
+  exportScope:     (payload) => ipcRenderer.invoke(vaultIpc.exportScope.channel, payload),
+  decryptExport:   (payload) => ipcRenderer.invoke(vaultIpc.decryptExport.channel, payload),
+}
+
+const auditApi: AuditIpcApi = {
+  auditRead:       () => ipcRenderer.invoke(auditIpc.read.channel),
+  auditExportJson: () => ipcRenderer.invoke(auditIpc.exportJson.channel),
+}
+
+const platformApi: Pick<PlatformIpcApi, 'openExternal' | 'copyImportTemplate' | 'setSecureInputEnabled'> = {
+  openExternal:          (url) => ipcRenderer.invoke(platformIpc.openExternal.channel, url),
+  copyImportTemplate:    () => ipcRenderer.invoke(platformIpc.copyImportTemplate.channel),
+  setSecureInputEnabled: (enabled) => ipcRenderer.invoke(platformIpc.setSecureInputEnabled.channel, enabled),
+}
+
+const projectApi: ProjectIpcApi = {
+  pickFolder:       () => ipcRenderer.invoke(projectIpc.pickFolder.channel),
+  pickProjectFiles: () => ipcRenderer.invoke(projectIpc.pickProjectFiles.channel),
+  scanProject:      (payload) => ipcRenderer.invoke(projectIpc.scan.channel, payload),
+  discoverProjects: (payload) => ipcRenderer.invoke(projectIpc.discover.channel, payload),
+  exportEnv:        (payload) => ipcRenderer.invoke(projectIpc.exportEnv.channel, payload),
+}
+
+const modeApi: ModeIpcApi = {
+  setMode: (mode) => ipcRenderer.invoke(modeIpc.set.channel, { mode }),
+  getMode: () => ipcRenderer.invoke(modeIpc.get.channel),
+}
+
+const menuPanelApi: MenuPanelIpcApi = {
+  menuPanelStatus: () => ipcRenderer.invoke(menuPanelIpc.status.channel),
+  menuPanelSearch: (payload) => ipcRenderer.invoke(menuPanelIpc.search.channel, payload),
+  menuPanelCopy: (payload) => ipcRenderer.invoke(menuPanelIpc.copy.channel, payload),
+  menuPanelReveal: (payload) => ipcRenderer.invoke(menuPanelIpc.reveal.channel, payload),
+  menuPanelCreate: (payload) => ipcRenderer.invoke(menuPanelIpc.create.channel, payload),
+  menuPanelAction: (payload) => ipcRenderer.invoke(menuPanelIpc.action.channel, payload),
+  menuPanelOpenApp: () => ipcRenderer.invoke(menuPanelIpc.openApp.channel),
+  menuPanelClose: () => ipcRenderer.invoke(menuPanelIpc.close.channel),
+}
 
 contextBridge.exposeInMainWorld('vault', {
   platform: process.platform,
 
   // Auth
-  status:         (): Promise<{ needsSetup: boolean }> => ipcRenderer.invoke('auth:status'),
-  setup:          (pw: string) => ipcRenderer.invoke('auth:setup', pw),
-  touchID:        ()           => ipcRenderer.invoke('auth:touchid'),
-  confirmTouchID: (prompt?: string) => ipcRenderer.invoke('auth:confirm', { prompt }),
-  password:       (pw: string) => ipcRenderer.invoke('auth:password', pw),
-  changePassword: (passwords: { current: string; next: string }) =>
-    ipcRenderer.invoke('auth:change-password', passwords),
+  ...authApi,
 
   // Vault data
-  save:            (data: string) => ipcRenderer.invoke('vault:save', data),
-  trackUsage:      (p: { secretId: string }) => ipcRenderer.invoke('vault:track-usage', p),
-  copySecretField: (p: { secretId: string; fieldKey: string; clearAfterMs?: number }) =>
-    ipcRenderer.invoke('vault:copy-secret-field', p),
-  copySecretImageField: (p: { secretId: string; fieldKey: string }) =>
-    ipcRenderer.invoke('vault:copy-secret-image-field', p),
-  revealSecretField: (p: { secretId: string; fieldKey: string; confirmationPhrase?: string; pin?: string }) =>
-    ipcRenderer.invoke('vault:reveal-secret-field', p),
-  revealSecretImageField: (p: { secretId: string; fieldKey: string; confirmationPhrase?: string; pin?: string }) =>
-    ipcRenderer.invoke('vault:reveal-secret-image-field', p),
-  revealSecretFields: (p: { secretId: string; confirmationPhrase?: string; pin?: string }) =>
-    ipcRenderer.invoke('vault:reveal-secret-fields', p),
-  setRevealPin: (p: { pin: string; masterPassword: string }) =>
-    ipcRenderer.invoke('vault:set-reveal-pin', p),
-  clearRevealPin: (p: { masterPassword: string }) =>
-    ipcRenderer.invoke('vault:clear-reveal-pin', p),
-  lock:            ()             => ipcRenderer.invoke('vault:lock'),
-  signOut:         ()             => ipcRenderer.invoke('vault:sign-out'),
-  backup:          ()             => ipcRenderer.invoke('vault:backup'),
-  exportJson:      (p?: { plaintextConfirmation?: string }) => ipcRenderer.invoke('vault:export-json', p),
-  exportScope:     (p: {
-    scope: { kind: 'vault' } | { kind: 'folder'; id: string } | { kind: 'secret'; id: string }
-    format: 'json' | 'csv' | 'encrypted'
-    plaintextConfirmation?: string
-    encryptionPassword?: string
-  }) => ipcRenderer.invoke('vault:export-scope', p),
-  decryptExport:   (p: { data: string; password: string }) => ipcRenderer.invoke('vault:decrypt-export', p),
-  auditRead:  ()             => ipcRenderer.invoke('audit:read'),
-  auditExportJson: ()        => ipcRenderer.invoke('audit:export-json'),
+  ...vaultDataApi,
+  ...auditApi,
 
   onAutoLock: (cb: () => void) => {
     const handler = () => cb()
-    ipcRenderer.on('vault:auto-lock', handler)
-    return () => ipcRenderer.removeListener('vault:auto-lock', handler)
+    ipcRenderer.on(vaultIpcEvents.autoLock, handler)
+    return () => ipcRenderer.removeListener(vaultIpcEvents.autoLock, handler)
+  },
+  onVaultChanged: (cb: (change: unknown) => void) => {
+    const handler = (_: unknown, change: unknown) => cb(change)
+    ipcRenderer.on(vaultIpcEvents.changed, handler)
+    return () => ipcRenderer.removeListener(vaultIpcEvents.changed, handler)
   },
 
-  // Shell
-  openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
-
-  // Clipboard-backed fixed actions
-  copyImportTemplate: () => ipcRenderer.invoke('import:copy-template'),
-
-  // Security
-  setSecureInputEnabled: (enabled: boolean) =>
-    ipcRenderer.invoke('security:set-secure-input', enabled),
+  // Shell, security, and fixed clipboard actions
+  ...platformApi,
 
   // Env projects
-  pickFolder: ()                                                    => ipcRenderer.invoke('project:pick-folder'),
-  pickProjectFiles: ()                                              => ipcRenderer.invoke('project:pick-files'),
-  scanProject: (p: ProjectScanRequest)                              => ipcRenderer.invoke('project:scan', p),
-  exportEnv:  (p: {
-    path: string
-    selections: { envKey: string; secretId: string; fieldKey: string }[]
-    addToGitignore: boolean
-    plaintextConfirmation?: string
-  }) =>
-    ipcRenderer.invoke('project:export-env', p),
+  ...projectApi,
 
   // App mode
-  setMode:    (mode: string) => ipcRenderer.invoke('mode:set', { mode }),
-  getMode:    ()             => ipcRenderer.invoke('mode:get'),
+  ...modeApi,
+  ...menuPanelApi,
   onModeChange: (cb: (mode: string) => void) => {
     const handler = (_: unknown, mode: string) => cb(mode)
-    ipcRenderer.on('mode:changed', handler)
-    return () => ipcRenderer.removeListener('mode:changed', handler)
+    ipcRenderer.on(modeIpcEvents.changed, handler)
+    return () => ipcRenderer.removeListener(modeIpcEvents.changed, handler)
   },
 })
