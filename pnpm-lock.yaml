@@ -72,8 +72,8 @@ importers:
         specifier: ^3.0.0
         version: 3.0.2(electron@43.1.0)
       '@electron-toolkit/tsconfig':
-        specifier: ^1.0.1
-        version: 1.0.1(@types/node@24.13.3)
+        specifier: ^2.0.0
+        version: 2.0.0(@types/node@24.13.3)
       '@electron/asar':
         specifier: 3.4.1
         version: 3.4.1
@@ -243,8 +243,8 @@ packages:
     peerDependencies:
       electron: '>=13.0.0'
 
-  '@electron-toolkit/tsconfig@1.0.1':
-    resolution: {integrity: sha512-M0Mol3odspvtCuheyujLNAW7bXq7KFNYVMRtpjFa4ZfES4MuklXBC7Nli/omvc+PRKlrklgAGx3l4VakjNo8jg==}
+  '@electron-toolkit/tsconfig@2.0.0':
+    resolution: {integrity: sha512-AdPsP770WhW7b260h13SHMdmjEEHJL6xFtgi3jwgdsSQbJOkJLeNnnpZW9qxTPCvmRI6vmdzWz5K3gibFS6SNg==}
     peerDependencies:
       '@types/node': '*'
 
@@ -2877,7 +2877,7 @@ snapshots:
     dependencies:
       electron: 43.1.0
 
-  '@electron-toolkit/tsconfig@1.0.1(@types/node@24.13.3)':
+  '@electron-toolkit/tsconfig@2.0.0(@types/node@24.13.3)':
     dependencies:
       '@types/node': 24.13.3
 
