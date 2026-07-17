@@ -4,6 +4,7 @@ import { dirname, join, resolve } from 'path'
 import { fileURLToPath } from 'url'
 import { spawnSync } from 'child_process'
 import { afterEach, describe, expect, it } from 'vitest'
+import { communitySourceCiWorkflow, privateSourceCiWorkflow } from './check-source-ci.mjs'
 
 const checker = resolve(dirname(fileURLToPath(import.meta.url)), 'check-release-metadata.mjs')
 const roots = []
@@ -30,6 +31,15 @@ describe('release metadata policy', () => {
     const result = check(root)
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('Community packages must contain only .github/workflows/ci.yml')
+  })
+
+  it('rejects private workflow filenames outside the exact release and Store allowlist', () => {
+    const root = fixtureRoot()
+    write(root, '.github/workflows/hidden-deploy.yml', 'jobs: {}\n')
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Private workflow filename is outside the exact allowlist: hidden-deploy.yml')
   })
 
   it.each([
@@ -281,9 +291,82 @@ jobs:
 
     const result = check(root)
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('missing the portable Linux release gate')
+    expect(result.stderr).toContain('must use the exact reviewed action, input, and command inventory')
     expect(result.stderr).toContain('Routine CI must remain Linux-only')
     expect(result.stderr).toContain('missing the stale-run cancellation')
+  })
+
+  it.each([
+    ['develop push coverage', '      - main\n', '      - main\n      - develop\n'],
+    ['workflow dispatch', '  pull_request:\n', '  pull_request:\n  workflow_dispatch:\n'],
+    ['pull-request-target', '  pull_request:\n', '  pull_request_target:\n'],
+  ])('rejects private routine-CI trigger drift through %s', (_label, current, replacement) => {
+    const root = fixtureRoot()
+    const workflowPath = join(root, '.github/workflows/ci.yml')
+    write(root, '.github/workflows/ci.yml', readFileSync(workflowPath, 'utf8').replace(current, replacement))
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('must run only for pull requests and pushes to main')
+  })
+
+  it('rejects environments, secret or variable contexts, and OIDC/write authority in routine CI', () => {
+    const root = fixtureRoot()
+    const workflowPath = join(root, '.github/workflows/ci.yml')
+    const workflow = readFileSync(workflowPath, 'utf8')
+      .replace('  contents: read', '  contents: read\n  id-token: write')
+      .replace(
+        '  portable-release-gates:\n    runs-on:',
+        '  portable-release-gates:\n    environment: production-release\n    env:\n      TOKEN: ${{ secrets.RELEASE_TOKEN }}\n      TARGET: ${{ vars.TARGET }}\n    runs-on:',
+      )
+    write(root, '.github/workflows/ci.yml', workflow)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('exactly read-only top-level contents permission')
+    expect(result.stderr).toContain('must not read GitHub secrets or variables')
+    expect(result.stderr).toContain('must use the exact reviewed action, input, and command inventory')
+  })
+
+  it.each([
+    ['an extra checkout input', '          persist-credentials: false', '          persist-credentials: false\n          fetch-depth: 0'],
+    ['an extra command', '      - name: Release gates', '      - name: Attempt release mutation\n        run: gh release create v0.1.0\n      - name: Release gates'],
+    ['a bypassed early guard', 'node scripts/check-source-ci.mjs', 'node scripts/bypass-source-ci.mjs'],
+  ])('rejects %s in the exact routine job inventory', (_label, current, replacement) => {
+    const root = fixtureRoot()
+    const workflowPath = join(root, '.github/workflows/ci.yml')
+    write(root, '.github/workflows/ci.yml', readFileSync(workflowPath, 'utf8').replace(current, replacement))
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('must use the exact reviewed action, input, and command inventory')
+  })
+
+  it('rejects extra routine jobs, including an otherwise read-only Ubuntu deployment job', () => {
+    const root = fixtureRoot()
+    const workflowPath = join(root, '.github/workflows/ci.yml')
+    write(root, '.github/workflows/ci.yml', `${readFileSync(workflowPath, 'utf8')}  deploy:\n    runs-on: ubuntu-24.04\n    timeout-minutes: 15\n    steps: []\n`)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('must define only the exact jobs')
+  })
+
+  it.each([
+    ['quoted run control key', '        run: pnpm install --frozen-lockfile', '        "run": pnpm install --frozen-lockfile'],
+    [
+      'flow-style command step',
+      '      - name: Install dependencies\n        run: pnpm install --frozen-lockfile',
+      '      - { name: Install dependencies, run: pnpm install --frozen-lockfile }',
+    ],
+  ])('rejects %s even when it parses to an allowed command', (_label, current, replacement) => {
+    const root = fixtureRoot()
+    const workflowPath = join(root, '.github/workflows/ci.yml')
+    write(root, '.github/workflows/ci.yml', readFileSync(workflowPath, 'utf8').replace(current, replacement))
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('canonical block YAML')
   })
 
   it.each([
@@ -453,22 +536,9 @@ mac:
   binaries:
     - Contents/Resources/vaultage-extension-native-host
 `)
-  write(root, '.github/workflows/ci.yml', `name: CI
-permissions:
-  contents: read
-concurrency:
-  cancel-in-progress: true
-jobs:
-  ${options.community ? 'community-release-gate' : 'portable-release-gates'}:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
-        with:
-          persist-credentials: false
-      - name: ${options.community ? 'Verify Community source' : 'Release gates'}
-        run: ${options.community ? 'pnpm verify:release' : 'pnpm verify:release:portable'}
-`)
+  write(root, '.github/workflows/ci.yml', options.community
+    ? communitySourceCiWorkflow()
+    : privateSourceCiWorkflow())
   return root
 }
 
