@@ -406,7 +406,7 @@ interface Ctx {
   ) => Promise<void>
   deleteSecret: (folderId: string, secretId: string) => Promise<void>
   trackUsage:   (folderId: string, secretId: string) => void
-  copySecretField: (secretId: string, fieldKey: string, options?: { clearAfterMs?: number; fieldId?: string }) => Promise<boolean>
+  copySecretField: (secretId: string, fieldKey: string, options?: { fieldId?: string }) => Promise<boolean>
   copySecretImageField: (secretId: string, fieldKey: string, fieldId?: string) => Promise<boolean>
   revealSecretField: (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => Promise<string | null>
   revealSecretImageField: (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => Promise<string | null>
@@ -846,7 +846,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const copySecretField = useCallback(async (
     secretId: string,
     fieldKey: string,
-    options?: { clearAfterMs?: number; fieldId?: string },
+    options?: { fieldId?: string },
   ) => {
     const sessionEpoch = sessionGuardRef.current.epoch
     if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
@@ -855,7 +855,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       secretId,
       fieldKey,
       fieldId: options?.fieldId,
-      clearAfterMs: options?.clearAfterMs,
     })
     if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     if (!res.success) {

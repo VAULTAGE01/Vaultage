@@ -19,7 +19,6 @@ import {
   parseCsvTable,
   prepareBrowserRows,
   prepareRows,
-  templateCsv,
   type BrowserImportSource,
   type PreparedSecret,
 } from '../lib/csvImport'
@@ -32,7 +31,6 @@ import {
   MAX_IMAGE_IMPORT_SELECTION_COUNT,
   isCurrentImportDestination,
   readBoundedImageImportSelection,
-  runGuardedImportAttempt,
 } from '../lib/importFlowSecurity'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -188,6 +186,8 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   const [jsonNeedsPassword, setJsonNeedsPassword] = useState(false)
   const [jsonImportRoot, setJsonImportRoot] = useState<VaultFolder | null>(null)
   const [jsonSecretIds, setJsonSecretIds] = useState<Record<number, string>>({})
+  const encryptedImportTokenRef = useRef<string | null>(null)
+  const [encryptedSelectionIds, setEncryptedSelectionIds] = useState<Record<number, string>>({})
   const [parsed,      setParsed]      = useState<PreparedSecret[]>([])
   const [parseErrors, setParseErrors] = useState<string[]>([])
   const [included,    setIncluded]    = useState<Set<number>>(new Set())
@@ -221,6 +221,9 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
     jsonAttemptGateRef.current.invalidate()
     fileReadAttemptRef.current++
     imageReadAttemptRef.current++
+    const token = encryptedImportTokenRef.current
+    encryptedImportTokenRef.current = null
+    if (token) void window.vault.cancelEncryptedImport({ token })
   }, [])
 
   useEffect(() => {
@@ -247,6 +250,9 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   }, [query])
 
   const chooseSource = (next: ImportSource) => {
+    const token = encryptedImportTokenRef.current
+    encryptedImportTokenRef.current = null
+    if (token) void window.vault.cancelEncryptedImport({ token })
     jsonAttemptGateRef.current.invalidate()
     fileReadAttemptRef.current++
     imageReadAttemptRef.current++
@@ -258,6 +264,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
     setJsonNeedsPassword(false)
     setJsonImportRoot(null)
     setJsonSecretIds({})
+    setEncryptedSelectionIds({})
     setParsed([])
     setParseErrors([])
     setIncluded(new Set())
@@ -265,6 +272,9 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   }
 
   const replaceImportText = (next: string) => {
+    const token = encryptedImportTokenRef.current
+    encryptedImportTokenRef.current = null
+    if (token) void window.vault.cancelEncryptedImport({ token })
     jsonAttemptGateRef.current.invalidate()
     fileReadAttemptRef.current++
     currentJsonTextRef.current = next
@@ -272,16 +282,21 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
     setJsonPassword('')
     setJsonImportRoot(null)
     setJsonSecretIds({})
+    setEncryptedSelectionIds({})
     if (sourceRef.current === 'vaultageJson') setJsonNeedsPassword(looksLikeEncryptedExport(next))
   }
 
   const clearPreparedImportData = () => {
+    const token = encryptedImportTokenRef.current
+    encryptedImportTokenRef.current = null
+    if (token) void window.vault.cancelEncryptedImport({ token })
     jsonAttemptGateRef.current.invalidate()
     currentJsonTextRef.current = ''
     setText('')
     setJsonPassword('')
     setJsonImportRoot(null)
     setJsonSecretIds({})
+    setEncryptedSelectionIds({})
     setParsed([])
     setParseErrors([])
     setIncluded(new Set())
@@ -307,18 +322,51 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
           const encryptedText = text
           let password = jsonPassword
           setJsonPassword('')
-          const outcome = await runGuardedImportAttempt(
-            jsonAttemptGateRef.current,
-            encryptedText,
-            () => currentJsonTextRef.current,
-            () => window.vault.decryptExport({ data: encryptedText, password }),
-          )
+          const attempt = jsonAttemptGateRef.current.begin(encryptedText)
+          let decrypted
+          try {
+            decrypted = await window.vault.beginEncryptedImport({ data: encryptedText, password })
+          } catch (error) {
+            if (!jsonAttemptGateRef.current.isCurrent(attempt, currentJsonTextRef.current)) return
+            throw error
+          }
           password = ''
-          if (outcome.status === 'stale') return
-          if (outcome.status === 'error') throw outcome.error
-          const decrypted = outcome.value
+          if (!jsonAttemptGateRef.current.isCurrent(attempt, currentJsonTextRef.current)) {
+            if (decrypted.token) void window.vault.cancelEncryptedImport({ token: decrypted.token })
+            return
+          }
           if (!decrypted.success) throw new Error(decrypted.error ?? 'Could not decrypt export')
-          jsonText = JSON.stringify(decrypted.data)
+          if (!decrypted.token || !decrypted.items || typeof decrypted.revision !== 'number') {
+            if (decrypted.token) {
+              try {
+                await window.vault.cancelEncryptedImport({ token: decrypted.token })
+              } catch {
+                // The malformed preview must not remain usable even if cancellation fails closed.
+              }
+            }
+            throw new Error('Encrypted import preview is incomplete')
+          }
+          encryptedImportTokenRef.current = decrypted.token
+          const rows: PreparedSecret[] = decrypted.items.map((item, index) => ({
+            index,
+            raw: {
+              name: item.name,
+              type: item.type,
+              value: item.hasValue ? IMPORT_VALUE_MASK : '',
+            },
+            secret: null,
+            error: null,
+          }))
+          setJsonImportRoot(null)
+          setJsonSecretIds({})
+          setEncryptedSelectionIds(Object.fromEntries(
+            decrypted.items.map((item, index) => [index, item.selectionId]),
+          ))
+          setParsed(rows)
+          setParseErrors([])
+          setIncluded(new Set(rows.map(row => row.index)))
+          setStep('preview')
+          return
         } else {
           jsonAttemptGateRef.current.invalidate()
           setJsonPassword('')
@@ -435,6 +483,9 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
   }
 
   const handleBack = () => {
+    const token = encryptedImportTokenRef.current
+    encryptedImportTokenRef.current = null
+    if (token) void window.vault.cancelEncryptedImport({ token })
     jsonAttemptGateRef.current.invalidate()
     fileReadAttemptRef.current++
     imageReadAttemptRef.current++
@@ -443,6 +494,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
       if (source === 'vaultageJson') {
         setJsonImportRoot(null)
         setJsonSecretIds({})
+        setEncryptedSelectionIds({})
         setParsed([])
         setParseErrors([])
         setIncluded(new Set())
@@ -450,21 +502,21 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
       setStep('input')
       return
     }
+    clearPreparedImportData()
+    sourceRef.current = null
+    setSource(null)
+    setJsonNeedsPassword(false)
     setStep('source')
   }
 
-  const handleDownloadTemplate = () => {
-    const csv = templateCsv()
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = 'vaultage-import-template.csv'
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    URL.revokeObjectURL(url)
-    toast.success('Template downloaded')
+  const handleDownloadTemplate = async () => {
+    try {
+      const result = await window.vault.saveImportTemplate()
+      if (result.success) toast.success('Template saved')
+      else if (!result.cancelled) toast.error(result.error ?? 'Could not save template')
+    } catch (error) {
+      toast.error(`Could not save template: ${String(error)}`)
+    }
   }
 
   const handleCopyTemplate = async () => {
@@ -493,8 +545,39 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
       toast.error('The destination folder is no longer available. Choose a current folder and try again.')
       return
     }
+    if (!currentVault || typeof currentVault.revision !== 'number') {
+      toast.error('The vault revision is unavailable. Unlock the vault and try again.')
+      return
+    }
     setImporting(true)
     try {
+      const encryptedToken = encryptedImportTokenRef.current
+      if (source === 'vaultageJson' && encryptedToken) {
+        const selectionIds = Object.entries(encryptedSelectionIds)
+          .filter(([index]) => included.has(Number(index)))
+          .map(([, selectionId]) => selectionId)
+        const result = await window.vault.commitEncryptedImport({
+          token: encryptedToken,
+          selectionIds,
+          destinationFolderId: folderId,
+          expectedRevision: currentVault.revision,
+        })
+        encryptedImportTokenRef.current = null
+        if (!result.success) {
+          setEncryptedSelectionIds({})
+          setParsed([])
+          setIncluded(new Set())
+          setStep('input')
+          throw new Error(result.error ?? 'Encrypted import failed')
+        }
+        if (result.folderId) selectFolder(result.folderId)
+        if (result.firstSecretId) selectSecret(result.firstSecretId)
+        clearPreparedImportData()
+        const importedCount = result.secretCount ?? selectionIds.length
+        setDoneCount(importedCount)
+        toast.success(`Imported ${importedCount} secret${importedCount !== 1 ? 's' : ''}`)
+        return
+      }
       if (source === 'vaultageJson' && jsonImportRoot) {
         const selectedIds = new Set(
           Object.entries(jsonSecretIds)
@@ -659,7 +742,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 	                  <input
 	                    ref={imageInputRef}
 	                    type="file"
-	                    accept="image/*"
+	                    accept="image/png,image/jpeg,image/gif,image/webp"
 	                    multiple
 	                    className="hidden"
 	                    onChange={e => { if (e.target.files) handleImageFiles(e.target.files) }}

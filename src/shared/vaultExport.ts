@@ -83,10 +83,9 @@ export function buildScopedVaultExport(
     const located = findFolder(root, scope.id)
     if (!located) throw new Error('Export folder not found')
     const folder = cloneJsonValue(located.folder) as FolderLike
+    stripScopedProviderLinks(folder)
     const itemCount = countSecrets(folder)
-    const selectedSecretIds = new Set(flatSecrets(folder).map(row => stringValue(row.secret.id)).filter(Boolean))
-    const selectedProviderIds = providerIdsForFolder(folder)
-    const scopedVault = scopedVaultPayload(vault, folder, selectedSecretIds, selectedProviderIds)
+    const scopedVault = scopedVaultPayload(vault, folder)
     const scopeLabel = located.path.join(' / ')
     return {
       data: exportEnvelope(scopedVault, { ...scope, path: located.path }, itemCount, scopeLabel, exportedAt),
@@ -99,6 +98,7 @@ export function buildScopedVaultExport(
   const located = findSecret(root, scope.id)
   if (!located) throw new Error('Export secret not found')
   const secret = cloneJsonValue(located.secret) as SecretLike
+  delete secret.providerLink
   const folderId = stringValue(located.folder.id) || 'export-folder'
   const folderName = stringValue(located.folder.name) || 'Exported Secret'
   const exportRoot: FolderLike = {
@@ -108,10 +108,7 @@ export function buildScopedVaultExport(
     secrets: [secret],
     itemOrder: [{ kind: 'secret', id: stringValue(secret.id) }],
   }
-  const secretId = stringValue(secret.id)
-  const selectedSecretIds = new Set(secretId ? [secretId] : [])
-  const selectedProviderIds = providerIdsForSecret(secret)
-  const scopedVault = scopedVaultPayload(vault, exportRoot, selectedSecretIds, selectedProviderIds)
+  const scopedVault = scopedVaultPayload(vault, exportRoot)
   const secretName = stringValue(secret.name) || 'secret'
   const scopeLabel = [...located.folderPath, secretName].join(' / ')
   return {
@@ -191,71 +188,30 @@ function exportEnvelope(
 function scopedVaultPayload(
   vault: unknown,
   root: FolderLike,
-  selectedSecretIds: Set<string>,
-  selectedProviderIds: Set<string>,
 ): unknown {
   const source = asRecord(vault, 'Vault payload')
-  const providers = Array.isArray(source.providers)
-    ? source.providers.filter(provider => {
-        if (!isRecord(provider)) return false
-        const id = stringValue(provider.id)
-        return Boolean(id && selectedProviderIds.has(id))
-      }).map(cloneJsonValue)
-    : []
-  const providerGroupIds = new Set(
-    providers
-      .filter(isRecord)
-      .map(provider => stringValue(provider.groupId))
-      .filter(Boolean),
-  )
 
   return {
     version: source.version,
     revision: source.revision,
     root,
-    providers,
-    providerGroups: Array.isArray(source.providerGroups)
-      ? source.providerGroups.filter(group => {
-          if (!isRecord(group)) return false
-          const id = stringValue(group.id)
-          return Boolean(id && providerGroupIds.has(id))
-        }).map(cloneJsonValue)
-      : [],
-    envProjects: Array.isArray(source.envProjects)
-      ? source.envProjects.map(project => filterEnvProject(project, selectedSecretIds)).filter(Boolean)
-      : [],
+    providers: [],
+    providerGroups: [],
+    envProjects: [],
   }
 }
 
-function filterEnvProject(project: unknown, selectedSecretIds: Set<string>): unknown | null {
-  if (!isRecord(project)) return null
-  const entries = Array.isArray(project.entries)
-    ? project.entries.filter(entry => {
-        if (!isRecord(entry)) return false
-        const secretId = stringValue(entry.secretId)
-        return Boolean(secretId && selectedSecretIds.has(secretId))
-      }).map(cloneJsonValue)
-    : []
-  const environments = Array.isArray(project.environments)
-    ? project.environments.map(environment => filterEnvProjectEnvironment(environment, selectedSecretIds)).filter(Boolean)
-    : []
-  if (entries.length === 0 && environments.length === 0) return null
-  const cloned: Record<string, unknown> = { ...cloneJsonObject(project), entries }
-  if (Array.isArray(project.environments)) cloned.environments = environments
-  return cloned
-}
-
-function filterEnvProjectEnvironment(environment: unknown, selectedSecretIds: Set<string>): unknown | null {
-  if (!isRecord(environment)) return null
-  const entries = Array.isArray(environment.entries)
-    ? environment.entries.filter(entry => {
-        if (!isRecord(entry)) return false
-        const secretId = stringValue(entry.secretId)
-        return Boolean(secretId && selectedSecretIds.has(secretId))
-      }).map(cloneJsonValue)
-    : []
-  if (entries.length === 0) return null
-  return { ...cloneJsonObject(environment), entries }
+function stripScopedProviderLinks(folder: FolderLike): void {
+  if (Array.isArray(folder.secrets)) {
+    for (const secret of folder.secrets) {
+      if (isRecord(secret)) delete secret.providerLink
+    }
+  }
+  if (Array.isArray(folder.children)) {
+    for (const child of folder.children) {
+      if (isRecord(child)) stripScopedProviderLinks(child)
+    }
+  }
 }
 
 function csvRow({ secret, folderPath }: SecretRow): string[] {
@@ -337,23 +293,6 @@ function countSecrets(folder: FolderLike): number {
   return childSecrets(folder).length + childFolders(folder).reduce((sum, child) => sum + countSecrets(child), 0)
 }
 
-function providerIdsForFolder(folder: FolderLike): Set<string> {
-  const ids = new Set<string>()
-  for (const { secret } of flatSecrets(folder)) {
-    for (const id of providerIdsForSecret(secret)) ids.add(id)
-  }
-  return ids
-}
-
-function providerIdsForSecret(secret: SecretLike): Set<string> {
-  const ids = new Set<string>()
-  if (isRecord(secret.providerLink)) {
-    const providerId = stringValue(secret.providerLink.providerId)
-    if (providerId) ids.add(providerId)
-  }
-  return ids
-}
-
 function vaultRoot(vault: unknown): FolderLike {
   const record = asRecord(vault, 'Vault payload')
   if (!isRecord(record.root)) throw new Error('Vault payload root must be an object')
@@ -397,10 +336,6 @@ function slugify(value: string): string {
 
 function cloneJsonValue<T>(value: T): T {
   return value === undefined ? value : JSON.parse(JSON.stringify(value))
-}
-
-function cloneJsonObject(value: Record<string, unknown>): Record<string, unknown> {
-  return cloneJsonValue(value)
 }
 
 function asRecord(value: unknown, field: string): Record<string, unknown> {

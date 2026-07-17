@@ -36,6 +36,7 @@ export interface VaultIpcDeps {
   lockVault: (notifyRenderer?: boolean, reason?: string) => void | Promise<void>
   authController: AuthController
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void
+  recordAuditDurable: (type: AuditEventType, details?: Record<string, unknown>) => Promise<void>
   quitApp?: () => void
 }
 

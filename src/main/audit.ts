@@ -31,6 +31,7 @@ export type AuditEventType =
   | 'extension.bridge.disabled'
   | 'vault.secret.copied'
   | 'vault.secret.revealed'
+  | 'vault.plaintext_release.authorized'
   | 'vault.secret.created'
   | 'vault.secret.updated'
   | 'vault.secret.deleted'

@@ -28,6 +28,12 @@ import {
   captureSecretFormAuthorship,
   secretFormSaveError,
 } from '../lib/secretFormAuthorship'
+import {
+  ImageReadAttemptGate,
+  readBoundedImageDataUrl,
+  readFileAsDataUrl,
+  selectImagePasteFile,
+} from '../lib/imageIngestSecurity'
 
 export {
   authoredRevisionForSecretUpdate,
@@ -54,6 +60,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
   const { state, addSecret, updateSecret } = useVault()
   const isEdit = Boolean(existing)
   const authorshipRef = useRef(captureSecretFormAuthorship(existing, state.vault?.revision))
+  const imageReadGateRef = useRef(new ImageReadAttemptGate())
   const initialType = existing?.type ?? defaultType ?? 'password'
   const [name, setName] = useState(existing?.name ?? '')
   const [type, setType] = useState<SecretType>(initialType)
@@ -78,32 +85,51 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
   const hasHiddenStoredImage = Boolean(imageField && isRedactedSecretValue(imageField.value))
 
   const setImageData = (dataUrl: string) => {
-    setFields([{ key: '__image__', value: dataUrl, sensitive: true }])
+    setFields(previous => [{
+      id: previous.find(field => field.key === '__image__')?.id,
+      key: '__image__',
+      value: dataUrl,
+      sensitive: true,
+    }])
+  }
+
+  const clearImageData = () => {
+    imageReadGateRef.current.invalidate()
+    setImageData('')
   }
 
   useEffect(() => {
     if (type !== 'image') return
 
     const handler = (event: ClipboardEvent) => {
-      const items = Array.from(event.clipboardData?.items ?? [])
-      const imageItem = items.find(item => item.type.startsWith('image/'))
-      if (!imageItem) return
-
-      const file = imageItem.getAsFile()
-      if (!file) return
-
-      const reader = new FileReader()
-      reader.onload = readerEvent => {
-        if (readerEvent.target?.result) setImageData(readerEvent.target.result as string)
+      const selection = selectImagePasteFile(event.target, Array.from(event.clipboardData?.items ?? []))
+      if (selection.status === 'ignore') return
+      if (selection.status === 'reject') {
+        setSaveError(selection.error)
+        return
       }
-      reader.readAsDataURL(file)
+
+      event.preventDefault()
+      const generation = imageReadGateRef.current.begin()
+      void readBoundedImageDataUrl(selection.file, readFileAsDataUrl).then(dataUrl => {
+        if (!imageReadGateRef.current.isCurrent(generation)) return
+        setImageData(dataUrl)
+        setSaveError(null)
+      }).catch(error => {
+        if (!imageReadGateRef.current.isCurrent(generation)) return
+        setSaveError(error instanceof Error ? error.message : 'Could not read image')
+      })
     }
 
     window.addEventListener('paste', handler)
-    return () => window.removeEventListener('paste', handler)
+    return () => {
+      imageReadGateRef.current.invalidate()
+      window.removeEventListener('paste', handler)
+    }
   }, [type])
 
   const changeType = (next: SecretType) => {
+    imageReadGateRef.current.invalidate()
     setType(next)
     if (!isEdit || type === 'image' || next === 'image') {
       setFields(SECRET_TEMPLATES[next].map(field => ({ ...field })))
@@ -211,7 +237,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setFields([{ key: '__image__', value: '', sensitive: true }])}
+                    onClick={clearImageData}
                     className="absolute right-2 top-2 bg-black/60 text-white opacity-0 hover:bg-danger/80 group-hover:opacity-100"
                   >
                     Remove
@@ -222,13 +248,13 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
                   <ImageIcon className="h-8 w-8 opacity-50" />
                   <p className="text-xs">{hasHiddenStoredImage ? 'Stored image hidden' : 'Paste a screenshot with Cmd+V'}</p>
                   <p className="text-[11px] opacity-70">
-                    {hasHiddenStoredImage ? 'Leave unchanged, paste a replacement, or remove it.' : 'PNG, JPEG, and GIF images are supported.'}
+                    {hasHiddenStoredImage ? 'Leave unchanged, paste a replacement, or remove it.' : 'PNG, JPEG, GIF, and WebP images are supported.'}
                   </p>
                   {hasHiddenStoredImage && (
                     <Button
                       size="sm"
                       variant="outline"
-                      onClick={() => setFields([{ key: '__image__', value: '', sensitive: true }])}
+                      onClick={clearImageData}
                     >
                       Remove image
                     </Button>

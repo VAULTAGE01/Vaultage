@@ -12,20 +12,26 @@ const electronMock = vi.hoisted(() => ({
   writeText: vi.fn(),
   readText: vi.fn(),
   writeImage: vi.fn(),
+  readImage: vi.fn(),
+  clearClipboard: vi.fn(),
   createFromBuffer: vi.fn(),
+  window: {},
 }))
 
 const storageMock = vi.hoisted(() => ({
   readVault: vi.fn(),
   updateVault: vi.fn(),
+  commitVaultUpdate: vi.fn(),
 }))
 
 vi.mock('electron', () => ({
-  BrowserWindow: { getFocusedWindow: () => null },
+  BrowserWindow: { getFocusedWindow: () => null, fromWebContents: () => electronMock.window },
   clipboard: {
     writeText: electronMock.writeText,
     readText: electronMock.readText,
     writeImage: electronMock.writeImage,
+    readImage: electronMock.readImage,
+    clear: electronMock.clearClipboard,
   },
   dialog: {
     showSaveDialog: electronMock.showSaveDialog,
@@ -42,6 +48,7 @@ vi.mock('./vaultStorage', () => ({
   WRAPPED_KEY_FILE: '/tmp/key.wrapped',
   readVault: storageMock.readVault,
   updateVault: storageMock.updateVault,
+  commitVaultUpdate: storageMock.commitVaultUpdate,
 }))
 
 import { registerVaultIpc } from './vaultIpc'
@@ -50,11 +57,19 @@ describe('registerVaultIpc export IPC', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     electronMock.readText.mockReturnValue('')
-    electronMock.createFromBuffer.mockReturnValue({ isEmpty: () => false })
+    electronMock.readImage.mockReturnValue({ isEmpty: () => true, toPNG: () => Buffer.alloc(0) })
+    electronMock.createFromBuffer.mockImplementation(bytes => ({
+      isEmpty: () => false,
+      toPNG: () => bytes,
+    }))
     storageMock.readVault.mockResolvedValue(sampleVault())
+    storageMock.commitVaultUpdate.mockImplementation(async (_key, update) => {
+      const prepared = await update(await storageMock.readVault())
+      return { value: prepared.result }
+    })
   })
 
-  it('writes encrypted scoped exports and decrypts them through IPC', async () => {
+  it('keeps decrypted export values in an opaque main-owned import session', async () => {
     const { handlers, ipcMain } = fakeIpcMain()
     const auditEvents: { type: AuditEventType; details?: Record<string, unknown> }[] = []
     const authController = {
@@ -64,12 +79,17 @@ describe('registerVaultIpc export IPC', () => {
     } as unknown as AuthController
     const dir = await fs.mkdtemp(join(tmpdir(), 'vaultage-ipc-'))
     const filePath = join(dir, 'api-keys.vaultage-export')
+    let currentSessionEpoch = 1
     electronMock.showSaveDialog.mockResolvedValue({ canceled: false, filePath })
 
     registerVaultIpc(ipcMain, {
       getVaultKey: () => Buffer.alloc(32, 7),
       readVault: storageMock.readVault,
-      beginSessionOperation: activeSessionOperation,
+      beginSessionOperation: () => ({
+        epoch: currentSessionEpoch,
+        assertCurrent: () => undefined,
+        release: () => undefined,
+      }),
       recordSecretUsage: vi.fn(),
       decorateVaultSnapshot: value => value,
       authorizeProjectPathMutation: async (_vault, command) => command,
@@ -78,9 +98,12 @@ describe('registerVaultIpc export IPC', () => {
       lockVault: vi.fn(),
       authController,
       recordAudit: (type, details) => auditEvents.push({ type, details }),
+      recordAuditDurable: async (type, details) => { auditEvents.push({ type, details }) },
     })
 
-    const exportResult = await handlers.get('vault:export-scope')?.({}, {
+    const sender = { id: 7, once: vi.fn() }
+    const event = { sender }
+    const exportResult = await handlers.get('vault:export-scope')?.(event, {
       scope: { kind: 'folder', id: 'folder-api' },
       format: 'encrypted',
       encryptionPassword: 'correct horse battery staple',
@@ -88,7 +111,7 @@ describe('registerVaultIpc export IPC', () => {
 
     expect(exportResult).toEqual({ success: true, path: filePath })
     expect(authController.confirmPlaintextExport).not.toHaveBeenCalled()
-    expect(electronMock.showSaveDialog).toHaveBeenCalledWith(null, expect.objectContaining({
+    expect(electronMock.showSaveDialog).toHaveBeenCalledWith(electronMock.window, expect.objectContaining({
       defaultPath: 'vaultage-folder-api-keys.vaultage-export',
       filters: [{ name: 'Vaultage Encrypted Export', extensions: ['vaultage-export'] }],
     }))
@@ -107,27 +130,83 @@ describe('registerVaultIpc export IPC', () => {
       },
     }])
 
-    const decryptResult = await handlers.get('vault:decrypt-export')?.({}, {
+    const beginResult = await handlers.get('vault:begin-encrypted-import')?.(event, {
       data: rawExport,
       password: 'correct horse battery staple',
     })
 
-    expect(decryptResult).toMatchObject({
+    expect(beginResult).toMatchObject({
       success: true,
-      data: {
-        format: 'vaultage.export.v1',
-        scope: { kind: 'folder', id: 'folder-api' },
-        vault: {
-          root: {
-            id: 'folder-api',
-            secrets: [{
-              id: 'secret-stripe',
-              fields: [{ key: 'API Key', value: 'stripe-secret-value', sensitive: true }],
-            }],
-          },
-        },
-      },
+      token: expect.any(String),
+      revision: 1,
+      items: [{
+        selectionId: expect.any(String),
+        name: 'Stripe',
+        type: 'apiKey',
+        folderPath: 'API Keys',
+        hasValue: true,
+      }],
     })
+    expect(JSON.stringify(beginResult)).not.toContain('stripe-secret-value')
+    expect(JSON.stringify(beginResult)).not.toContain('Billing')
+
+    const opaque = beginResult as {
+      token: string
+      items: Array<{ selectionId: string }>
+    }
+    const foreignResult = await handlers.get('vault:commit-encrypted-import')?.({
+      sender: { id: 99 },
+    }, {
+      token: opaque.token,
+      selectionIds: [opaque.items[0].selectionId],
+      destinationFolderId: 'root',
+      expectedRevision: 1,
+    })
+    expect(foreignResult).toMatchObject({ success: false, sessionExpired: true })
+    expect(storageMock.commitVaultUpdate).not.toHaveBeenCalled()
+
+    const commitResult = await handlers.get('vault:commit-encrypted-import')?.(event, {
+      token: opaque.token,
+      selectionIds: [opaque.items[0].selectionId],
+      destinationFolderId: 'root',
+      expectedRevision: 1,
+    })
+    expect(commitResult).toMatchObject({ success: true, revision: 2, secretCount: 1 })
+    expect(storageMock.commitVaultUpdate).toHaveBeenCalledTimes(1)
+
+    const replayResult = await handlers.get('vault:commit-encrypted-import')?.(event, {
+      token: opaque.token,
+      selectionIds: [opaque.items[0].selectionId],
+      destinationFolderId: 'root',
+      expectedRevision: 1,
+    })
+    expect(replayResult).toMatchObject({ success: false, sessionExpired: true })
+
+    const cancelPreview = await handlers.get('vault:begin-encrypted-import')?.(event, {
+      data: rawExport,
+      password: 'correct horse battery staple',
+    }) as { token: string; items: Array<{ selectionId: string }> }
+    expect(await handlers.get('vault:cancel-encrypted-import')?.(event, {
+      token: cancelPreview.token,
+    })).toEqual({ success: true })
+    expect(await handlers.get('vault:commit-encrypted-import')?.(event, {
+      token: cancelPreview.token,
+      selectionIds: [cancelPreview.items[0].selectionId],
+      destinationFolderId: 'root',
+      expectedRevision: 1,
+    })).toMatchObject({ success: false, sessionExpired: true })
+
+    const priorSessionPreview = await handlers.get('vault:begin-encrypted-import')?.(event, {
+      data: rawExport,
+      password: 'correct horse battery staple',
+    }) as { token: string; items: Array<{ selectionId: string }> }
+    currentSessionEpoch = 2
+    expect(await handlers.get('vault:commit-encrypted-import')?.(event, {
+      token: priorSessionPreview.token,
+      selectionIds: [priorSessionPreview.items[0].selectionId],
+      destinationFolderId: 'root',
+      expectedRevision: 1,
+    })).toMatchObject({ success: false, sessionExpired: true })
 
     for (const hostileKdf of [
       { N: 2 ** 24 },
@@ -139,13 +218,86 @@ describe('registerVaultIpc export IPC', () => {
         ...encryptedExport,
         kdf: { ...(encryptedExport.kdf as Record<string, unknown>), ...hostileKdf },
       }
-      const hostileResult = await handlers.get('vault:decrypt-export')?.({}, {
+      const hostileResult = await handlers.get('vault:begin-encrypted-import')?.(event, {
         data: JSON.stringify(hostileExport),
         password: 'correct horse battery staple',
       })
       expect(hostileResult).toMatchObject({ success: false })
       expect(String((hostileResult as { error?: string }).error)).toMatch(/Encrypted export (?:N|p|key length|salt) is invalid/)
     }
+  }, 15_000)
+
+  it('keeps a newer encrypted import preview when an older request completes last', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const authController = {
+      confirmPlaintextExport: vi.fn(() => ({ success: false, error: 'Should not be called' })),
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+    const dir = await fs.mkdtemp(join(tmpdir(), 'vaultage-import-race-'))
+    const filePath = join(dir, 'race.vaultage-export')
+    electronMock.showSaveDialog.mockResolvedValue({ canceled: false, filePath })
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
+    })
+
+    const sender = { id: 17, once: vi.fn() }
+    const event = { sender }
+    await expect(handlers.get('vault:export-scope')?.(event, {
+      scope: { kind: 'folder', id: 'folder-api' },
+      format: 'encrypted',
+      encryptionPassword: 'correct horse battery staple',
+    })).resolves.toMatchObject({ success: true, path: filePath })
+    const rawExport = await fs.readFile(filePath, 'utf8')
+
+    const firstVaultRead = Promise.withResolvers<ReturnType<typeof sampleVault>>()
+    storageMock.readVault.mockReset()
+    storageMock.readVault
+      .mockImplementationOnce(() => firstVaultRead.promise)
+      .mockResolvedValue(sampleVault())
+
+    const olderPending = handlers.get('vault:begin-encrypted-import')?.(event, {
+      data: rawExport,
+      password: 'correct horse battery staple',
+    }) as Promise<Record<string, unknown>>
+    await vi.waitFor(() => expect(storageMock.readVault).toHaveBeenCalledTimes(1))
+
+    const newerResult = await handlers.get('vault:begin-encrypted-import')?.(event, {
+      data: rawExport,
+      password: 'correct horse battery staple',
+    }) as {
+      success: boolean
+      token: string
+      revision: number
+      items: Array<{ selectionId: string }>
+    }
+    expect(newerResult).toMatchObject({ success: true, token: expect.any(String) })
+
+    firstVaultRead.resolve(sampleVault())
+    await expect(olderPending).resolves.toMatchObject({
+      success: false,
+      stale: true,
+      error: 'A newer encrypted import preview superseded this request',
+    })
+
+    await expect(handlers.get('vault:commit-encrypted-import')?.(event, {
+      token: newerResult.token,
+      selectionIds: [newerResult.items[0].selectionId],
+      destinationFolderId: 'root',
+      expectedRevision: newerResult.revision,
+    })).resolves.toMatchObject({ success: true, revision: 2, secretCount: 1 })
   }, 15_000)
 
   it('requires plaintext confirmation before JSON or CSV export', async () => {
@@ -168,6 +320,7 @@ describe('registerVaultIpc export IPC', () => {
       lockVault: vi.fn(),
       authController,
       recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
     })
 
     const result = await handlers.get('vault:export-scope')?.({}, {
@@ -181,6 +334,40 @@ describe('registerVaultIpc export IPC', () => {
     })
     expect(storageMock.readVault).not.toHaveBeenCalled()
     expect(electronMock.showSaveDialog).not.toHaveBeenCalled()
+  })
+
+  it('saves only the fixed shared CSV template through the invoking window', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const dir = await fs.mkdtemp(join(tmpdir(), 'vaultage-import-template-'))
+    const filePath = join(dir, 'template.csv')
+    electronMock.showSaveDialog.mockResolvedValue({ canceled: false, filePath })
+    const authController = {
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
+    })
+
+    const result = await handlers.get('vault:save-import-template')?.({ sender: { id: 8 } }, undefined)
+    expect(result).toEqual({ success: true, path: filePath })
+    expect(electronMock.showSaveDialog).toHaveBeenCalledWith(electronMock.window, expect.objectContaining({
+      defaultPath: 'vaultage-import-template.csv',
+    }))
+    const saved = await fs.readFile(filePath, 'utf8')
+    expect(saved).toContain('name,type,value,username,url,notes,scope,tags')
+    expect((await fs.stat(filePath)).mode & 0o777).toBe(0o600)
   })
 
   it('does not write a prepared plaintext export after the vault locks in the save dialog', async () => {
@@ -214,6 +401,7 @@ describe('registerVaultIpc export IPC', () => {
       lockVault: vi.fn(),
       authController,
       recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
     })
 
     const pending = handlers.get('vault:export-scope')?.({}, {
@@ -250,6 +438,7 @@ describe('registerVaultIpc export IPC', () => {
       lockVault: vi.fn(),
       authController,
       recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
     })
 
     const result = await handlers.get('vault:export-scope')?.({}, {
@@ -282,6 +471,7 @@ describe('registerVaultIpc export IPC', () => {
       lockVault: vi.fn(),
       authController,
       recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
     })
 
     const result = await handlers.get('vault:copy-secret-field')?.({}, {
@@ -294,6 +484,117 @@ describe('registerVaultIpc export IPC', () => {
     expect(electronMock.writeText).toHaveBeenCalledWith('stripe-secret-value')
     expect(recordSecretUsage).toHaveBeenCalledWith('secret-stripe', expect.any(String))
     expect(storageMock.updateVault).not.toHaveBeenCalled()
+  })
+
+  it('clears a copied value and reports failure when its audit is not durable', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    electronMock.readText.mockReturnValue('stripe-secret-value')
+    const authController = {
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => { throw new Error('audit storage unavailable') }),
+    })
+
+    await expect(handlers.get('vault:copy-secret-field')?.({}, {
+      secretId: 'secret-stripe',
+      fieldKey: 'API Key',
+    })).resolves.toMatchObject({ success: false, error: expect.stringContaining('audit storage unavailable') })
+    expect(electronMock.writeText).toHaveBeenNthCalledWith(1, 'stripe-secret-value')
+    expect(electronMock.writeText).toHaveBeenNthCalledWith(2, '')
+  })
+
+  it('saves a selected image through a private main-owned file boundary', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const dir = await fs.mkdtemp(join(tmpdir(), 'vaultage-image-save-'))
+    const filePath = join(dir, 'saved.png')
+    const audit = vi.fn()
+    electronMock.showSaveDialog.mockResolvedValue({ canceled: false, filePath })
+    storageMock.readVault.mockResolvedValue(sampleVaultWithImage())
+    const authController = {
+      confirmPlaintextExport: vi.fn(() => ({ success: true })),
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: audit,
+      recordAuditDurable: async (type, details) => { audit(type, details) },
+    })
+
+    await expect(handlers.get('vault:save-secret-image-field')?.({ sender: {} }, {
+      secretId: 'secret-image',
+      fieldKey: '__image__',
+      plaintextConfirmation: 'EXPORT PLAINTEXT',
+    })).resolves.toEqual({ success: true, path: filePath })
+    await expect(fs.readFile(filePath)).resolves.toEqual(samplePngBytes())
+    expect((await fs.stat(filePath)).mode & 0o777).toBe(0o600)
+    expect(audit).toHaveBeenCalledWith('vault.exported_plaintext', expect.objectContaining({
+      vaultItemId: 'secret-image',
+      format: 'png',
+      itemCount: 1,
+    }))
+  })
+
+  it('expires an owned image clipboard value on the main-owned fixed policy', async () => {
+    vi.useFakeTimers()
+    try {
+      const { handlers, ipcMain } = fakeIpcMain()
+      storageMock.readVault.mockResolvedValue(sampleVaultWithImage())
+      const clipboardImage = { isEmpty: () => false, toPNG: () => samplePngBytes() }
+      electronMock.readImage.mockReturnValue(clipboardImage)
+      const authController = {
+        confirmSecretReveal: vi.fn(() => ({ success: true })),
+        forgetTouchID: vi.fn(() => ({ success: true })),
+      } as unknown as AuthController
+      registerVaultIpc(ipcMain, {
+        getVaultKey: () => Buffer.alloc(32, 7),
+        readVault: storageMock.readVault,
+        beginSessionOperation: activeSessionOperation,
+        recordSecretUsage: vi.fn(),
+        decorateVaultSnapshot: value => value,
+        authorizeProjectPathMutation: async (_vault, command) => command,
+        getVaultRevision: () => 1,
+        setVaultRevision: vi.fn(),
+        lockVault: vi.fn(),
+        authController,
+        recordAudit: vi.fn(),
+        recordAuditDurable: vi.fn(async () => undefined),
+      })
+
+      await expect(handlers.get('vault:copy-secret-image-field')?.({}, {
+        secretId: 'secret-image',
+        fieldKey: '__image__',
+      })).resolves.toEqual({ success: true })
+      expect(electronMock.clearClipboard).not.toHaveBeenCalled()
+      await vi.advanceTimersByTimeAsync(30_000)
+      expect(electronMock.clearClipboard).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -349,4 +650,28 @@ function sampleVault() {
     providerGroups: [],
     envProjects: [],
   }
+}
+
+function sampleVaultWithImage() {
+  const base = sampleVault()
+  base.root.children[0].secrets.push({
+    id: 'secret-image',
+    name: 'Recovery image',
+    type: 'image',
+    fields: [{ key: '__image__', value: `data:image/png;base64,${samplePngBytes().toString('base64')}`, sensitive: true }],
+    notes: '',
+    createdAt: '2026-05-31T12:00:00.000Z',
+    updatedAt: '2026-05-31T12:00:00.000Z',
+  })
+  return base
+}
+
+function samplePngBytes(): Buffer {
+  const bytes = Buffer.alloc(24)
+  Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(bytes)
+  bytes.writeUInt32BE(13, 8)
+  bytes.write('IHDR', 12, 'ascii')
+  bytes.writeUInt32BE(1, 16)
+  bytes.writeUInt32BE(1, 20)
+  return bytes
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  assertPinnedSecretInVault,
   copySecretFieldInVault,
   resolveSecretFieldInVault,
   resolveSecretFieldsInVault,
@@ -10,6 +11,16 @@ import {
 import { legacySecretFieldId } from './vaultRedaction'
 
 describe('trackSecretUsageInVault', () => {
+  it('limits Quick Reveal PIN eligibility to explicitly pinned secrets', () => {
+    const vault = { root: { secrets: [
+      { id: 'pinned', tags: ['Pinned'] },
+      { id: 'ordinary', tags: ['work'] },
+    ], children: [] } }
+    expect(() => assertPinnedSecretInVault(vault, 'pinned')).not.toThrow()
+    expect(() => assertPinnedSecretInVault(vault, 'ordinary'))
+      .toThrow('Quick Reveal PIN is limited to pinned secrets')
+  })
+
   it('updates only the selected secret usage metadata', () => {
     const vault = {
       version: 2,

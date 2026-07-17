@@ -2,7 +2,7 @@ import { BrowserWindow, dialog, type IpcMain, type OpenDialogOptions, type WebCo
 import type { AuditEventType } from './audit'
 import type { AuthController } from './auth'
 import { resolveVaultEnvSelections, summarizeVaultEnvSelections } from './envSelections'
-import { projectEnvFilePartialResult, writeProjectEnvFile } from './envFile'
+import { ProjectEnvFileWriteError, projectEnvFilePartialResult, writeProjectEnvFile } from './envFile'
 import { discoverProjectCandidates, scanProject } from './projectScanner'
 import {
   CREATE_PROJECT_GRANT_TARGET,
@@ -12,6 +12,7 @@ import {
 import { projectIpcContracts } from '../shared/projectIpcContracts'
 import { projectExportDisplayText, resolveStoredProjectEnvExport } from '../shared/projectAccessPolicy'
 import { vaultRevisionFrom } from './vaultIpcCommon'
+import type { VaultSessionOperation } from './vaultSessionKey'
 
 export interface ProjectExportAuthorizationLease {
   assertCurrent(): void
@@ -34,8 +35,10 @@ export interface ProjectIpcDeps {
   getVaultKey: () => Buffer | null
   getVaultRevision: () => number
   readVault: (key: Buffer) => Promise<unknown>
+  beginSessionOperation: () => VaultSessionOperation | null
   authController: AuthController
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void
+  recordAuditDurable: (type: AuditEventType, details?: Record<string, unknown>) => Promise<void>
   acquireProjectScanLease: (
     vault: unknown,
     path: string,
@@ -184,9 +187,12 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
   ipcMain.handle(projectIpc.exportEnv.channel, async (_, rawPayload: unknown) => {
     const vaultKey = deps.getVaultKey()
     if (!vaultKey) return { success: false, error: 'Not authenticated' }
+    const operation = deps.beginSessionOperation()
+    if (!operation) return { success: false, error: 'Not authenticated' }
     try {
       const payload = projectIpc.exportEnv.validate(rawPayload)
       const currentVault = await deps.readVault(vaultKey)
+      operation.assertCurrent()
       const authorizedVaultRevision = vaultRevisionFrom(currentVault, deps.getVaultRevision())
       if (deps.getVaultKey() !== vaultKey) return { success: false, error: 'Vaultage locked during project export' }
       if (deps.getVaultRevision() !== authorizedVaultRevision) {
@@ -194,6 +200,7 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
       }
       const stored = resolveStoredProjectEnvExport(currentVault, payload.projectId, payload.environmentId)
       const commercialLease = await deps.acquireProjectExportLease(currentVault, payload.projectId)
+      operation.assertCurrent()
       if (deps.getVaultKey() !== vaultKey) return { success: false, error: 'Vaultage locked during project export' }
 
       const mappings = summarizeVaultEnvSelections(currentVault, stored.selections)
@@ -206,6 +213,7 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
         overwriteExisting: payload.overwriteExisting === true,
       })
       if (!confirmedSummary) return { success: false, cancelled: true, error: 'Project export cancelled' }
+      operation.assertCurrent()
       commercialLease.assertCurrent()
       if (deps.getVaultKey() !== vaultKey || deps.getVaultRevision() !== authorizedVaultRevision) {
         return { success: false, error: 'Vault changed during project export confirmation; try again' }
@@ -215,11 +223,24 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
         `Approve .env export for ${stored.projectName} / ${stored.environmentName}`,
       )
       if (!confirmation.success) return confirmation
+      operation.assertCurrent()
 
       const entries = resolveVaultEnvSelections(
         currentVault,
         stored.selections,
       )
+      operation.assertCurrent()
+      commercialLease.assertCurrent()
+      await deps.recordAuditDurable('vault.plaintext_release.authorized', {
+        action: 'env-export',
+        projectId: stored.projectId,
+        environmentId: stored.environmentId,
+        envKeys: entries.map(entry => entry.envKey),
+        addToGitignore: stored.addToGitignore,
+        overwriteExisting: payload.overwriteExisting === true,
+      })
+      operation.assertCurrent()
+      commercialLease.assertCurrent()
       const { targetFolder, safeEntries, status } = await writeProjectEnvFile({
         projectPath: stored.path,
         entries,
@@ -227,20 +248,29 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
         overwriteExisting: payload?.overwriteExisting,
         invalidPathMessage: 'Invalid project folder',
         authorizeCommit: () => {
+          operation.assertCurrent()
           commercialLease.assertCurrent()
           return deps.getVaultKey() === vaultKey
             && deps.getVaultRevision() === authorizedVaultRevision
         },
       })
 
-      deps.recordAudit('env.exported', {
-        targetFolder,
-        projectId: stored.projectId,
-        environmentId: stored.environmentId,
-        envKeys: safeEntries.map(entry => entry.envKey),
-        addToGitignore: stored.addToGitignore,
-        envFileStatus: status,
-      })
+      try {
+        await deps.recordAuditDurable('env.exported', {
+          targetFolder,
+          projectId: stored.projectId,
+          environmentId: stored.environmentId,
+          envKeys: safeEntries.map(entry => entry.envKey),
+          addToGitignore: stored.addToGitignore,
+          envFileStatus: status,
+        })
+      } catch (error) {
+        throw new ProjectEnvFileWriteError(
+          'The .env file was written, but its completion audit could not be recorded; Vaultage has locked for safety',
+          status,
+          { cause: error },
+        )
+      }
       return { success: true, status }
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err)
@@ -250,6 +280,8 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
         requiresOverwriteConfirmation: error.includes('explicitly approve replacing it'),
         partial: projectEnvFilePartialResult(err),
       }
+    } finally {
+      operation.release()
     }
   })
 }

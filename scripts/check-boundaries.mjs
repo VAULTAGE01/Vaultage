@@ -260,6 +260,14 @@ const requiredRules = [
     ],
   },
   {
+    name: 'renderer sessions deny generic downloads in favor of typed main-owned saves',
+    file: 'src/main/index.ts',
+    required: [
+      /session\.defaultSession\.on\(['"]will-download['"],\s*event\s*=>\s*event\.preventDefault\(\)\)/,
+      /menuPanelSession\.on\(['"]will-download['"],\s*event\s*=>\s*event\.preventDefault\(\)\)/,
+    ],
+  },
+  {
     name: 'Custom REST provider setup stays behind explicit advanced UI',
     file: 'src/renderer/src/components/AddProviderModal.tsx',
     skipIf: /OPEN_CORE_ADD_PROVIDER_STUB/,
@@ -329,6 +337,17 @@ for (const rule of requiredRules) {
       console.error(`  ${rule.file} did not match required ${pattern}`)
       failed = true
     }
+  }
+}
+
+for (const file of listFiles('src/renderer/src')) {
+  if (!/\.[cm]?[jt]sx?$/.test(file)) continue
+  const source = readFileSync(file, 'utf8')
+  for (const pattern of [/\bdownload\s*=/, /\.download\s*=/, /URL\.createObjectURL\s*\(/]) {
+    if (!pattern.test(source)) continue
+    console.error('Boundary violation: renderer must not initiate generic downloads')
+    console.error(`  ${file} matched ${pattern}`)
+    failed = true
   }
 }
 

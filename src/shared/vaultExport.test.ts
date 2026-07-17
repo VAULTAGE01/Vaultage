@@ -91,7 +91,7 @@ describe('vault scoped exports', () => {
     expect(parsed.vault.preferences.activeEnvProjectIds).toEqual(['project-a', 'project-b'])
   })
 
-  it('exports a folder subtree and only linked provider/project metadata', () => {
+  it('exports only the selected folder subtree without provider credentials or Project paths', () => {
     const exported = serializeScopedVaultExportJson(vault, { kind: 'folder', id: 'api-folder' }, '2026-05-31T12:00:00.000Z')
     const parsed = JSON.parse(exported.content)
 
@@ -99,17 +99,15 @@ describe('vault scoped exports', () => {
     expect(parsed.scope).toMatchObject({ kind: 'folder', id: 'api-folder', path: ['My Vault', 'API Keys'] })
     expect(parsed.vault.root).toMatchObject({ id: 'api-folder', name: 'API Keys' })
     expect(parsed.vault.root.secrets.map((secret: { id: string }) => secret.id)).toEqual(['api-secret'])
-    expect(parsed.vault.providers.map((provider: { id: string }) => provider.id)).toEqual(['provider-1'])
-    expect(parsed.vault.envProjects).toEqual([{
-      id: 'project-1',
-      name: 'Billing App',
-      path: '/tmp/billing',
-      addToGitignore: true,
-      entries: [{ secretId: 'api-secret', fieldKey: 'API Key', envKey: 'STRIPE_API_KEY' }],
-    }])
+    expect(parsed.vault.root.secrets[0].providerLink).toBeUndefined()
+    expect(parsed.vault.providers).toEqual([])
+    expect(parsed.vault.providerGroups).toEqual([])
+    expect(parsed.vault.envProjects).toEqual([])
+    expect(exported.content).not.toContain('provider-token')
+    expect(exported.content).not.toContain('/tmp/billing')
   })
 
-  it('filters project environment mappings in scoped exports', () => {
+  it('does not widen a scoped export through linked environment mappings', () => {
     const exported = serializeScopedVaultExportJson({
       ...vault,
       envProjects: [{
@@ -141,22 +139,9 @@ describe('vault scoped exports', () => {
     }, { kind: 'folder', id: 'api-folder' }, '2026-05-31T12:00:00.000Z')
     const parsed = JSON.parse(exported.content)
 
-    expect(parsed.vault.envProjects).toEqual([{
-      id: 'project-1',
-      name: 'Billing App',
-      path: '/tmp/billing',
-      addToGitignore: true,
-      entries: [],
-      environments: [{
-        id: 'project-1:local',
-        name: 'Local',
-        scope: 'development',
-        kind: 'local',
-        path: '/tmp/billing',
-        addToGitignore: true,
-        entries: [{ secretId: 'api-secret', fieldKey: 'API Key', envKey: 'STRIPE_API_KEY' }],
-      }],
-    }])
+    expect(parsed.vault.envProjects).toEqual([])
+    expect(exported.content).not.toContain('STRIPE_API_KEY')
+    expect(exported.content).not.toContain('/tmp/billing')
   })
 
   it('exports a single secret as CSV with escaped values', () => {

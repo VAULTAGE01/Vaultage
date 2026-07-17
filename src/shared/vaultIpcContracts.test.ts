@@ -7,7 +7,10 @@ describe('vaultIpcContracts', () => {
     expect(vaultIpcContracts.copySecretField.channel).toBe('vault:copy-secret-field')
     expect(vaultIpcContracts.revealSecretField.channel).toBe('vault:reveal-secret-field')
     expect(vaultIpcContracts.exportScope.channel).toBe('vault:export-scope')
-    expect(vaultIpcContracts.decryptExport.channel).toBe('vault:decrypt-export')
+    expect(vaultIpcContracts.saveImportTemplate.channel).toBe('vault:save-import-template')
+    expect(vaultIpcContracts.beginEncryptedImport.channel).toBe('vault:begin-encrypted-import')
+    expect(vaultIpcContracts.commitEncryptedImport.channel).toBe('vault:commit-encrypted-import')
+    expect(vaultIpcContracts.cancelEncryptedImport.channel).toBe('vault:cancel-encrypted-import')
   })
 
   it('validates reveal payloads at the boundary', () => {
@@ -29,6 +32,32 @@ describe('vaultIpcContracts', () => {
       secretId: 'secret-1',
       fieldKey: 42,
     })).toThrow('field key must be a string')
+  })
+
+  it('keeps image-save and opaque encrypted-import payloads narrowly typed', () => {
+    expect(() => vaultIpcContracts.saveSecretImageField.validate({
+      secretId: 'secret-image',
+      fieldKey: '__image__',
+      dataUrl: 'data:image/png;base64,renderer-must-not-supply-this',
+    })).toThrow('unsupported property dataUrl')
+
+    expect(vaultIpcContracts.commitEncryptedImport.validate({
+      token: 'opaque-token',
+      selectionIds: ['selection-a'],
+      destinationFolderId: 'folder-a',
+      expectedRevision: 3,
+    })).toEqual({
+      token: 'opaque-token',
+      selectionIds: ['selection-a'],
+      destinationFolderId: 'folder-a',
+      expectedRevision: 3,
+    })
+    expect(() => vaultIpcContracts.commitEncryptedImport.validate({
+      token: 'opaque-token',
+      selectionIds: ['selection-a', 'selection-a'],
+      destinationFolderId: 'folder-a',
+      expectedRevision: 3,
+    })).toThrow('must be unique')
   })
 
   it('accepts only bounded semantic mutation commands with a positive revision', () => {

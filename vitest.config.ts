@@ -40,6 +40,7 @@ export default defineConfig({
     exclude: [
       ...configDefaults.exclude,
       '.vaultage-open-source/**',
+      '.vaultage-open-source-test-*/**',
     ],
   },
 })

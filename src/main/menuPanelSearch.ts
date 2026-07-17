@@ -37,9 +37,11 @@ export function searchMenuPanelSecrets(vault: unknown, query: string, limit = DE
 
 function menuPanelResultForSecret(secret: Record<string, unknown>, folderPath: string): MenuPanelSearchResult | null {
   if (typeof secret.id !== 'string' || typeof secret.name !== 'string') return null
+  if (secret.type === 'image') return null
   const fields = Array.isArray(secret.fields)
     ? secret.fields
         .filter(isRecord)
+        .filter(field => field.key !== '__image__')
         .map(field => menuPanelField(field))
         .filter((field): field is MenuPanelSearchField => Boolean(field))
     : []
