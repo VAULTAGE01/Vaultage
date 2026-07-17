@@ -11,8 +11,15 @@ feature documentation before editing.
   content, user project values, crash dumps containing values, or private
   product/release evidence.
 - Preserve unrelated user work and avoid destructive Git cleanup.
-- Run `pnpm verify:release` for a complete candidate. Update tests,
-  documentation, schemas, boundary rules, and source scans with the code.
+- Use focused tests and typechecks for ordinary feature work. Run the full local
+  `pnpm verify:release` suite once at a security/source-boundary, milestone,
+  or release checkpoint. Required hosted Linux PR CI remains the merge
+  checkpoint for every PR. Update tests, documentation, schemas, boundary
+  rules, and source scans with the code.
+- During pre-release development, an agent may merge its own ordinary PR after
+  required Linux PR CI passes, then confirm the post-merge `main` SHA is green.
+  Security, source-boundary, and release work still requires independent or
+  maintainer review.
 - Do not publish, tag, sign, or claim a release from local checks alone. Follow
   the hosted-CI, review, provenance, and artifact rules in `docs/ci-cd.md`.
 
