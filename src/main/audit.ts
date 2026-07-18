@@ -21,6 +21,8 @@ export type AuditEventType =
   | 'agent.request.denied'
   | 'agent.request.expired'
   | 'agent.request.cancelled'
+  | 'agent.deposit.compensated'
+  | 'agent.deposit.orphan_warning'
   | 'extension.save_candidate.received'
   | 'extension.save_candidate.saved'
   | 'extension.save_candidate.denied'
