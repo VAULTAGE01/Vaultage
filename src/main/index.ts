@@ -3,6 +3,7 @@ import { createHash, randomUUID } from 'crypto'
 import { join } from 'path'
 import { appendAuditEvent, deriveAuditMacKey, readVerifiedAuditLog, type AuditEventType } from './audit'
 import { AuditFailureGuard } from './auditFailureGuard'
+import { runGracefulShutdown } from './gracefulShutdown'
 import { registerAgentComposition } from '#agent-composition'
 import {
   registerExtensionProtocol,
@@ -978,23 +979,25 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', (event) => {
-  idleAutoLock?.stop()
-  menuBar?.destroy()
-  disableSecureInput()
-  commercialRuntime?.dispose()
   if (quitPrepared) return
   event.preventDefault()
   if (quitPreparing) return
   quitPreparing = true
-  void (async () => {
-    await lockVault(false, 'app-quit')
-    await flushAuditQueue()
-    quitPrepared = true
-    app.quit()
-  })().catch((err) => {
-    console.error('[shutdown] Failed to finalize vault shutdown:', err)
-    quitPrepared = true
-    app.quit()
+  idleAutoLock?.stop()
+  menuBar?.destroy()
+  disableSecureInput()
+  void runGracefulShutdown({
+    cleanup: async () => {
+      await lockVault(false, 'app-quit')
+      await flushAuditQueue()
+    },
+    dispose: () => commercialRuntime?.dispose(),
+    exit: () => {
+      quitPrepared = true
+      app.exit(0)
+    },
+    reportFailure: (error) => console.error('[shutdown] Cleanup failed:', error.name),
+    timeoutMs: 5_000,
   })
 })
 
