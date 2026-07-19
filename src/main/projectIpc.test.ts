@@ -1,20 +1,53 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { EventEmitter } from 'events'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IpcMain } from 'electron'
 import type { AuditEventType } from './audit'
-import type { AuthController } from './auth'
+import { AuthController } from './auth'
 import { registerProjectIpc } from './projectIpc'
 import { CREATE_PROJECT_GRANT_TARGET, ProjectPathCapabilityStore } from './projectCapabilities'
 import { projectIpcContracts } from '../shared/projectIpcContracts'
 
+type ElectronIpcHandler = Parameters<IpcMain['handle']>[1]
 type IpcHandler = (event: unknown, payload: unknown) => Promise<unknown>
+type AuthConfirmation = ReturnType<AuthController['confirmProjectEnvExport']>
 
 const temporaryFolders: string[] = []
 
 afterEach(async () => {
   await Promise.all(temporaryFolders.splice(0).map(path => rm(path, { recursive: true, force: true })))
+})
+
+describe('project folder picker IPC boundary', () => {
+  it('rejects malformed picker payloads before native dialog or capability access', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const key = Buffer.alloc(32, 1)
+    registerProjectIpc(ipcMain, {
+      getVaultKey: () => key,
+      getVaultRevision: () => 1,
+      readVault: async () => ({ revision: 1 }),
+      beginSessionOperation: () => null,
+      authController: testAuthController(),
+      recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
+      acquireProjectScanLease: vi.fn(async () => ({ assertCurrent: async () => undefined })),
+      acquireProjectExportLease: vi.fn(async () => ({ assertCurrent: () => undefined })),
+      confirmProjectExportSummary: vi.fn(async () => true),
+      pathCapabilities: new ProjectPathCapabilityStore(),
+    })
+
+    const handler = handlers.get(projectIpcContracts.pickFolder.channel)
+    if (!handler) throw new Error('Project folder picker handler was not registered')
+    const event = { sender: { id: 23 } }
+
+    await expect(handler(event, undefined)).rejects.toThrow('must be an object')
+    await expect(handler(event, { purpose: 'unsupported-purpose' }))
+      .rejects.toThrow('Invalid project folder picker purpose')
+    await expect(handler(event, { purpose: 'scan-parent', projectId: 'project-1' }))
+      .rejects.toThrow('cannot target')
+  })
 })
 
 describe('project .env export IPC', () => {
@@ -285,16 +318,13 @@ function exportHarness(options: {
   environmentKind?: 'local' | 'cloud'
   getVaultKey?: () => Buffer | null
   getVaultRevision?: () => number
-  confirmProjectEnvExport?: (prompt: string) => { success: true } | { success: false; error: string }
+  confirmProjectEnvExport?: (prompt: string) => AuthConfirmation
   confirmProjectExportSummary?: (summary: unknown) => Promise<boolean>
   assertLeaseCurrent?: () => void
   acquireProjectExportLease?: () => Promise<{ assertCurrent(): void }>
   recordAuditDurable?: (type: AuditEventType, details?: Record<string, unknown>) => Promise<void>
 }) {
-  const handlers = new Map<string, IpcHandler>()
-  const ipcMain = {
-    handle: (channel: string, handler: IpcHandler) => { handlers.set(channel, handler) },
-  } as unknown as IpcMain
+  const { handlers, ipcMain } = fakeIpcMain()
   const key = Buffer.alloc(32, 1)
   const assertLeaseCurrent = vi.fn(options.assertLeaseCurrent ?? (() => undefined))
   const confirmProjectEnvExport = vi.fn(options.confirmProjectEnvExport ?? (() => ({ success: true as const })))
@@ -335,7 +365,7 @@ function exportHarness(options: {
     getVaultRevision: options.getVaultRevision ?? (() => 7),
     readVault: async () => vault,
     beginSessionOperation: () => ({ epoch: 1, assertCurrent: () => undefined, release: () => undefined }),
-    authController: { confirmProjectEnvExport } as unknown as AuthController,
+    authController: testAuthController(confirmProjectEnvExport),
     recordAudit,
     recordAuditDurable: options.recordAuditDurable
       ?? (async (type, details) => { recordAudit(type, details) }),
@@ -366,10 +396,7 @@ async function scanHarness(options: {
   assertLeaseCurrent?: () => void | Promise<void>
   acquireProjectScanLease?: () => Promise<{ assertCurrent(): Promise<void> }>
 }) {
-  const handlers = new Map<string, IpcHandler>()
-  const ipcMain = {
-    handle: (channel: string, handler: IpcHandler) => { handlers.set(channel, handler) },
-  } as unknown as IpcMain
+  const { handlers, ipcMain } = fakeIpcMain()
   const key = Buffer.alloc(32, 1)
   const rendererId = 91
   const pathCapabilities = new ProjectPathCapabilityStore()
@@ -392,7 +419,7 @@ async function scanHarness(options: {
     getVaultRevision: options.getVaultRevision ?? (() => 7),
     readVault: async () => vault,
     beginSessionOperation: () => ({ epoch: 1, assertCurrent: () => undefined, release: () => undefined }),
-    authController: {} as AuthController,
+    authController: testAuthController(),
     recordAudit: vi.fn(),
     recordAuditDurable: vi.fn(async () => undefined),
     acquireProjectScanLease,
@@ -414,6 +441,62 @@ async function scanHarness(options: {
       parentPath: options.folder,
       ...(replaceProjectId ? { replaceProjectId } : {}),
     }),
+  }
+}
+
+function fakeIpcMain(): {
+  handlers: Map<string, IpcHandler>
+  ipcMain: IpcMain
+} {
+  const handlers = new Map<string, IpcHandler>()
+  const ipcMain = Object.assign(new EventEmitter(), {
+    handle: (channel: string, handler: ElectronIpcHandler) => {
+      handlers.set(channel, async (event, payload) => Reflect.apply(handler, undefined, [event, payload]))
+    },
+    handleOnce: (channel: string, handler: ElectronIpcHandler) => {
+      handlers.set(channel, async (event, payload) => Reflect.apply(handler, undefined, [event, payload]))
+    },
+    removeHandler: (channel: string) => { handlers.delete(channel) },
+  })
+  return { handlers, ipcMain }
+}
+
+function testAuthController(
+  confirmProjectEnvExport: (prompt: string) => AuthConfirmation = () => ({ success: true }),
+): AuthController {
+  return new TestAuthController(confirmProjectEnvExport)
+}
+
+class TestAuthController extends AuthController {
+  constructor(private readonly confirm: (prompt: string) => AuthConfirmation) {
+    super({
+      storage: {
+        ensureVaultDir: async () => undefined,
+        getAuthStateStatus: async () => 'missing',
+        readCredentials: async () => ({ paramsRaw: '{}', wrappedKey: Buffer.alloc(0) }),
+        readVault: async () => ({}),
+        createVaultState: async () => undefined,
+        commitAuthCredentials: async () => undefined,
+        commitRestoredVaultState: async () => undefined,
+      },
+      keychain: {
+        isMac: false,
+        store: () => false,
+        retrieve: () => ({ key: null, cancelled: false, notFound: true, authFailed: false }),
+        remove: () => false,
+      },
+      session: {
+        beginOperation: () => null,
+        leaseCurrentKey: () => null,
+        installKey: () => false,
+      },
+      recordAudit: () => undefined,
+      randomId: () => 'test-id',
+    })
+  }
+
+  override confirmProjectEnvExport(prompt: string): AuthConfirmation {
+    return this.confirm(prompt)
   }
 }
 

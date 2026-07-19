@@ -59,7 +59,7 @@ const platformApi: Pick<PlatformIpcApi, 'openExternal' | 'copyImportTemplate' | 
 }
 
 const projectApi: ProjectIpcApi = {
-  pickFolder:       () => ipcRenderer.invoke(projectIpc.pickFolder.channel),
+  pickFolder:       (payload) => ipcRenderer.invoke(projectIpc.pickFolder.channel, payload),
   pickProjectFiles: () => ipcRenderer.invoke(projectIpc.pickProjectFiles.channel),
   scanProject:      (payload) => ipcRenderer.invoke(projectIpc.scan.channel, payload),
   discoverProjects: (payload) => ipcRenderer.invoke(projectIpc.discover.channel, payload),

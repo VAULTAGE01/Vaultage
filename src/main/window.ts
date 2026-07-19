@@ -2,6 +2,7 @@ import { app, BrowserWindow, nativeImage } from 'electron'
 import { join } from 'path'
 import { IS_MAC } from './keychain'
 import { disableSecureInput } from './secureInput'
+import { protectE2EWindow, type E2EHeadlessPolicy } from './e2eHeadlessPolicy'
 
 export const MENU_PANEL_PARTITION = 'vaultage-menu-panel'
 
@@ -12,13 +13,17 @@ export function iconPath(): string {
     : join(app.getAppPath(), 'resources', file)
 }
 
-export function createMainWindow(onClosed: () => void): BrowserWindow {
+export function createMainWindow(
+  onClosed: () => void,
+  e2eHeadlessPolicy: E2EHeadlessPolicy,
+): BrowserWindow {
   const icon = nativeImage.createFromPath(iconPath())
   const win = new BrowserWindow({
     width:    1200,
     height:   800,
     minWidth: 900,
     minHeight: 600,
+    show:     !e2eHeadlessPolicy.active,
     backgroundColor: '#00000000',
     transparent: true,
     vibrancy: 'under-window',
@@ -33,6 +38,7 @@ export function createMainWindow(onClosed: () => void): BrowserWindow {
       nodeIntegration:  false,
     },
   })
+  protectE2EWindow(win, e2eHeadlessPolicy, 'main')
 
   win.loadURL(
     process.env['ELECTRON_RENDERER_URL'] ??
@@ -58,7 +64,10 @@ export function createMainWindow(onClosed: () => void): BrowserWindow {
   return win
 }
 
-export function createMenuPanelWindow(onClosed: () => void): BrowserWindow {
+export function createMenuPanelWindow(
+  onClosed: () => void,
+  e2eHeadlessPolicy: E2EHeadlessPolicy,
+): BrowserWindow {
   const win = new BrowserWindow({
     width: 400,
     height: 640,
@@ -86,6 +95,7 @@ export function createMenuPanelWindow(onClosed: () => void): BrowserWindow {
       nodeIntegration:  false,
     },
   })
+  protectE2EWindow(win, e2eHeadlessPolicy, 'menuPanel')
 
   win.loadURL(rendererUrl('menu-bar'))
   // The panel is a plaintext-capable secondary surface. Keep it protected for

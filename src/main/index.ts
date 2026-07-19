@@ -1,4 +1,4 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, nativeImage, safeStorage, screen, session, shell, type MessageBoxOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, powerMonitor, nativeImage, safeStorage, screen, session, shell, type MessageBoxOptions, type Session } from 'electron'
 import { createHash, randomUUID } from 'crypto'
 import { join } from 'path'
 import { appendAuditEvent, deriveAuditMacKey, readVerifiedAuditLog, type AuditEventType } from './audit'
@@ -30,6 +30,15 @@ import { redactVaultForRenderer } from './vaultRedaction'
 import { registerProviderIpc } from '#provider-ipc'
 import { ProviderWorkerClient } from '#provider-worker-client'
 import { IS_MAC, keychainRemove, keychainRetrieve, keychainStore } from './keychain'
+import {
+  createE2EHeadlessPolicy,
+  installE2EHeadlessInspection,
+} from './e2eHeadlessPolicy'
+import { installE2EClipboardPolicy } from './e2eClipboardPolicy'
+import {
+  createE2ENetworkPolicy,
+  installRendererNetworkDenial,
+} from './e2eNetworkPolicy'
 import { disableSecureInput } from './secureInput'
 import { createMainWindow, createMenuPanelWindow, iconPath, MENU_PANEL_PARTITION } from './window'
 import { MenuBarController } from './menuBar'
@@ -73,6 +82,24 @@ let receiptAuditReconciliationQueue = Promise.resolve()
 const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
 const APP_DISPLAY_NAME = OPEN_CORE_BUILD ? 'vault-OC' : 'Vaultage'
 const USER_FACING_APP_NAME = OPEN_CORE_BUILD ? 'Vaultage Community' : 'Vaultage'
+const e2eHeadlessPolicy = createE2EHeadlessPolicy(
+  app.isPackaged,
+  process.env['VAULTAGE_E2E_HEADLESS'],
+)
+const e2eNetworkPolicy = createE2ENetworkPolicy(e2eHeadlessPolicy.active)
+const e2eClipboardPolicy = installE2EClipboardPolicy(e2eHeadlessPolicy.active, clipboard)
+const protectedE2ESessions = new WeakSet<Session>()
+installE2EHeadlessInspection(globalThis, e2eHeadlessPolicy, () => ({
+  clipboard: e2eClipboardPolicy.snapshot(),
+  network: e2eNetworkPolicy.snapshot(),
+  visibility: e2eHeadlessPolicy.snapshot(),
+}))
+app.on('session-created', createdSession => {
+  protectE2ERendererSession(createdSession)
+})
+if (e2eHeadlessPolicy.active && process.platform === 'darwin') {
+  void app.dock?.hide()
+}
 app.setName(APP_DISPLAY_NAME)
 const providerClient = new ProviderWorkerClient()
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
@@ -87,6 +114,16 @@ let quitPreparing = false
 let quitPrepared = false
 let commercialRuntime: CommercialRuntimeAccess | null = null
 const AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS = 30_000
+
+function protectE2ERendererSession(targetSession: Session): void {
+  if (!e2eNetworkPolicy.active || protectedE2ESessions.has(targetSession)) return
+  installRendererNetworkDenial(
+    (filter, listener) => targetSession.webRequest.onBeforeRequest(filter, listener),
+    e2eNetworkPolicy,
+  )
+  protectedE2ESessions.add(targetSession)
+}
+
 configureQuickRevealPinThrottleStore(
   new QuickRevealPinThrottleFileStore(join(VAULT_DIR, 'reveal-pin-throttle')),
 )
@@ -278,7 +315,7 @@ function recordAudit(type: AuditEventType, details: Record<string, unknown> = {}
           console.warn('[audit] Audit subsystem recovered after a verified unlock append')
         }
       } catch (err) {
-        auditFailureGuard.markFailed(err)
+        auditFailureGuard.markFailed(err instanceof Error ? err : new Error(String(err)))
       }
     })
     .finally(() => auditMacKey.fill(0))
@@ -541,7 +578,7 @@ function syncAgentApiPortFromVault(vault: unknown): void {
   const rawPort = (preferences as { agentApiPort?: unknown }).agentApiPort
   if (rawPort === undefined) return
   void agentComposition.configurePort(rawPort).then(result => {
-    if (!result.success) console.warn('[vault-mode] Ignoring invalid saved local API port:', result.error)
+    if (result.success === false) console.warn('[vault-mode] Ignoring invalid saved local API port:', result.error)
   }).catch(err => {
     console.warn('[vault-mode] Could not publish Agent port discovery:', err instanceof Error ? err.message : String(err))
   })
@@ -551,7 +588,7 @@ function createWindow(): void {
   mainWindow = createMainWindow(() => {
     mainWindow = null
     syncMenuBar()
-  })
+  }, e2eHeadlessPolicy)
   mainWindow.webContents.once('did-finish-load', () => {
     void flushExtensionHandoff()
   })
@@ -563,11 +600,12 @@ function createPanelWindow(): BrowserWindow {
   if (menuPanelWindow && !menuPanelWindow.isDestroyed()) return menuPanelWindow
   menuPanelWindow = createMenuPanelWindow(() => {
     menuPanelWindow = null
-  })
+  }, e2eHeadlessPolicy)
   return menuPanelWindow
 }
 
 function showMainWindow(): void {
+  if (!e2eHeadlessPolicy.allow('show')) return
   if (!mainWindow) createWindow()
   if (!mainWindow) return
   if (mainWindow.isMinimized()) mainWindow.restore()
@@ -589,6 +627,7 @@ function isAgentListening(): boolean {
 }
 
 function toggleMenuPanel(): void {
+  if (!e2eHeadlessPolicy.allow('menuPanel')) return
   const panel = createPanelWindow()
   if (panel.isVisible()) {
     panel.hide()
@@ -655,13 +694,13 @@ async function startAgentListeningFromMenu(): Promise<void> {
   }
 
   const result = agentServer.handleSetApiEnabled(true)
-  if (!result.success) throw new Error(result.error ?? 'Could not start Agent listening')
+  if (result.success === false) throw new Error(result.error ?? 'Could not start Agent listening')
   await agentServer.syncListenerState()
 }
 
 function stopAgentListeningFromMenu(): void {
   const result = agentServer.handleSetApiEnabled(false)
-  if (!result.success) throw new Error(result.error ?? 'Could not stop Agent listening')
+  if (result.success === false) throw new Error(result.error ?? 'Could not stop Agent listening')
 }
 
 async function startBrowserExtensionFromMenu(): Promise<void> {
@@ -674,12 +713,12 @@ async function startBrowserExtensionFromMenu(): Promise<void> {
   if (app.isPackaged) await requireInstalledExtensionNativeHost(extensionNativeHostRegistrar)
   await agentComposition.ensureReady()
   const result = await agentServer.handleSetExtensionEnabled(true)
-  if (!result.success) throw new Error(result.error ?? 'Could not enable browser extension')
+  if (result.success === false) throw new Error(result.error ?? 'Could not enable browser extension')
 }
 
 async function stopBrowserExtensionFromMenu(): Promise<void> {
   const result = await agentServer.handleSetExtensionEnabled(false)
-  if (!result.success) throw new Error(result.error ?? 'Could not disable browser extension')
+  if (result.success === false) throw new Error(result.error ?? 'Could not disable browser extension')
 }
 
 async function copyAgentInstructionsFromMenu(): Promise<void> {
@@ -731,6 +770,7 @@ function sensitiveClipboardFingerprint(value: string): string {
 }
 
 function initializeMenuBar(): void {
+  e2eHeadlessPolicy.recordCreated('tray')
   menuBar = new MenuBarController({
     iconPath: iconPath(),
     getState: () => ({
@@ -805,6 +845,7 @@ async function flushExtensionHandoff(): Promise<void> {
 
 app.on('open-url', (event, rawUrl) => {
   event.preventDefault()
+  if (!e2eHeadlessPolicy.allow('openUrl')) return
   receiveExtensionHandoffUrl(rawUrl)
 })
 
@@ -856,28 +897,34 @@ app.whenReady().then(async () => {
   await agentComposition.initialize()
   await receiveExtensionHandoff(agentComposition.findHandoffArg(process.argv))
   flushExtensionHandoffUrls()
+  protectE2ERendererSession(session.defaultSession)
   installRendererCsp(session.defaultSession, { allowDevelopmentWebSockets: !app.isPackaged })
   session.defaultSession.on('will-download', event => event.preventDefault())
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
     callback(false)
   })
   session.defaultSession.setPermissionCheckHandler(() => false)
-  const menuPanelSession = session.fromPartition(MENU_PANEL_PARTITION, { cache: false })
-  installRendererCsp(menuPanelSession, { allowDevelopmentWebSockets: !app.isPackaged })
-  menuPanelSession.on('will-download', event => event.preventDefault())
-  menuPanelSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    callback(false)
-  })
-  menuPanelSession.setPermissionCheckHandler(() => false)
-  if (process.platform === 'darwin') {
-    app.dock?.setIcon(nativeImage.createFromPath(iconPath()))
+  if (!e2eHeadlessPolicy.active) {
+    const menuPanelSession = session.fromPartition(MENU_PANEL_PARTITION, { cache: false })
+    installRendererCsp(menuPanelSession, { allowDevelopmentWebSockets: !app.isPackaged })
+    menuPanelSession.on('will-download', event => event.preventDefault())
+    menuPanelSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+      callback(false)
+    })
+    menuPanelSession.setPermissionCheckHandler(() => false)
   }
-  initializeMenuBar()
+  if (process.platform === 'darwin') {
+    if (e2eHeadlessPolicy.active) await app.dock?.hide()
+    else app.dock?.setIcon(nativeImage.createFromPath(iconPath()))
+  }
+  if (!e2eHeadlessPolicy.active) initializeMenuBar()
   createWindow()
-  void notifyExtensionNativeHostLaunchIssue().catch(() => {
-    console.error('[extension-native-host] Startup verification notification failed safely')
-  })
-  installAutoUpdateChecks()
+  if (!e2eHeadlessPolicy.active) {
+    void notifyExtensionNativeHostLaunchIssue().catch(() => {
+      console.error('[extension-native-host] Startup verification notification failed safely')
+    })
+    installAutoUpdateChecks()
+  }
   idleAutoLock = new IdleAutoLockController({
     isUnlocked: () => vaultSession.isUnlocked(),
     getSystemIdleSeconds: () => powerMonitor.getSystemIdleTime(),
@@ -886,6 +933,7 @@ app.whenReady().then(async () => {
   idleAutoLock.start()
   // Server only starts when mode is explicitly set to 'agent'
   app.on('activate', () => {
+    if (!e2eHeadlessPolicy.allow('activate')) return
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
     else showMainWindow()
     if (vaultSession.isUnlocked()) void commercialRuntime?.resume()
@@ -919,6 +967,7 @@ async function notifyExtensionNativeHostLaunchIssue(): Promise<void> {
 }
 
 app.on('second-instance', (_event, argv) => {
+  if (!e2eHeadlessPolicy.allow('secondInstance')) return
   void receiveExtensionHandoff(agentComposition.findHandoffArg(argv))
   showMainWindow()
 })
