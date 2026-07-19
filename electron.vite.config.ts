@@ -2,6 +2,12 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 
+// electron-vite 5's isolated-entry reporter assumes a TTY even in CI. Keep its
+// sandbox-safe preload bundling usable when stdout is a pipe.
+if (typeof process.stdout.clearLine !== 'function') process.stdout.clearLine = () => true
+if (typeof process.stdout.cursorTo !== 'function') process.stdout.cursorTo = () => true
+if (typeof process.stdout.moveCursor !== 'function') process.stdout.moveCursor = () => true
+
 const openCoreBuild = process.env['VAULTAGE_OPEN_CORE'] === '1'
 const disableReactRefresh = process.env['VAULTAGE_DISABLE_REACT_REFRESH'] === '1'
 let productionReleaseBuild = false
@@ -77,6 +83,11 @@ export default defineConfig({
   },
   preload: {
     build: {
+      // Sandboxed preloads cannot require local shared chunks. Build each
+      // bridge as a self-contained file so multiple preload entries remain
+      // compatible with Electron's restricted sandbox loader.
+      isolatedEntries: true,
+      externalizeDeps: false,
       rollupOptions: {
         input: openCoreBuild
           ? {
@@ -89,7 +100,6 @@ export default defineConfig({
             },
       },
     },
-    plugins: [externalizeDepsPlugin()]
   },
   renderer: {
     define: {

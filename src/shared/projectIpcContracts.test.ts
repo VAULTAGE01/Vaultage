@@ -40,6 +40,12 @@ describe('project IPC contracts', () => {
     })).toThrow('cannot target')
   })
 
+  it('rejects missing and unsupported picker purposes before any handler work', () => {
+    expect(() => projectIpcContracts.pickFolder.validate(undefined)).toThrow('must be an object')
+    expect(() => projectIpcContracts.pickFolder.validate({ purpose: 'unsupported-purpose' }))
+      .toThrow('Invalid project folder picker purpose')
+  })
+
   it('accepts a bounded project identity for authoritative scan policy', () => {
     expect(projectIpcContracts.scan.validate({
       path: '/tmp/project',
