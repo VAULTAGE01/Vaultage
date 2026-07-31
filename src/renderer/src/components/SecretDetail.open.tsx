@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
 import { toast } from 'sonner'
 import { useVault, findFolder, findSecret, flatSecrets } from '../vaultContext'
-import type { SecretField, VaultFolder, VaultSecret } from '../types'
+import type { SecretField, VaultFolder } from '../types'
 import AddSecretModal from './AddSecretModal.open'
 import EnvProjectsModal from './EnvProjectsModal'
 import ExportModal from './ExportModal'
@@ -12,16 +12,28 @@ import { isPinnedSecret, togglePinnedSecret } from '../lib/pinning'
 import { SECRET_TYPE_LABELS } from '../types'
 import type { VaultExportScope } from '../../../shared/vaultExport'
 import { Button } from '@/components/ui/button'
-import { Copy, Download, Eye, EyeOff, FileKey2, FolderKanban, Image as ImageIcon, Pencil, ShieldCheck, Star, Trash2 } from 'lucide-react'
+import { Copy, Download, Eye, EyeOff, FileKey2, FolderKanban, Image as ImageIcon, Pencil, ShieldCheck, Trash2 } from 'lucide-react'
 import { countSecretProjectMappings, secretDeletionConfirmation } from '@/lib/secretActionPreviews'
 import { useTransientReveal } from '../lib/useTransientReveal'
+import { requestPlaintextExportConfirmation } from '@/lib/textInputRequests'
+import { useTextInputDialog } from './TextInputDialogProvider'
+import {
+  collectCommunityPinnedCollections,
+  CommunityPinnedVaultLists,
+} from './PinnedVaultLists.open'
+import CommunitySecretContext from './CommunitySecretContext.open'
+import {
+  readSecretAccessPolicy,
+  writeSecretAccessPolicy,
+} from '../../../shared/secretAccessPolicy'
+import { isProductionScope } from '@/lib/env'
 
 function countFolders(folder: VaultFolder): number {
   return folder.children.length + folder.children.reduce((total, child) => total + countFolders(child), 0)
 }
 
 export function LocalDashboard({ onOpenSecret }: { onOpenSecret?: () => void } = {}) {
-  const { state, selectSecret } = useVault()
+  const { state, selectFolder, selectSecret } = useVault()
   const [showProjects, setShowProjects] = useState(false)
   const secrets = state.vault ? flatSecrets(state.vault.root) : []
   const projects = state.vault?.envProjects ?? []
@@ -29,6 +41,9 @@ export function LocalDashboard({ onOpenSecret }: { onOpenSecret?: () => void } =
   const mappedKeyCount = projects.reduce((total, project) => total + project.entries.length, 0)
   const typeCount = new Set(secrets.map(({ secret }) => secret.type)).size
   const pinned = secrets.filter(({ secret }) => isPinnedSecret(secret)).slice(0, 6)
+  const pinnedCollections = state.vault
+    ? collectCommunityPinnedCollections(state.vault.root)
+    : []
   const recent = [...secrets]
     .sort((a, b) => Date.parse(b.secret.updatedAt) - Date.parse(a.secret.updatedAt))
     .slice(0, 8)
@@ -57,16 +72,16 @@ export function LocalDashboard({ onOpenSecret }: { onOpenSecret?: () => void } =
         <Metric title="Types" value={typeCount} />
       </div>
 
-      {pinned.length > 0 && (
-        <section className="mt-6">
-          <h2 className="mb-3 text-sm font-semibold text-text">Pinned</h2>
-          <div className="grid gap-3 xl:grid-cols-3">
-            {pinned.map(({ secret, folderPath }) => (
-              <SecretCard key={secret.id} secret={secret} meta={folderPath} onOpen={() => openSecret(secret.id)} />
-            ))}
-          </div>
-        </section>
-      )}
+      <CommunityPinnedVaultLists
+        pinnedSecrets={pinned}
+        pinnedCollections={pinnedCollections}
+        onOpenSecret={({ secret }) => openSecret(secret.id)}
+        onOpenCollection={(collection) => {
+          selectFolder(collection.id)
+          selectSecret(null)
+          onOpenSecret?.()
+        }}
+      />
 
       <section className="mt-6 grid min-h-0 gap-5 xl:grid-cols-[1fr_320px]">
         <div>
@@ -124,6 +139,7 @@ export function LocalDashboard({ onOpenSecret }: { onOpenSecret?: () => void } =
 }
 
 export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?: 'dashboard' | 'folder' } = {}) {
+  const requestTextInput = useTextInputDialog()
   const {
     state,
     copySecretField,
@@ -148,6 +164,7 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
   const folder = findFolder(state.vault.root, folderId)
   const pinned = isPinnedSecret(secret)
   const imageField = secret.fields.find(field => field.key === '__image__')
+  const revealCopyAllowed = readSecretAccessPolicy(secret).revealCopy
   const updated = new Date(secret.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
 
   const remove = async () => {
@@ -160,9 +177,10 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
   }
 
   const saveImage = async (): Promise<boolean> => {
-    const plaintextConfirmation = import.meta.env.VITE_E2E === '1'
-      ? undefined
-      : window.prompt('Type EXPORT PLAINTEXT to save this decrypted image.')
+    const plaintextConfirmation = await requestPlaintextExportConfirmation({
+      platform: window.vault.platform,
+      e2eBypass: import.meta.env.VITE_E2E === '1',
+    }, requestTextInput)
     if (plaintextConfirmation === null) return false
     try {
       const result = await window.vault.saveSecretImageField({
@@ -182,6 +200,11 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
+      {isProductionScope(secret.scope) && (
+        <div className="flex-shrink-0 border-b border-amber-300/20 bg-amber-300/10 px-4 py-1.5 text-[11px] font-medium text-amber-200">
+          Production secret — copy and reveal actions are audited.
+        </div>
+      )}
       <header className="drag-region flex items-center gap-2 border-b border-border px-5 py-3">
         <p className="no-drag flex-1 truncate text-xs text-muted">{folder?.name ?? 'Vault'}</p>
         <Button className="no-drag" variant="ghost" size="sm" onClick={() => setEditing(true)}>
@@ -240,6 +263,7 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
           <ImageField
             identity={`${secret.id}:${secret.updatedAt}:${imageField?.id ?? '__image__'}`}
             hasImage={Boolean(imageField?.value)}
+            releaseAllowed={revealCopyAllowed}
             onCopy={() => copySecretImageField(secret.id, '__image__', imageField?.id)}
             onReveal={() => revealSecretImageField(secret.id, '__image__', { fieldId: imageField?.id })}
             onSave={saveImage}
@@ -251,6 +275,7 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
                 key={`${field.key}-${index}`}
                 identity={`${secret.id}:${secret.updatedAt}:${field.id ?? field.key}:${index}`}
                 field={field}
+                releaseAllowed={revealCopyAllowed}
                 onCopy={() => copySecretField(secret.id, field.key, { fieldId: field.id })}
                 onReveal={() => revealSecretField(secret.id, field.key, { fieldId: field.id })}
               />
@@ -271,6 +296,17 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
             <p className="whitespace-pre-wrap rounded-xl border border-border bg-surface px-4 py-3 text-sm text-text-secondary">{secret.notes}</p>
           </section>
         )}
+
+        <CommunitySecretContext
+          secret={secret}
+          projects={state.vault.envProjects}
+          folderName={folder?.name ?? 'Vault'}
+          revealCopyAllowed={revealCopyAllowed}
+          onRevealCopyChange={allowed => {
+            const policy = readSecretAccessPolicy(secret)
+            void updateSecret(folderId, writeSecretAccessPolicy(secret, { ...policy, revealCopy: allowed }))
+          }}
+        />
       </main>
 
       {editing && <AddSecretModal folderId={folderId} existing={secret} onClose={() => setEditing(false)} />}
@@ -295,12 +331,14 @@ function FolderEmptyState() {
 function ImageField({
   identity,
   hasImage,
+  releaseAllowed,
   onCopy,
   onReveal,
   onSave,
 }: {
   identity: string
   hasImage: boolean
+  releaseAllowed: boolean
   onCopy: () => Promise<boolean>
   onReveal: () => Promise<string | null>
   onSave: () => Promise<boolean>
@@ -346,7 +384,7 @@ function ImageField({
             <Button variant="outline" size="sm" onClick={clear}>
               Hide Image
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { void copy() }}>
+            <Button variant="ghost" size="sm" disabled={!releaseAllowed} onClick={() => { void copy() }}>
               <Copy className="mr-1.5 h-3.5 w-3.5" />
               {copying ? 'Copied' : 'Copy Image'}
             </Button>
@@ -364,11 +402,11 @@ function ImageField({
             <p className="mt-1 text-xs text-muted">Reveal it only when you need to inspect or copy it.</p>
           </div>
           <div className="flex flex-wrap justify-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => { void reveal() }}>
+            <Button variant="outline" size="sm" disabled={!releaseAllowed} onClick={() => { void reveal() }}>
               <Eye className="mr-1.5 h-3.5 w-3.5" />
               Show Image
             </Button>
-            <Button variant="ghost" size="sm" onClick={() => { void copy() }}>
+            <Button variant="ghost" size="sm" disabled={!releaseAllowed} onClick={() => { void copy() }}>
               <Copy className="mr-1.5 h-3.5 w-3.5" />
               {copying ? 'Copied' : 'Copy Image'}
             </Button>
@@ -387,11 +425,13 @@ function ImageField({
 function FieldRow({
   identity,
   field,
+  releaseAllowed,
   onCopy,
   onReveal,
 }: {
   identity: string
   field: SecretField
+  releaseAllowed: boolean
   onCopy: () => Promise<boolean>
   onReveal: () => Promise<string | null>
 }) {
@@ -426,11 +466,11 @@ function FieldRow({
           </p>
         </div>
         <div className="flex flex-shrink-0 gap-2">
-          <Button variant="outline" size="sm" onClick={() => { void copy() }}>
+          <Button variant="outline" size="sm" disabled={!releaseAllowed} onClick={() => { void copy() }}>
             {copying ? 'Copied' : 'Copy'}
           </Button>
           {field.sensitive && (
-            <Button variant="ghost" size="sm" onClick={() => { void reveal() }}>
+            <Button variant="ghost" size="sm" disabled={!releaseAllowed} onClick={() => { void reveal() }}>
               {revealed !== null ? <EyeOff className="mr-1.5 h-3.5 w-3.5" /> : <Eye className="mr-1.5 h-3.5 w-3.5" />}
               {revealed !== null ? 'Hide' : 'Reveal'}
             </Button>
@@ -447,25 +487,6 @@ function Metric({ title, value }: { title: string; value: number }) {
       <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">{title}</p>
       <p className="mt-2 text-2xl font-semibold text-text">{value}</p>
     </div>
-  )
-}
-
-function SecretCard({ secret, meta, onOpen }: { secret: VaultSecret; meta: string; onOpen: () => void }) {
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="dashboard-live-card flex min-h-0 min-w-0 items-center gap-3 p-4 text-left"
-    >
-      <span className="dashboard-live-icon flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-yellow-300">
-        <Star className="h-4 w-4 fill-current" />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-semibold text-text">{secret.name}</span>
-        <span className="mt-1 block truncate text-[11px] text-muted">{meta}</span>
-      </span>
-      <span className="dashboard-live-meta flex-shrink-0">{SECRET_TYPE_LABELS[secret.type]}</span>
-    </button>
   )
 }
 

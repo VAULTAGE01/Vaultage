@@ -1,4 +1,5 @@
 import { legacySecretFieldId } from './vaultRedaction'
+import { allowsRevealOrCopy } from '../shared/secretAccessPolicy'
 
 export function trackSecretUsageInVault(vault: unknown, secretId: unknown, usedAt = new Date().toISOString()): unknown {
   const safeSecretId = validateId(secretId, 'secret id')
@@ -22,7 +23,6 @@ export function trackSecretUsageInVault(vault: unknown, secretId: unknown, usedA
       ...secret,
       usageCount,
       lastUsedAt: usedAt,
-      updatedAt: usedAt,
     }
   })
 
@@ -93,10 +93,6 @@ export function trackSecretUsageBatchInVault(
         typeof secret.lastUsedAt === 'string' ? secret.lastUsedAt : undefined,
         delta.lastUsedAt,
       ),
-      updatedAt: laterTimestamp(
-        typeof secret.updatedAt === 'string' ? secret.updatedAt : undefined,
-        delta.lastUsedAt,
-      ),
     }
   })
 
@@ -124,6 +120,28 @@ export function resolveSecretFieldInVault(
     throw new Error('Secret field value is unavailable')
   }
   return field.value
+}
+
+export function assertSecretRevealAllowedInVault(vault: unknown, secretId: unknown): void {
+  const safeSecretId = validateId(secretId, 'secret id')
+  const secret = findSecretInVault(vault, safeSecretId)
+  if (!allowsRevealOrCopy(secret)) throw new Error('Reveal and copy are disabled for this secret')
+}
+
+export function secretFieldIsSensitiveInVault(
+  vault: unknown,
+  secretId: unknown,
+  fieldKey: unknown,
+  fieldId?: unknown,
+): boolean {
+  const safeSecretId = validateId(secretId, 'secret id')
+  const safeFieldKey = validateId(fieldKey, 'field key')
+  const safeFieldId = fieldId === undefined ? undefined : validateId(fieldId, 'field id')
+  const secret = findSecretInVault(vault, safeSecretId)
+  const fields = Array.isArray(secret.fields) ? secret.fields as FieldLike[] : []
+  const field = selectSecretField(fields, safeFieldKey, safeFieldId, safeSecretId)
+  if (!field) throw new Error('Secret field is unavailable')
+  return field.sensitive === true
 }
 
 export function assertPinnedSecretInVault(vault: unknown, secretId: unknown): void {
@@ -252,6 +270,10 @@ interface SecretLike {
   id?: unknown
   usageCount?: unknown
   fields?: unknown
+  agentAvailable?: boolean
+  browserExtensionAllowed?: boolean
+  revealAllowed?: boolean
+  cliExportAllowed?: boolean
   [key: string]: unknown
 }
 

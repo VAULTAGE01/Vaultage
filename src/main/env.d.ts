@@ -1,1 +1,2 @@
 declare const __VAULTAGE_OPEN_CORE__: boolean
+declare const __VAULTAGE_SCREENSHOT_REVIEW_BUILD__: boolean

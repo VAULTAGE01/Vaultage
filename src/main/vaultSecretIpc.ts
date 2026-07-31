@@ -8,7 +8,13 @@ import {
   validateVaultSaveJson,
 } from './security'
 import { updateVault } from './vaultStorage'
-import { assertPinnedSecretInVault, resolveSecretFieldInVault, resolveSecretFieldsInVault } from './vaultMutations'
+import {
+  assertPinnedSecretInVault,
+  assertSecretRevealAllowedInVault,
+  resolveSecretFieldInVault,
+  resolveSecretFieldsInVault,
+  secretFieldIsSensitiveInVault,
+} from './vaultMutations'
 import { redactVaultForRenderer } from './vaultRedaction'
 import {
   createQuickRevealPinRecord,
@@ -39,6 +45,21 @@ export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
       const clearAfterMs = 30_000
       const vault = await deps.readVault(vaultKey)
       operation.assertCurrent()
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
+      const pin = optionalQuickRevealPin(payload.pin)
+      if (secretFieldIsSensitiveInVault(vault, payload.secretId, payload.fieldKey, payload.fieldId)) {
+        if (pin) {
+          assertPinnedSecretInVault(vault, payload.secretId)
+          await requireQuickRevealPin(vault, pin)
+        } else {
+          const confirmation = deps.authController.confirmSecretReveal(
+            'Copy saved secret value from Vaultage',
+            payload.confirmationPhrase,
+          )
+          if (!confirmation.success) return confirmation
+          resetQuickRevealPinThrottle()
+        }
+      }
       const copiedValue = resolveSecretFieldInVault(vault, payload.secretId, payload.fieldKey, payload.fieldId)
       if (copiedValue.length > 1_000_000) throw new Error('Clipboard text is too large')
       const usedAt = new Date().toISOString()
@@ -49,6 +70,7 @@ export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
         vaultItemId: payload.secretId,
         field: payload.fieldKey,
         kind: 'text',
+        method: pin ? 'pin' : 'system',
       })
       operation.assertCurrent()
       deps.recordSecretUsage(payload.secretId, usedAt)
@@ -81,6 +103,12 @@ export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
       const clearAfterMs = 30_000
       const vault = await deps.readVault(vaultKey)
       operation.assertCurrent()
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
+      const confirmation = deps.authController.confirmSecretReveal(
+        'Copy saved secret image from Vaultage',
+        payload.confirmationPhrase,
+      )
+      if (!confirmation.success) return confirmation
       const value = resolveSecretFieldInVault(vault, payload.secretId, payload.fieldKey, payload.fieldId)
       const usedAt = new Date().toISOString()
       operation.assertCurrent()
@@ -191,6 +219,7 @@ export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
         resetQuickRevealPinThrottle()
       }
       const vault = await deps.readVault(vaultKey)
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
       if (pin) {
         assertPinnedSecretInVault(vault, payload.secretId)
         await requireQuickRevealPin(vault, pin)
@@ -233,6 +262,7 @@ export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
         resetQuickRevealPinThrottle()
       }
       const vault = await deps.readVault(vaultKey)
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
       if (pin) {
         assertPinnedSecretInVault(vault, payload.secretId)
         await requireQuickRevealPin(vault, pin)
@@ -275,6 +305,7 @@ export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
         resetQuickRevealPinThrottle()
       }
       const vault = await deps.readVault(vaultKey)
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
       if (pin) {
         assertPinnedSecretInVault(vault, payload.secretId)
         await requireQuickRevealPin(vault, pin)

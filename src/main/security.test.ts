@@ -27,7 +27,9 @@ describe('main security policy helpers', () => {
   it('accepts only known app modes', () => {
     expect(isAppMode('local')).toBe(true)
     expect(isAppMode('agent')).toBe(true)
-    expect(isAppMode('broker')).toBe(true)
+    expect(isAppMode('broker')).toBe(
+      typeof __VAULTAGE_OPEN_CORE__ === 'undefined' || !__VAULTAGE_OPEN_CORE__,
+    )
     expect(isAppMode('cloud')).toBe(false)
     expect(isAppMode(null)).toBe(false)
   })

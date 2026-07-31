@@ -20,19 +20,19 @@ Status labels:
 | Shipped | Manual lock and auto-lock | Clears in-memory vault key manually or on system suspend, screen lock, and app lifecycle transitions. | `src/main/index.ts`, `src/renderer/src/components/MainLayout.open.tsx` |
 | Shipped | Keyboard shortcuts | The Community shell implements search, lock, My Vault, and Projects shortcuts only. | `src/renderer/src/components/MainLayout.open.tsx` |
 
-## Compatibility APIs Not Exposed In The Community Shell
+## Local Settings And Compatibility APIs
 
-The shared main process retains compatibility IPC for restore,
-password/sign-out controls, and reveal-PIN management. Encrypted file backup
-and portable full-vault export are exposed directly through Export.
-The current Community sidebar does not expose a Settings screen for those
-controls, so they are not classified as user-visible Community features.
+The Community Settings screen exposes local import/export, audit, shortcut,
+master-password, reveal-PIN, and sign-out controls. Encrypted file backup and
+portable full-vault export are available through Export. The shared main
+process retains restore compatibility IPC, but the current shell does not
+expose a separate restore-only control outside the encrypted import flow.
 
 ## Explicitly Not Community UI
 
 | Capability | Community status |
 | --- | --- |
-| Settings modal, password change/sign-out, restore, and reveal-PIN setup | Not exposed by the Community shell; compatibility IPC is not a user-facing promise |
+| Dedicated restore-only control outside encrypted import | Compatibility IPC only; encrypted import and backup/export remain user-visible |
 | Agent request server, approvals, discovery file, and CLI | Private/Pro; live implementation and renderer IPC contracts excluded; one minimal inert composition seam retained |
 | Services/provider connections and remote token lifecycle | Private/Pro; live implementation and renderer IPC contracts excluded; inert compile seams retained |
 | Browser-extension pairing and save handoff | Private/Pro; live implementation and renderer IPC contracts excluded; throwing/no-op compile seams retained |
@@ -44,9 +44,12 @@ controls, so they are not classified as user-visible Community features.
 | --- | --- | --- | --- |
 | Shipped | Vault dashboard | Public dashboard for local secret count, project count, pinned secrets, and recently updated secrets. | `src/renderer/src/components/SecretDetail.open.tsx` |
 | Shipped | Folder tree and nested secrets | Left sidebar is the primary navigation surface for folders and secrets. | `src/renderer/src/components/Sidebar.open.tsx`, `src/renderer/src/vaultContext.tsx` |
+| Shipped | Sidebar secret drag and drop | Secrets can be reordered and moved into folders from the left sidebar. Folder rows collapse, expand, and show their current item count. | `src/renderer/src/components/VaultFolderTree.open.tsx`, `src/renderer/src/vaultContext.tsx` |
+| Shipped | Local Vault settings | Import/export, audit, shortcut help, master-password change, reveal-PIN setup/removal, and sign-out are available without any account or Services dependency. | `src/renderer/src/components/CommunitySettingsModal.open.tsx`, `src/renderer/src/components/Sidebar.open.tsx` |
 | Shipped | Secret types | Supports password, API key, SSH key, secure note, custom, and image secrets. | `src/renderer/src/types.ts` |
 | Shipped | Secret create/edit | Community add-secret flow for fields, metadata, notes, scope, tags, expiry, and usage notes. | `src/renderer/src/components/AddSecretModal.open.tsx` |
 | Shipped | Copy and reveal | Saved values resolve in main process; reveal requires local confirmation. | `src/main/vaultIpc.ts`, `src/renderer/src/components/SecretDetail.open.tsx` |
+| Shipped | Secret context and activity | Secret detail shows local Project usages, metadata, reveal/copy policy, and matching local audit activity without Services or Agent controls. | `src/renderer/src/components/CommunitySecretContext.open.tsx` |
 | Shipped | Pinned secrets | Users can pin secrets to the local dashboard. | `src/renderer/src/lib/pinning.ts`, `src/renderer/src/components/PinSecretButton.tsx` |
 | Shipped | Global search | Search across secrets and metadata. | `src/renderer/src/components/GlobalSearch.tsx` |
 | Shipped | CSV import | Imports browser/password-manager-style CSV and generic spreadsheet rows with preview. | `src/renderer/src/lib/csvImport.ts`, `src/renderer/src/components/ImportModal.tsx` |
@@ -85,6 +88,11 @@ source tree.
 | `Cmd+L` | Lock the vault |
 | `Cmd+1` | Open My Vault |
 | `Cmd+2` | Open Projects |
+| `Cmd+N` | Create a secret or Project in the current mode |
+| `Cmd+Shift+I` | Import secrets |
+| `Cmd+Shift+E` | Export the vault |
+| `Cmd+,` | Open local Vault Settings |
+| `Cmd+/` | Open keyboard shortcut help |
 
 No other shortcut is part of the Community shell contract until its control is
 implemented and tested in the open entry points.

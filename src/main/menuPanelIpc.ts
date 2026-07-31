@@ -3,7 +3,11 @@ import { Buffer } from 'buffer'
 import { createHash, randomUUID } from 'crypto'
 import { updateVault } from './vaultStorage'
 import { validateVaultSaveJson } from './security'
-import { assertPinnedSecretInVault, resolveSecretFieldInVault } from './vaultMutations'
+import {
+  assertPinnedSecretInVault,
+  assertSecretRevealAllowedInVault,
+  resolveSecretFieldInVault,
+} from './vaultMutations'
 import { redactVaultForRenderer } from './vaultRedaction'
 import { vaultRevisionFrom } from './vaultIpcCommon'
 import type { AuditEventType } from './audit'
@@ -124,6 +128,7 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
       }
       const clearAfterMs = DEFAULT_CLEAR_AFTER_MS
       const vault = await deps.readVault(vaultKey)
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
       if (pin) {
         assertPinnedSecretInVault(vault, payload.secretId)
         await requireQuickRevealPin(vault, pin)
@@ -179,6 +184,7 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
         resetQuickRevealPinThrottle()
       }
       const vault = await deps.readVault(vaultKey)
+      assertSecretRevealAllowedInVault(vault, payload.secretId)
       if (pin) {
         assertPinnedSecretInVault(vault, payload.secretId)
         await requireQuickRevealPin(vault, pin)

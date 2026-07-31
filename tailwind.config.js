@@ -24,7 +24,7 @@ module.exports = {
         text:           '#f5f5f5',
         'text-secondary': '#a0a0a0',
         muted:          '#7a7a7a',
-        'muted-light':  '#8a8a8a',
+        'muted-light':  '#a8a8a8',
         subtle:         '#505050',
         danger:         '#ff453a',
         'danger-dim':   '#ff3021',

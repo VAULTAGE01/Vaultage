@@ -14,6 +14,29 @@ describe('vaultIpcContracts', () => {
   })
 
   it('validates reveal payloads at the boundary', () => {
+    expect(vaultIpcContracts.copySecretImageField.validate({
+      secretId: 'secret-image',
+      fieldKey: '__image__',
+      confirmationPhrase: 'REVEAL SECRET',
+    })).toEqual({
+      secretId: 'secret-image',
+      fieldKey: '__image__',
+      fieldId: undefined,
+      confirmationPhrase: 'REVEAL SECRET',
+    })
+
+    expect(vaultIpcContracts.copySecretField.validate({
+      secretId: 'secret-1',
+      fieldKey: 'API Key',
+      fieldId: 'field-1',
+      confirmationPhrase: 'REVEAL SECRET',
+    })).toEqual({
+      secretId: 'secret-1',
+      fieldKey: 'API Key',
+      fieldId: 'field-1',
+      confirmationPhrase: 'REVEAL SECRET',
+    })
+
     expect(vaultIpcContracts.revealSecretField.validate({
       secretId: 'secret-1',
       fieldKey: 'API Key',
@@ -142,6 +165,38 @@ describe('vaultIpcContracts', () => {
     }
   })
 
+  it('accepts provider target metadata on a fixed project slot and rejects a forged slot identity', () => {
+    const project = sampleProject()
+    project.environments = [{
+      id: 'project-a:staging',
+      name: 'Stg',
+      scope: 'staging',
+      kind: 'cloud',
+      entries: [{ secretId: 'secret-a', fieldKey: 'token', envKey: 'TOKEN' }],
+      providerId: 'provider-a',
+      syncRule: 'manual',
+      providerBinding: {
+        kind: 'external-secret-target',
+        target: 'project-a-staging',
+      },
+    }]
+    const payload = {
+      mutationId: 'mutation-test-id',
+      expectedRevision: 1,
+      command: { type: 'env-project.update', project },
+    }
+
+    expect(() => vaultIpcContracts.mutate.validate(payload)).not.toThrow()
+
+    const forged = structuredClone(payload)
+    const forgedProject = forged.command.project as Record<string, unknown>
+    const forgedEnvironments = forgedProject.environments as Array<Record<string, unknown>>
+    forgedEnvironments[0].id = 'project-a:production'
+    expect(() => vaultIpcContracts.mutate.validate(forged)).toThrow(
+      'provider binding must use the fixed project environment id and scope',
+    )
+  })
+
   it('rejects missing, excess, and malformed command properties before mutation dispatch', () => {
     expect(() => vaultIpcContracts.mutate.validate({
       mutationId: "mutation-test-id",
@@ -170,6 +225,15 @@ describe('vaultIpcContracts', () => {
       expectedRevision: 1,
       command: { type: 'preferences.patch', patch: { quickRevealPinEnabled: false } },
     })).toThrow('unsupported property quickRevealPinEnabled')
+
+    expect(() => vaultIpcContracts.mutate.validate({
+      mutationId: "mutation-test-id",
+      expectedRevision: 1,
+      command: {
+        type: 'preferences.patch',
+        patch: { paidBetaOnboarding: {} },
+      },
+    })).toThrow('unsupported property paidBetaOnboarding')
 
     expect(() => vaultIpcContracts.mutate.validate({
       mutationId: "mutation-test-id",
@@ -281,6 +345,10 @@ function sampleSecret(): Record<string, unknown> {
     createdAt: '2026-07-11T00:00:00.000Z',
     updatedAt: '2026-07-11T00:00:00.000Z',
     usageCount: 0,
+    browserExtensionAllowed: false,
+    agentAvailable: false,
+    revealAllowed: false,
+    cliExportAllowed: false,
     providerLink: {
       providerId: 'provider-a',
       remoteName: 'API token',

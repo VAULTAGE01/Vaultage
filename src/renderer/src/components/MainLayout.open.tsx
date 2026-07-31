@@ -6,8 +6,9 @@ import Sidebar from './Sidebar.open'
 import SecretDetail, { LocalDashboard } from './SecretDetail.open'
 import GlobalSearch from './GlobalSearch'
 import ProjectsView from './ProjectsView.open'
-import OnboardingResearchPrompt from './OnboardingResearchPrompt'
+import CommunityOnboardingResearchPrompt from './OnboardingResearchPrompt.open'
 import { OPEN_SHELL_BACKGROUND_CONTRACT } from '../lib/editionTheme'
+import { ApplicationShell } from './ApplicationShell'
 
 export type AppView = 'dashboard' | 'folders'
 
@@ -54,29 +55,22 @@ export default function MainLayout() {
   useEffect(() => window.vault.onAutoLock(() => { void lock() }), [lock])
 
   return (
-    <div className="liquid-shell relative flex h-screen flex-col overflow-hidden">
-      <div
-        className={shellBackground.patternClassName}
-        style={{ backgroundImage: shellBackground.patternImages.join(', ') }}
-      />
-
-      <div className="relative z-10 flex flex-1 overflow-hidden">
-        <div className="liquid-sidebar relative flex w-[260px] flex-shrink-0 flex-col overflow-hidden rounded-r-[26px] bg-sidebar">
-          <Sidebar view={view} onViewChange={setView} />
-        </div>
-
+    <ApplicationShell
+      background={shellBackground}
+      sidebar={<Sidebar view={view} onViewChange={setView} />}
+    >
         {mode === 'projects' ? (
-          <div className="liquid-content relative flex-1 overflow-hidden bg-bg">
+          <div className="application-shell-content liquid-content relative flex-1 overflow-hidden bg-bg">
             <MainContentDragStrip />
             <ProjectsView />
           </div>
         ) : view === 'dashboard' ? (
-          <div className="liquid-content relative flex-1 overflow-hidden bg-bg">
+          <div className="application-shell-content liquid-content relative flex-1 overflow-hidden bg-bg">
             <MainContentDragStrip />
             <LocalDashboard onOpenSecret={() => setView('folders')} />
           </div>
         ) : (
-          <div className="liquid-content relative min-w-0 flex-1 overflow-hidden bg-bg">
+          <div className="application-shell-content liquid-content relative min-w-0 flex-1 overflow-hidden bg-bg">
             <MainContentDragStrip />
             <SecretDetail emptyState="folder" />
           </div>
@@ -88,8 +82,7 @@ export default function MainLayout() {
             onPick={() => setView('folders')}
           />
         )}
-        <OnboardingResearchPrompt />
-      </div>
-    </div>
+        <CommunityOnboardingResearchPrompt />
+    </ApplicationShell>
   )
 }

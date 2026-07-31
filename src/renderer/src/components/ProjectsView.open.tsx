@@ -7,6 +7,7 @@ import type { EnvProject } from '../types'
 import EnvProjectsModal from './EnvProjectsModal'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, ArrowLeft, CheckCircle2, FolderKanban, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
+import { CommunityProjectsGuidanceHero } from './ProjectsGuidanceHero.open'
 
 function formatDate(value?: string): string {
   if (!value) return 'Never exported'
@@ -22,6 +23,7 @@ export default function ProjectsView() {
     initialProjectId?: string | null
     startNew?: boolean
   } | null>(null)
+  const [showGuidance, setShowGuidance] = useState(true)
   const projects = state.vault?.envProjects ?? []
   const secrets = useMemo(() => state.vault ? flatSecrets(state.vault.root) : [], [state.vault])
   const secretLabels = useMemo(
@@ -57,8 +59,8 @@ export default function ProjectsView() {
             </h1>
             <p className="mt-1 max-w-2xl text-sm text-text-secondary">
               {selectedProject
-                ? selectedProject.path || 'Choose a local folder before exporting an `.env` file.'
-                : 'Map vault fields to local `.env` keys and export them only when you choose.'}
+                ? selectedProject.path || 'Choose a local folder before exporting a .env file.'
+                : 'Map Vault fields to local .env keys and export them only when you choose.'}
             </p>
           </div>
           {selectedProject ? (
@@ -90,6 +92,9 @@ export default function ProjectsView() {
           />
         ) : (
           <>
+            {showGuidance && (
+              <CommunityProjectsGuidanceHero onDismiss={() => setShowGuidance(false)} />
+            )}
             <div className="grid gap-3 md:grid-cols-3">
               <Metric title="Projects" value={projects.length} icon={<FolderKanban className="h-4 w-4" />} />
               <Metric title="Mapped Keys" value={mappingCount} icon={<KeyRound className="h-4 w-4" />} />
@@ -114,7 +119,7 @@ export default function ProjectsView() {
                   <div className="rounded-xl border border-dashed border-border bg-black/10 px-6 py-10 text-center">
                     <p className="text-sm font-medium text-text">No projects yet</p>
                     <p className="mx-auto mt-1 max-w-md text-xs text-muted">
-                      Add a local project folder, map vault fields to env keys, then export a plaintext `.env` file after confirmation.
+                      Add a local project folder, map Vault fields to env keys, then export a plaintext .env file after confirmation.
                     </p>
                     <Button className="mt-4" onClick={() => openManager(null, true)}>
                       <Plus className="mr-2 h-4 w-4" />
@@ -254,7 +259,7 @@ function ProjectDetail({
 
         <aside className="rounded-xl border border-border bg-surface p-4">
           <p className="text-sm font-semibold text-text">Export Target</p>
-          <p className="mt-2 break-all rounded-lg border border-border bg-black/10 px-3 py-2 font-mono text-[11px] text-text-secondary">
+          <p className="mt-2 break-words rounded-lg border border-border bg-black/10 px-3 py-2 font-mono text-[11px] text-text-secondary">
             {project.path || 'No folder selected'}
           </p>
           <div className="mt-4 space-y-2 text-xs text-muted">

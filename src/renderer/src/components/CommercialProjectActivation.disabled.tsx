@@ -10,6 +10,17 @@ interface Props {
   onCreationReplacementChange?: (projectId: string) => void
 }
 
+interface CreationReplacementProps {
+  projects: EnvProject[]
+  activeProjectIds: string[]
+  replacementProjectId: string
+  onReplacementChange: (projectId: string) => void
+}
+
+export function CommercialProjectCreationReplacement(_props: CreationReplacementProps) {
+  return null
+}
+
 /** Community builds have no project activation limit or commercial surface. */
 export default function CommercialProjectActivation(_props: Props) {
   return null

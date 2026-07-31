@@ -11,8 +11,8 @@ import {
   type ExtensionHandoff,
 } from '#extension-handoff'
 import { AuthController } from './auth'
-import { installAutoUpdateChecks } from './autoUpdate'
 import { installRendererCsp } from './contentSecurityPolicy'
+import { shouldUseWindowContentProtection } from './contentProtectionPolicy'
 import { createAuthorizedIpcMain } from './ipcAuthorization'
 import { addExtensionCandidateToVault } from '#extension-candidate-vault'
 import { IdleAutoLockController } from './idleAutoLock'
@@ -28,7 +28,7 @@ import { ProjectPathCapabilityStore } from './projectCapabilities'
 import { authorizeProjectPathMutation } from './projectMutationAuthorization'
 import { registerVaultIpc } from './vaultIpc'
 import { redactVaultForRenderer } from './vaultRedaction'
-import { registerProviderIpc } from '#provider-ipc'
+import { createRailwayProviderRuntime, registerProviderIpc } from '#provider-ipc'
 import { ProviderWorkerClient } from '#provider-worker-client'
 import { IS_MAC, keychainRemove, keychainRetrieve, keychainStore } from './keychain'
 import {
@@ -81,7 +81,9 @@ let mainWindow:  BrowserWindow | null = null
 let auditQueue = Promise.resolve()
 let receiptAuditReconciliationQueue = Promise.resolve()
 const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
-const APP_DISPLAY_NAME = OPEN_CORE_BUILD ? 'vault-OC' : 'Vaultage'
+const SCREENSHOT_REVIEW_BUILD = typeof __VAULTAGE_SCREENSHOT_REVIEW_BUILD__ !== 'undefined'
+  && __VAULTAGE_SCREENSHOT_REVIEW_BUILD__
+const APP_DISPLAY_NAME = OPEN_CORE_BUILD ? 'Vaultage Community' : 'Vaultage'
 const USER_FACING_APP_NAME = OPEN_CORE_BUILD ? 'Vaultage Community' : 'Vaultage'
 const e2eHeadlessPolicy = createE2EHeadlessPolicy(
   app.isPackaged,
@@ -102,6 +104,13 @@ if (e2eHeadlessPolicy.active && process.platform === 'darwin') {
   void app.dock?.hide()
 }
 app.setName(APP_DISPLAY_NAME)
+const authKeychain = {
+  isMac: IS_MAC,
+  retrieve: keychainRetrieve,
+  store: keychainStore,
+  remove: keychainRemove,
+}
+const commercialSafeStorage = safeStorage
 const providerClient = new ProviderWorkerClient()
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) app.quit()
@@ -143,8 +152,14 @@ const menuPanelIpc = createAuthorizedIpcMain(
 let appMode: AppMode = 'local'
 
 function shouldUseContentProtection(): boolean {
-  if (app.isPackaged) return true
-  return process.env.VAULTAGE_ENABLE_CONTENT_PROTECTION === '1'
+  return shouldUseWindowContentProtection({
+    isPackaged: app.isPackaged,
+    screenshotReviewBuild: SCREENSHOT_REVIEW_BUILD,
+    allowDevelopmentScreenshots:
+      process.env['VAULTAGE_DISABLE_CONTENT_PROTECTION'] === '1',
+    enableContentProtectionInDevelopment:
+      process.env['VAULTAGE_ENABLE_CONTENT_PROTECTION'] === '1',
+  })
 }
 
 function shouldProtectWindowContent(): boolean {
@@ -202,12 +217,7 @@ const authController = new AuthController({
     },
   },
   normalizeVaultData: prepareVaultForRenderer,
-  keychain: {
-    isMac: IS_MAC,
-    retrieve: keychainRetrieve,
-    store: keychainStore,
-    remove: keychainRemove,
-  },
+  keychain: authKeychain,
   storage: {
     ensureVaultDir,
     getAuthStateStatus,
@@ -227,8 +237,8 @@ const authController = new AuthController({
 
 const agentComposition = registerAgentComposition({
   ipcMain: mainWindowIpc,
-  getMode: () => appMode,
-  hasVaultKey: () => vaultSession.isUnlocked(),
+  pairingDirectory: VAULT_DIR, onPairingPendingChanged: syncWindowContentProtection,
+  getMode: () => appMode, hasVaultKey: () => vaultSession.isUnlocked(),
   beginSessionOperation: () => vaultSession.beginOperation(),
   leaseVaultKey: () => vaultSession.leaseCurrentKey(),
   readVault,
@@ -439,6 +449,7 @@ providerRuntime = registerProviderIpc(mainWindowIpc, providerClient, recordAudit
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
     return commercialRuntime.acquireCapabilityLease('pro.services')
   },
+  railway: createRailwayProviderRuntime(providerClient, async url => { await shell.openExternal(url) }),
 })
 registerProjectIpc(mainWindowIpc, {
   getVaultKey: () => vaultSession.currentKey(),
@@ -856,7 +867,7 @@ app.whenReady().then(async () => {
   commercialRuntime = await installCommercialRuntime({
     ipcMain: mainWindowIpc,
     userDataPath: app.getPath('userData'),
-    safeStorage,
+    safeStorage: commercialSafeStorage,
     randomId: randomUUID,
     fetch: globalThis.fetch,
     openExternal: async url => { await shell.openExternal(url) },
@@ -924,7 +935,6 @@ app.whenReady().then(async () => {
     void notifyExtensionNativeHostLaunchIssue().catch(() => {
       console.error('[extension-native-host] Startup verification notification failed safely')
     })
-    installAutoUpdateChecks()
   }
   idleAutoLock = new IdleAutoLockController({
     isUnlocked: () => vaultSession.isUnlocked(),

@@ -4,7 +4,10 @@ import { createPortal } from 'react-dom'
 import { CheckCircle2, Cloud, Folder, Laptop, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { useVault } from '../vaultContext'
 import type { EnvEntry, EnvProject, Provider, VaultFolder, VaultSecret } from '../types'
-import CommercialProjectActivation, { useCommercialProjectCreationPolicy } from '#commercial-project-activation'
+import CommercialProjectActivation, {
+  CommercialProjectCreationReplacement,
+  useCommercialProjectCreationPolicy,
+} from '#commercial-project-activation'
 import type { ProjectDiscoverResult, ProjectScanCandidate, ProjectScanEnvKey, ProjectScanResult } from '../../../shared/projectScan'
 import { Button } from '@/components/ui/button'
 import { EnvChip } from '@/components/ui/env-chip'
@@ -1039,6 +1042,16 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
             </button>
           </div>
 
+          <CommercialProjectCreationReplacement
+            projects={projects}
+            activeProjectIds={state.vault?.preferences?.activeEnvProjectIds ?? []}
+            replacementProjectId={createReplacementProjectId}
+            onReplacementChange={projectId => {
+              setCreateReplacementProjectId(projectId)
+              setCreateError(null)
+            }}
+          />
+
           <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)] overflow-hidden">
             <aside className="flex min-h-0 flex-col border-r border-border">
               <div className="border-b border-border px-5 py-4">
@@ -1232,7 +1245,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
             <Button variant="ghost" onClick={exitCreateFlow}>
               Cancel
             </Button>
-            <Button onClick={handleCreate} disabled={!localName.trim() || !localPath || scanning || discovering}>
+            <Button onClick={handleCreate} disabled={!creationPolicy.canCreate || !localName.trim() || !localPath || scanning || discovering}>
               {scanning || discovering ? 'Scanning…' : 'Create Project'}
             </Button>
           </div>
@@ -1582,7 +1595,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                       </svg>
                       <p className="text-[10px] text-danger">
-                        This writes {exportableEntryCount} secret{exportableEntryCount === 1 ? '' : 's'} to plaintext `.env`. Type {PLAINTEXT_CONFIRM_PHRASE}; Touch ID is required on supported Macs before the file is written.
+                        This writes {exportableEntryCount} secret{exportableEntryCount === 1 ? '' : 's'} to a plaintext .env file. Type {PLAINTEXT_CONFIRM_PHRASE}; Touch ID is required on supported Macs before the file is written.
                       </p>
                     </div>
                     <input

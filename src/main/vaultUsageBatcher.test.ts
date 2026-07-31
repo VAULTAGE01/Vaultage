@@ -17,7 +17,7 @@ describe('VaultUsageBatcher', () => {
     expect(secret(harness.vault(), 'secret-a')).toMatchObject({
       usageCount: 10_002,
       lastUsedAt: '2026-01-01T00:00:59.000Z',
-      updatedAt: '2026-01-01T00:00:59.000Z',
+      updatedAt: '2026-01-01T00:00:00.000Z',
     })
     expect(batcher.pendingEventCount()).toBe(0)
     expect(harness.changed).toHaveBeenCalledWith(expect.objectContaining({

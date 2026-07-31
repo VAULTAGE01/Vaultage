@@ -106,8 +106,14 @@ if (privateTree) {
   requireMatch(
     'scripts/stage-open-source.mjs',
     stageOpenSource,
-    /Encrypted file backup[\s\S]{0,180}portable full-vault export are exposed directly through Export/u,
-    'generated Community docs must classify backup as exposed while leaving restore outside the shell',
+    /The Community sidebar exposes(?=[^.]*direct full-vault portable export)(?=[^.]*raw encrypted-file backup)[^.]*\./u,
+    'generated Community docs must expose direct portable export and encrypted-file backup',
+  )
+  requireMatch(
+    'scripts/stage-open-source.mjs',
+    stageOpenSource,
+    /Restore remains a compatibility API outside the Community shell\./u,
+    'generated Community docs must keep restore outside the Community shell',
   )
   forbid(
     'scripts/stage-open-source.mjs',

@@ -7,6 +7,7 @@ import type {
   VaultSecret,
 } from '../types'
 import { PROVIDER_LABELS } from '../types'
+import { allowsAgentRelease } from '../../../shared/secretAccessPolicy'
 
 export type SecretLifecycleStatus = ProviderLinkStatus | 'local-only'
 
@@ -94,7 +95,7 @@ export function getSecretLifecycle(vault: VaultRoot, secret: VaultSecret): Secre
   const status: SecretLifecycleStatus = service?.status ?? 'local-only'
   const projectUsages = getSecretProjectUsages(vault.envProjects ?? [], secret.id)
   const usageNotes = secret.usedIn ?? []
-  const agentReady = secret.agentAvailable === true
+  const agentReady = allowsAgentRelease(secret)
   const nextSteps: SecretLifecycleNextStep[] = []
 
   if (!secret.description && !secret.scope && !(secret.tags?.length)) {

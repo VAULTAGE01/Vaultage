@@ -810,7 +810,12 @@ function removeProviderReferences(vault: VaultState, providerId: string): VaultS
       ...project,
       environments: project.environments === undefined ? undefined : entities(project.environments, 'project environments').map(environment => {
         if (environment.providerId !== providerId) return environment
-        const { providerId: _providerId, providerEnvName: _providerEnvName, ...rest } = environment
+        const {
+          providerId: _providerId,
+          providerEnvName: _providerEnvName,
+          providerBinding: _providerBinding,
+          ...rest
+        } = environment
         return { ...rest, syncRule: 'manual' }
       }),
     })),

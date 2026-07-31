@@ -3,6 +3,7 @@ import { join } from 'path'
 import { IS_MAC } from './keychain'
 import { disableSecureInput } from './secureInput'
 import { protectE2EWindow, type E2EHeadlessPolicy } from './e2eHeadlessPolicy'
+import { MAIN_WINDOW_GEOMETRY } from './windowGeometry'
 
 export const MENU_PANEL_PARTITION = 'vaultage-menu-panel'
 
@@ -19,10 +20,7 @@ export function createMainWindow(
 ): BrowserWindow {
   const icon = nativeImage.createFromPath(iconPath())
   const win = new BrowserWindow({
-    width:    1200,
-    height:   800,
-    minWidth: 900,
-    minHeight: 600,
+    ...MAIN_WINDOW_GEOMETRY,
     show:     !e2eHeadlessPolicy.active,
     backgroundColor: '#00000000',
     transparent: true,

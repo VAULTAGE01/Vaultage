@@ -5,6 +5,8 @@ export type ServiceCategoryId =
   | 'ai'
   | 'code'
   | 'backend'
+  | 'backend-cloud'
+  | 'cloud-secrets'
   | 'deploy'
   | 'secure'
   | 'connect'
@@ -22,6 +24,7 @@ export interface ServiceCategory {
 
 export const SERVICE_CATEGORIES: ServiceCategory[] = []
 export const PROVIDER_TYPE_CATEGORY: Partial<Record<ProviderType, ServiceCategoryId>> = {}
+export const CLOUD_SECRET_MANAGER_PROVIDER_TYPES: readonly ProviderType[] = []
 
 export function serviceCategoryLabel(categoryId: ServiceCategoryId): string {
   return categoryId
@@ -35,4 +38,13 @@ export function serviceCountByCategory(categoryId: ServiceCategoryId): number {
 export function providerTypeCategory(type: ProviderType): ServiceCategoryId | null {
   void type
   return null
+}
+
+export function providerTypeBelongsToCategory(
+  type: ProviderType,
+  categoryId: ServiceCategoryId,
+): boolean {
+  void type
+  void categoryId
+  return false
 }

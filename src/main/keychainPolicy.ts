@@ -16,6 +16,14 @@ export type KeychainServiceCoordinates = {
 
 const SESSION_ENVIRONMENT_KEYS = ['HOME', 'TMPDIR', 'LANG', 'LC_ALL', 'USER', 'LOGNAME'] as const
 
+export function keychainServiceCoordinates(): KeychainServiceCoordinates {
+  return {
+    service: 'xyz.arcalab.vault-oc.masterkey',
+    legacyServices: '',
+    migrationService: 'xyz.arcalab.vault-oc.masterkey.migration',
+  }
+}
+
 export function buildKeychainHelperEnvironment(
   source: Readonly<Record<string, string | undefined>>,
   coordinates: KeychainServiceCoordinates,

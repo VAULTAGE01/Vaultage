@@ -177,6 +177,18 @@ describe('applyVaultMutationCommand', () => {
     }).vault
     expect(vault.providers[0].config.token).toBe('provider-token')
 
+    vault.envProjects[0].environments[0] = {
+      ...vault.envProjects[0].environments[0],
+      id: 'project-a:staging',
+      name: 'Stg',
+      scope: 'staging',
+      syncRule: 'manual',
+      providerBinding: {
+        kind: 'external-secret-target',
+        target: 'project-a-staging',
+      },
+    }
+
     vault = applyVaultMutationCommand(vault, {
       type: 'provider.delete',
       providerId: 'provider-a',
@@ -185,6 +197,7 @@ describe('applyVaultMutationCommand', () => {
     expect(vault.root.secrets[0].providerLink).toBeUndefined()
     expect(vault.envProjects[0].environments[0]).toMatchObject({ syncRule: 'manual' })
     expect(vault.envProjects[0].environments[0].providerId).toBeUndefined()
+    expect(vault.envProjects[0].environments[0].providerBinding).toBeUndefined()
     expect(vault.preferences.localDashboardPinnedOrder).not.toContain('service:provider-a')
     expect(() => validateVaultRoot(vault)).not.toThrow()
   })

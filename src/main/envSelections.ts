@@ -4,6 +4,7 @@ import {
   MAX_ENV_VALUE_BYTES,
 } from './security'
 import { projectExportDisplayText } from '../shared/projectAccessPolicy'
+import { allowsCliExport } from '../shared/secretAccessPolicy'
 
 export interface EnvSelection {
   envKey: string
@@ -16,6 +17,8 @@ export interface ResolvedEnvSelection extends EnvSelection {
   value: string
   scope?: string
 }
+
+export type EnvSelectionPurpose = 'agent' | 'cli-export' | 'extension' | 'provider'
 
 interface VaultLike {
   root?: FolderLike
@@ -31,6 +34,10 @@ interface SecretLike {
   name?: unknown
   scope?: unknown
   fields?: unknown
+  agentAvailable?: boolean
+  browserExtensionAllowed?: boolean
+  revealAllowed?: boolean
+  cliExportAllowed?: boolean
 }
 
 interface FieldLike {
@@ -42,6 +49,7 @@ interface FieldLike {
 export function resolveVaultEnvSelections(
   vault: unknown,
   selections: unknown,
+  purpose: EnvSelectionPurpose,
 ): ResolvedEnvSelection[] {
   const safeSelections = validateEnvSelections(selections)
   const root = vault && typeof vault === 'object' && !Array.isArray(vault)
@@ -52,6 +60,9 @@ export function resolveVaultEnvSelections(
   return safeSelections.map((selection) => {
     const secret = findSecret(root, selection.secretId)
     if (!secret) throw new Error(`Secret not found for ${selection.envKey}`)
+    if (purpose === 'cli-export' && !allowsCliExport(secret)) {
+      throw new Error(`${selection.envKey} is not available for CLI or .env export`)
+    }
 
     const fields = Array.isArray(secret.fields) ? secret.fields as FieldLike[] : []
     const field = selection.fieldId

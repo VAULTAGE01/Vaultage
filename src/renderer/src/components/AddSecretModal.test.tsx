@@ -50,6 +50,8 @@ vi.mock('#commercial-capabilities', () => ({
 import AddSecretModal, {
   authoredRevisionForSecretUpdate,
   captureSecretFormAuthorship,
+  fieldsAfterSecretTypeChange,
+  initialSecretAccessPolicy,
   secretFormSaveError,
 } from '#add-secret-modal'
 
@@ -98,5 +100,43 @@ describe('AddSecretModal edit concurrency', () => {
 
     expect(typeof html).toBe('string')
     expect(html).not.toContain('__VAULTAGE_REDACTED__')
+  })
+
+  it('defaults all four new-secret policies on', () => {
+    expect(initialSecretAccessPolicy()).toEqual({
+      browserExtension: true,
+      agent: true,
+      revealCopy: true,
+      cliExport: true,
+    })
+  })
+
+  it('restores each explicitly disabled edit policy as Off', () => {
+    expect(initialSecretAccessPolicy({
+      ...existingSecret(),
+      browserExtensionAllowed: false,
+      agentAvailable: false,
+      revealAllowed: false,
+      cliExportAllowed: false,
+    })).toEqual({
+      browserExtension: false,
+      agent: false,
+      revealCopy: false,
+      cliExport: false,
+    })
+  })
+
+  it('keeps text fields on edit and replaces only incompatible image fields', () => {
+    const fields = existingSecret().fields
+
+    expect(fieldsAfterSecretTypeChange(fields, 'apiKey', 'custom', true)).toBe(fields)
+    expect(fieldsAfterSecretTypeChange(fields, 'apiKey', 'image', true)).toEqual([
+      { key: '__image__', value: '', sensitive: true },
+    ])
+    expect(fieldsAfterSecretTypeChange(fields, 'apiKey', 'password', false)).toEqual([
+      { key: 'Username', value: '', sensitive: false },
+      { key: 'Password', value: '', sensitive: true },
+      { key: 'URL', value: '', sensitive: false },
+    ])
   })
 })

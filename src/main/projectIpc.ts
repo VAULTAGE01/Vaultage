@@ -228,6 +228,7 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
       const entries = resolveVaultEnvSelections(
         currentVault,
         stored.selections,
+        'cli-export',
       )
       operation.assertCurrent()
       commercialLease.assertCurrent()

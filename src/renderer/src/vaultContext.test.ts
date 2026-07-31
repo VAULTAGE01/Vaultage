@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { VaultRoot } from './types'
+import { TransientRevealGate } from './lib/useTransientReveal'
 
 vi.mock('#service-categories', () => ({
   providerTypeCategory: () => 'developer-tools',
@@ -12,6 +13,7 @@ import {
   RendererVaultSessionGuard,
   canInstallVaultSnapshot,
   reconcileSnapshotSelection,
+  trackSecretUsage,
 } from './vaultContext'
 
 function vault(rootId: string, revision?: number): VaultRoot {
@@ -74,6 +76,47 @@ describe('canInstallVaultSnapshot', () => {
     expect(canInstallVaultSnapshot(installed, vault('vault-a', 11))).toBe(false)
     expect(canInstallVaultSnapshot(installed, vault('vault-a', 12))).toBe(false)
     expect(canInstallVaultSnapshot(installed, vault('vault-a', 13))).toBe(true)
+  })
+})
+
+describe('trackSecretUsage', () => {
+  it('updates usage metadata without changing the secret content identity', () => {
+    const originalUpdatedAt = '2026-07-11T00:00:00.000Z'
+    const usedAt = '2026-07-22T12:00:00.000Z'
+    const current: VaultRoot = {
+      ...vault('vault-a', 7),
+      root: {
+        id: 'vault-a',
+        name: 'Vault',
+        children: [],
+        secrets: [{
+          id: 'secret-a',
+          name: 'Secret A',
+          type: 'password',
+          fields: [{ id: 'field-a', key: 'Password', value: '', sensitive: true }],
+          notes: '',
+          createdAt: originalUpdatedAt,
+          updatedAt: originalUpdatedAt,
+          usageCount: 4,
+        }],
+        itemOrder: [{ kind: 'secret', id: 'secret-a' }],
+      },
+    }
+    const gate = new TransientRevealGate()
+    const originalIdentity = 'secret-a:2026-07-11T00:00:00.000Z'
+    const inFlightReveal = gate.begin(originalIdentity)
+
+    const tracked = trackSecretUsage(current, 'secret-a', usedAt)
+    const trackedSecret = tracked.root.secrets[0]
+    const trackedIdentity = `${trackedSecret?.id}:${trackedSecret?.updatedAt}`
+
+    expect(trackedSecret).toMatchObject({
+      updatedAt: originalUpdatedAt,
+      lastUsedAt: usedAt,
+      usageCount: 5,
+    })
+    expect(trackedIdentity).toBe(originalIdentity)
+    expect(gate.isCurrent(inFlightReveal, trackedIdentity)).toBe(true)
   })
 })
 

@@ -1,6 +1,13 @@
 import type { IpcMain } from 'electron'
 import type { AuditEventType } from './audit'
 
+export function createRailwayProviderRuntime(
+  _client?: unknown,
+  _openExternal?: unknown,
+): undefined {
+  return undefined
+}
+
 export function registerProviderIpc(
   ipcMain: IpcMain,
   client: unknown,
@@ -45,6 +52,7 @@ const closedProviderKeys = new Set([
   'providerId',
   'providerEnvName',
   'syncRule',
+  'providerBinding',
 ])
 
 function containsClosedProviderMetadata(value: unknown, seen = new WeakSet<object>()): boolean {

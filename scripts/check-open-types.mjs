@@ -1,6 +1,6 @@
 import { spawnSync } from 'child_process'
 import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
-import { join, relative, resolve } from 'path'
+import { dirname, join, relative, resolve } from 'path'
 import {
   isPrivateOverlaySourcePath,
   openNodeAliasPaths,
@@ -17,9 +17,22 @@ const cacheRoot = join(root, 'node_modules', '.cache')
 mkdirSync(cacheRoot, { recursive: true })
 const tmp = mkdtempSync(join(cacheRoot, 'vaultage-open-types-'))
 const stagedViteConfigPath = join(tmp, 'electron.vite.config.open.ts')
+const stagedViteConfigDirectory = dirname(stagedViteConfigPath)
+const stagedViteConfig = stripClosedReleaseConfiguration(
+  readFileSync(join(root, 'electron.vite.config.ts'), 'utf8'),
+).replace(
+  /from '(\.\/[^']+)'/gu,
+  (_match, specifier) => {
+    const absoluteTarget = resolve(root, specifier)
+    const relocatedTarget = relative(stagedViteConfigDirectory, absoluteTarget)
+      .split('\\')
+      .join('/')
+    return `from '${relocatedTarget.startsWith('.') ? relocatedTarget : `./${relocatedTarget}`}'`
+  },
+)
 writeFileSync(
   stagedViteConfigPath,
-  stripClosedReleaseConfiguration(readFileSync(join(root, 'electron.vite.config.ts'), 'utf8')),
+  stagedViteConfig,
 )
 
 function filesBelow(dir, files = []) {

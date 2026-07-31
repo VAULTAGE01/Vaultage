@@ -1,5 +1,8 @@
 export const COMMUNITY_UI_E2E_HAPPY_SCENARIOS = [
   'setup',
+  'sidebar-drag-drop',
+  'secret-context',
+  'vault-controls',
   'persistence',
   'project-mapping',
 ] as const

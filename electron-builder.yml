@@ -1,6 +1,11 @@
 appId: xyz.arcalab.vault-oc
 productName: vault-OC
 
+# Community has no updater runtime. The null value is intentional: electron-builder
+# treats an empty list as permission to infer GitHub from .git/config, while
+# null disables update-provider resolution and app-update.yml generation.
+publish: null
+
 directories:
   buildResources: build
   output: dist

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_KEYCHAIN_HELPER_BYTES,
   buildKeychainHelperEnvironment,
+  keychainServiceCoordinates,
   keychainHelperMetadataError,
   type KeychainHelperMetadata,
 } from './keychainPolicy'
@@ -48,9 +49,9 @@ describe('native Keychain helper environment policy', () => {
         VAULTAGE_KEYCHAIN_SERVICE: 'attacker.service',
       },
       {
-        service: 'xyz.arcalab.vaultage.masterkey',
-        legacyServices: 'com.eden.vaultage.masterkey,com.eden.vaultage.masterkey.migration,dev.vault.app.masterkey',
-        migrationService: 'xyz.arcalab.vaultage.masterkey.migration',
+        service: 'xyz.arcalab.vault-oc.masterkey',
+        legacyServices: '',
+        migrationService: 'xyz.arcalab.vault-oc.masterkey.migration',
       },
       '/workspace/VaultApp',
     )
@@ -60,10 +61,18 @@ describe('native Keychain helper environment policy', () => {
       HOME: '/Users/test',
       TMPDIR: '/tmp/session',
       LANG: 'en_US.UTF-8',
-      VAULTAGE_KEYCHAIN_SERVICE: 'xyz.arcalab.vaultage.masterkey',
-      VAULTAGE_KEYCHAIN_LEGACY_SERVICES: 'com.eden.vaultage.masterkey,com.eden.vaultage.masterkey.migration,dev.vault.app.masterkey',
-      VAULTAGE_KEYCHAIN_MIGRATION_SERVICE: 'xyz.arcalab.vaultage.masterkey.migration',
+      VAULTAGE_KEYCHAIN_SERVICE: 'xyz.arcalab.vault-oc.masterkey',
+      VAULTAGE_KEYCHAIN_LEGACY_SERVICES: '',
+      VAULTAGE_KEYCHAIN_MIGRATION_SERVICE: 'xyz.arcalab.vault-oc.masterkey.migration',
       VAULTAGE_KEYCHAIN_DEV_ROOT: '/workspace/VaultApp',
+    })
+  })
+
+  it('uses only the isolated Community Keychain coordinates', () => {
+    expect(keychainServiceCoordinates()).toEqual({
+      service: 'xyz.arcalab.vault-oc.masterkey',
+      legacyServices: '',
+      migrationService: 'xyz.arcalab.vault-oc.masterkey.migration',
     })
   })
 })

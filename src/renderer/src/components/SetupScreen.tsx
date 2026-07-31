@@ -57,7 +57,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
 
   return (
     <>
-      <div className={cn('no-drag w-[440px] animate-scale-in', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
+      <div className={cn('no-drag w-[440px] animate-scale-in relative z-10', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
         {/* Header */}
         <div className="text-center mb-7 flex flex-col items-center">
           <VaultageLogoWordmark className="w-64 h-16 text-white mb-3" />
@@ -137,7 +137,7 @@ function PasswordStep({ onBack }: { onBack: () => void }) {
   const str      = strength(pw)
   const mismatch = confirm.length > 0 && pw !== confirm
   const policyError = pw.length > 0 ? masterPasswordPolicyError(pw, 'Master password') : null
-  const ready    = !policyError && pw === confirm && !loading
+  const ready    = pw.length > 0 && !policyError && pw === confirm && !loading
 
   const handleCreate = async () => {
     if (!ready) return
@@ -147,7 +147,7 @@ function PasswordStep({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className={cn('no-drag w-[400px] animate-scale-in', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
+    <div className={cn('no-drag w-[400px] animate-scale-in relative z-10', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
       {/* Header with back */}
       <div className="text-center mb-7 relative flex flex-col items-center">
 	        <button

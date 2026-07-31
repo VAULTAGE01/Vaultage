@@ -5,6 +5,7 @@ import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   findPrivateAgentCompositionLeaks,
+  findPrivatePreloadModuleImportLeaks,
   findPrivatePreloadIpcChannelLeaks,
   isPrivateOverlaySourcePath,
   isReviewedDisabledSeamPath,
@@ -59,6 +60,99 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('scripts/linear-roadmap-public.mjs')).toBe(false)
   })
 
+  it('keeps the native Agent user-presence QA runner private', () => {
+    expect(isPrivateOverlaySourcePath('scripts/run-agent-user-presence-benchmark.sh')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/run-agent-user-presence-benchmark.test.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('src/main/nativeUserPresence.ts')).toBe(true)
+    expect(isPrivateOverlaySourcePath('src/main/nativeUserPresence.test.ts')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/check-browser-extension-pairing.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/services-ui-e2e.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/services-provider-flow-visual-qa.mjs')).toBe(true)
+  })
+
+  it('allows only the reviewed Projects visual primitives from UI2026', () => {
+    for (const path of [
+      'src/renderer/src/ui2026/Ui2026Showcase.tsx',
+      'src/renderer/src/ui2026/surfaces/VaultSurface.tsx',
+      'src/renderer/src/ui2026/surfaces/ProjectsSurface.tsx',
+      'src/renderer/src/ui2026/surfaces/servicesWorkspace.ts',
+      'src/renderer/src/ui2026/assets/services-destinations/all-services-hero.png',
+      'src/renderer/src/ui2026/ui2026Structure.test.ts',
+    ]) {
+      expect(isPrivateOverlaySourcePath(path), path).toBe(true)
+    }
+
+    for (const path of [
+      'src/renderer/src/ui2026/assets/projects-hero.png',
+      'src/renderer/src/ui2026/primitives/hero.tsx',
+      'src/renderer/src/ui2026/primitives/rows.tsx',
+      'src/renderer/src/ui2026/primitives/types.ts',
+      'src/renderer/src/ui2026/ui2026.css',
+    ]) {
+      expect(isPrivateOverlaySourcePath(path), path).toBe(false)
+    }
+  })
+
+  it('keeps nested private provider implementations out of Community source', () => {
+    for (const path of [
+      'src/main/cloudflare/cloudflareApi.ts',
+      'src/main/providers/awsSecretsManager.ts',
+      'src/main/providers/firebase/secretManager.ts',
+      'src/main/providers/railwayVariablesAdapter.ts',
+      'src/shared/awsProjectEnvironment.ts',
+      'src/shared/awsProjectEnvironment.test.ts',
+      'src/renderer/src/components/AwsProjectEnvironmentDetail.tsx',
+      'src/renderer/src/components/AwsProjectEnvironmentDetail.test.tsx',
+    ]) {
+      expect(isPrivateOverlaySourcePath(path), path).toBe(true)
+    }
+  })
+
+  it('keeps paid-beta onboarding implementation private by path family', () => {
+    for (const path of [
+      'src/renderer/src/components/PaidBetaOnboarding.tsx',
+      'src/renderer/src/components/PaidBetaOnboardingOptions.tsx',
+      'src/renderer/src/lib/paidBetaOnboarding.ts',
+      'src/renderer/src/lib/paidBetaOnboarding.test.ts',
+    ]) {
+      expect(isPrivateOverlaySourcePath(path), path).toBe(true)
+    }
+  })
+
+  it('keeps browser-extension pairing implementation families private by default', () => {
+    for (const path of [
+      'src/main/browserExtensionIdentity.ts',
+      'src/main/browserExtensionIdentityNext.ts',
+      'src/main/browserExtensionNativeHostRegistrar.ts',
+      'src/main/browserExtensionNativeHostFuture.ts',
+      'src/main/browserExtensionPairingController.ts',
+      'src/main/browserExtensionPairing/futureStore.ts',
+      'src/shared/browserExtensionContracts.ts',
+      'src/shared/browserExtensionContractsV2.ts',
+      'src/shared/browserExtensionContracts/future.ts',
+      'src/shared/extensionPairingIpcContracts.ts',
+      'src/shared/extensionPairingIpcContractsV2.ts',
+      'src/shared/extensionPairingIpcContracts/future.ts',
+      'src/preload/browserExtensionBridge.ts',
+      'src/preload/browserExtensionBridgeNext.ts',
+      'src/preload/browserExtensionBridge/future.ts',
+      'src/preload/extensionPairingBridge.ts',
+      'src/preload/extensionPairingBridgeNext.ts',
+      'src/preload/extensionPairingBridge/future.ts',
+      'src/renderer/src/hooks/useExtensionPairing.ts',
+      'src/renderer/src/hooks/useExtensionPairingState.ts',
+      'src/renderer/src/hooks/useExtensionPairing/future.ts',
+    ]) {
+      expect(isPrivateOverlaySourcePath(path), path).toBe(true)
+    }
+
+    expect(isPrivateOverlaySourcePath('src/main/auditEventTypes.ts')).toBe(false)
+    expect(isPrivateOverlaySourcePath('src/main/auditEventTypes.open.ts')).toBe(false)
+    expect(isPrivateOverlaySourcePath('src/main/browserExtensionStatus.ts')).toBe(false)
+    expect(isPrivateOverlaySourcePath('src/shared/browserExtensionTypes.ts')).toBe(false)
+    expect(isPrivateOverlaySourcePath('src/preload/browserExtensionTypes.ts')).toBe(false)
+  })
+
   it('requires every disabled source seam in the repository to be reviewed', () => {
     const root = resolve(import.meta.dirname, '..')
     const disabledSources = sourceFilesBelow(root, join(root, 'src'))
@@ -73,9 +167,10 @@ describe('Community source boundary configuration', () => {
 
   it('keeps every declared Community alias target present and reviewed', () => {
     const root = resolve(import.meta.dirname, '..')
+    const sourceFiles = sourceFilesBelow(root, join(root, 'src'))
     for (const paths of [...Object.values(openNodeAliasPaths), ...Object.values(openWebAliasPaths)]) {
       for (const path of paths) {
-        expect(sourceFilesBelow(root).includes(path), path).toBe(true)
+        expect(sourceFiles.includes(path), path).toBe(true)
         if (/\.disabled\.[cm]?[jt]sx?$/.test(path)) {
           expect(reviewedDisabledSeamPaths.has(path), path).toBe(true)
         }
@@ -99,6 +194,33 @@ describe('Community source boundary configuration', () => {
     }
     expect(findPrivatePreloadIpcChannelLeaks("ipcRenderer.invoke('vault:backup')"))
       .toEqual([])
+    for (const channel of [
+      'vault:respond-extension-pairing',
+      'vault:get-extension-pairing-status',
+      'vault:unpair-extension-pairing',
+      'vault:extension-pairing-request',
+      'vault:extension-pairing-expired',
+    ]) {
+      expect(findPrivatePreloadIpcChannelLeaks(
+        `ipcRenderer.invoke('${channel}', payload)`,
+      )).toContain(channel)
+    }
+  })
+
+  it('rejects direct pairing bridge or contract imports from the public preload entrypoint', () => {
+    for (const source of [
+      "import { browserExtensionAgentApi } from './browserExtensionBridge'",
+      "import { browserExtensionIpcContracts } from '../shared/browserExtensionContracts'",
+      "import '../shared/browserExtensionContracts'",
+      "await import('../shared/browserExtensionContracts')",
+      "import { extensionPairingApi } from './extensionPairingBridge'",
+      "import { extensionPairingIpcContracts } from '../shared/extensionPairingIpcContracts'",
+    ]) {
+      expect(findPrivatePreloadModuleImportLeaks(source)).not.toEqual([])
+    }
+    expect(findPrivatePreloadModuleImportLeaks(
+      "import { vaultIpcContracts } from '../shared/vaultIpcContracts'",
+    )).toEqual([])
   })
 
   it('rejects private Agent credential and standing-grant composition terms', () => {
@@ -137,6 +259,18 @@ describe('Community source boundary configuration', () => {
     expect(() => stripClosedReleaseConfiguration(
       'const mode = process.env.VAULTAGE_COMMERCIAL_RELEASE_MODE\n',
     )).toThrow(/Unmarked/i)
+
+    const benchmarkMarked = [
+      marked,
+      '// VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_START',
+      "const qaEntry = 'agentUserPresenceBenchmark'",
+      '// VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_END',
+      '',
+    ].join('\n')
+    expect(stripClosedReleaseConfiguration(benchmarkMarked)).not.toContain('agentUserPresenceBenchmark')
+    expect(() => stripClosedReleaseConfiguration(
+      `${benchmarkMarked}// VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_START\n`,
+    )).toThrow(/benchmark markers are incomplete/i)
   })
 
   it('makes the compiled Community artifact gate fail on a hardcoded commercial channel', () => {
