@@ -44,5 +44,7 @@ export function registerAgentComposition(_privateConfiguration: unknown) {
     parseHandoffUrl: (_rawUrl: string) => null,
     findHandoffArg: (_argv: readonly string[]) => null,
     instructionsSnippet: async () => '',
+    clearCredentialDeposits: (_reason = 'vault_locked') => undefined,
+    shutdown: () => undefined,
   })
 }

@@ -4,7 +4,7 @@ import {
   buildProjectsSurfaceModel,
   filterProjectsSearchEntries,
   projectsSearchEntries,
-} from './projectsModel'
+} from './projectsModel.open'
 
 const project = (overrides: Partial<EnvProject> = {}): EnvProject => ({
   id: 'api',

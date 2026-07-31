@@ -1,6 +1,6 @@
 import { Folder, KeyRound, X } from 'lucide-react'
 import type { ReactElement, RefObject } from 'react'
-import { CompactRow } from '../primitives'
+import { CompactRow } from '../primitives.open'
 import type { createVaultSurfaceActions } from './vaultSurfaceActions.open'
 import type { searchVaultSurface } from './vaultSurfaceModel.open'
 

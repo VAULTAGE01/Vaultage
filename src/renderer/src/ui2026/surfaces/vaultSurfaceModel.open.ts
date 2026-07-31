@@ -1,6 +1,6 @@
 import { findFolder, flatSecrets } from '@/lib/vaultTree'
 import { isPinnedSecret } from '@/lib/pinning'
-import type { Environment } from '../primitives'
+import type { Environment } from '../primitives.open'
 import type { VaultFolder, VaultRoot, VaultSecret } from '../../types'
 
 export type VaultSurfaceSecret = {

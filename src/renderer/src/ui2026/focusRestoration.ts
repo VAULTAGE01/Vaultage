@@ -1,9 +1,9 @@
 type FocusTarget = {
-  focus(): void
-}
+  focus(): void;
+};
 
-type ScheduleFrame = (callback: FrameRequestCallback) => number
-type FindTarget = (id: string) => FocusTarget | null
+type ScheduleFrame = (callback: FrameRequestCallback) => number;
+type FindTarget = (id: string) => FocusTarget | null;
 
 export function scheduleElementFocus(
   targetId: string,
@@ -12,6 +12,6 @@ export function scheduleElementFocus(
   findTarget: FindTarget = (id) => document.getElementById(id),
 ): number {
   return scheduleFrame(() => {
-    findTarget(targetId)?.focus()
-  })
+    findTarget(targetId)?.focus();
+  });
 }

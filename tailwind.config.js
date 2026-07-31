@@ -29,6 +29,7 @@ module.exports = {
         danger:         '#ff453a',
         'danger-dim':   '#ff3021',
         warning:        '#ffd60a',
+        success:        'hsl(var(--success) / <alpha-value>)',
         info:           '#0A84FF',
 
         // ── shadcn CSS-variable tokens ─────────────────────────────────────

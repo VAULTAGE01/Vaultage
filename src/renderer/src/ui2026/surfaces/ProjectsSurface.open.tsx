@@ -1,13 +1,13 @@
 import { AlertCircle, CheckCircle2, FolderKanban, FolderSearch, Plus, Search, Settings2, Upload, Zap } from 'lucide-react'
 import { useMemo, useState, type ReactElement } from 'react'
-import { PROJECTS_HERO_ART } from '../assets'
+import { PROJECTS_HERO_ART } from '../assets/open'
 import {
   CompactRow,
   QuickActionCard,
   SurfaceHero,
   SurfaceSectionHeader,
   Ui2026Shell,
-} from '../primitives'
+} from '../primitives.open'
 import { SurfaceCommandHeader } from '../referenceComposition'
 import type { EnvProject } from '@/types'
 import {
@@ -15,8 +15,8 @@ import {
   filterProjectsSearchEntries,
   projectsSearchEntries,
   type ProjectSurfaceSummary,
-} from './projectsModel'
-import './projectsSurface.css'
+} from './projectsModel.open'
+import './projectsSurface.open.css'
 
 export type ProjectsSurfaceProps = {
   readonly projects: readonly EnvProject[]

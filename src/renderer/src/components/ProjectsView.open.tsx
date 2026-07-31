@@ -5,7 +5,7 @@ import { useVault, flatSecrets } from '../vaultContext'
 import { useMode } from '../modeContext.open'
 import type { EnvProject } from '../types'
 import EnvProjectsModal from './EnvProjectsModal'
-import { ProjectsSurface } from '../ui2026/surfaces/ProjectsSurface'
+import { ProjectsSurface } from '../ui2026/surfaces/ProjectsSurface.open'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, ArrowLeft, CheckCircle2, FolderKanban, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
 

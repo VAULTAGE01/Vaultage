@@ -18,11 +18,7 @@ export function resolveUi2026BuildFlags(
   });
 }
 
-/**
- * Resolve the edition-specific UI 2026 defaults without changing the closed
- * application's established landing choices. Community ships the open Vault
- * and Projects surfaces, while Services remains private to the closed build.
- */
+/** Community opts into its local Vault and Projects surfaces by default. */
 export function resolveUi2026BuildFlagsForEdition(
   environment: Readonly<Record<string, string | undefined>>,
   openCoreBuild: boolean,

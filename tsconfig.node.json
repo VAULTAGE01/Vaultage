@@ -31,6 +31,9 @@
       "#provider-ipc": [
         "src/main/providerIpc.disabled.ts"
       ],
+      "#provider-recovery": [
+        "src/main/providerRecovery.disabled.ts"
+      ],
       "#provider-vote": [
         "src/main/providerVote.disabled.ts"
       ],

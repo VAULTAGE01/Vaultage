@@ -1,51 +1,61 @@
-import { renderToStaticMarkup } from 'react-dom/server'
-import { describe, expect, it, vi } from 'vitest'
+import { renderToStaticMarkup } from 'react-dom/server';
+import { describe, expect, it, vi } from 'vitest';
 import {
   markPendingSurfaceFocus,
   pendingSurfaceFocusMatches,
+  schedulePendingSurfaceFocus,
   SurfaceSwitcher,
-  surfaceControlId,
   takePendingSurfaceFocus,
-} from './surfaceNavigation'
+} from './surfaceNavigation';
 
-describe('Community UI2026 surface navigation', () => {
-  it('renders only available Vault and Projects controls in Community', () => {
+describe('SurfaceSwitcher focus continuity', () => {
+  it('gives every remounted surface navigation control a stable id', () => {
     const html = renderToStaticMarkup(
       <SurfaceSwitcher
-        value='vault'
-        available={{ vault: true, projects: true, services: false }}
-        onValueChange={vi.fn()}
+        value="projects"
+        available={{ vault: true, projects: true, services: true }}
+        onValueChange={(): void => undefined}
       />,
-    )
+    );
 
-    expect(html).toContain('aria-label="Surface navigation"')
-    expect(html).toContain('id="ui26-surface-control-vault"')
-    expect(html).toContain('id="ui26-surface-control-projects"')
-    expect(html).not.toContain('Services')
-  })
+    expect(html).toContain('id="ui26-surface-control-vault"');
+    expect(html).toContain('id="ui26-surface-control-projects"');
+    expect(html).toContain('id="ui26-surface-control-services"');
+    expect(html).toContain('aria-current="page"');
+    expect(html).not.toContain('role="tab"');
+    expect(html).not.toContain('aria-controls=');
+  });
 
-  it('can preserve unavailable controls for a closed composition', () => {
-    const html = renderToStaticMarkup(
-      <SurfaceSwitcher
-        value='vault'
-        available={{ vault: true, projects: true, services: false }}
-        onValueChange={vi.fn()}
-        showUnavailable
-      />,
-    )
+  it('consumes only the matching unexpired remount focus intent', () => {
+    markPendingSurfaceFocus('projects', 100);
 
-    expect(html).toContain('id="ui26-surface-control-services"')
-    expect(html).toContain('disabled=""')
-  })
+    expect(takePendingSurfaceFocus('services', 200)).toBe(false);
+    expect(takePendingSurfaceFocus('projects', 200)).toBe(true);
+    expect(takePendingSurfaceFocus('projects', 200)).toBe(false);
 
-  it('keeps focus intent scoped to the target surface and TTL', () => {
-    markPendingSurfaceFocus('projects', 100)
-    expect(pendingSurfaceFocusMatches('vault', 200)).toBe(false)
-    expect(takePendingSurfaceFocus('projects', 200)).toBe(true)
-    expect(takePendingSurfaceFocus('projects', 200)).toBe(false)
+    markPendingSurfaceFocus('services', 100);
+    expect(takePendingSurfaceFocus('services', 1_601)).toBe(false);
+  });
 
-    markPendingSurfaceFocus('projects', 100)
-    expect(pendingSurfaceFocusMatches('projects', 1_601)).toBe(false)
-    expect(surfaceControlId('projects')).toBe('ui26-surface-control-projects')
-  })
-})
+  it('preserves a matching intent until the surviving StrictMode frame consumes it', () => {
+    markPendingSurfaceFocus('projects', 100);
+    const focus = vi.fn();
+    const frames: FrameRequestCallback[] = [];
+    const scheduleFrame = (callback: FrameRequestCallback): number => {
+      frames.push(callback);
+      return frames.length;
+    };
+
+    expect(schedulePendingSurfaceFocus('projects', scheduleFrame, () => ({ focus }), () => 200)).toBe(1);
+    expect(schedulePendingSurfaceFocus('projects', scheduleFrame, () => ({ focus }), () => 200)).toBe(2);
+    expect(focus).not.toHaveBeenCalled();
+
+    frames[1]?.(0);
+
+    expect(focus).toHaveBeenCalledOnce();
+    expect(pendingSurfaceFocusMatches('projects', 200)).toBe(false);
+
+    frames[0]?.(0);
+    expect(focus).toHaveBeenCalledOnce();
+  });
+});

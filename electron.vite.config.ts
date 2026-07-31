@@ -51,6 +51,17 @@ export function resolveRendererCompositionAliases(openCore: boolean): Record<str
   }
 }
 
+export function resolveRendererDestinationAliases(openCore: boolean): Record<string, string> {
+  return {
+    '#projects-view': openCore
+      ? resolve('src/renderer/src/components/ProjectsView.open.tsx')
+      : resolve('src/renderer/src/components/AgentView.tsx'),
+    '#commercial-account-settings': openCore
+      ? resolve('src/renderer/src/components/CommercialAccountSettings.disabled.tsx')
+      : resolve('src/renderer/src/components/CommercialAccountSettings.tsx'),
+  }
+}
+
 export default defineConfig({
   main: {
     define: {
@@ -79,6 +90,9 @@ export default defineConfig({
         '#provider-ipc': openCoreBuild
           ? resolve('src/main/providerIpc.disabled.ts')
           : resolve('src/main/providerIpc.ts'),
+        '#provider-recovery': openCoreBuild
+          ? resolve('src/main/providerRecovery.disabled.ts')
+          : resolve('src/main/providerRecovery.ts'),
         '#provider-vote': openCoreBuild
           ? resolve('src/main/providerVote.disabled.ts')
           : resolve('src/main/providerVote.ts'),
@@ -157,6 +171,7 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src'),
         '@':         resolve('src/renderer/src'),
         ...resolveRendererCompositionAliases(openCoreBuild),
+        ...resolveRendererDestinationAliases(openCoreBuild),
         '#add-secret-modal': openCoreBuild
           ? resolve('src/renderer/src/components/AddSecretModal.open.tsx')
           : resolve('src/renderer/src/components/AddSecretModal.tsx'),
@@ -169,9 +184,6 @@ export default defineConfig({
         '#integrations-view': openCoreBuild
           ? resolve('src/renderer/src/components/IntegrationsView.disabled.tsx')
           : resolve('src/renderer/src/components/IntegrationsView.tsx'),
-        '#projects-view': openCoreBuild
-          ? resolve('src/renderer/src/components/ProjectsView.open.tsx')
-          : resolve('src/renderer/src/components/AgentView.tsx'),
         '#provider-icons': openCoreBuild
           ? resolve('src/renderer/src/components/ProviderIcons.disabled.tsx')
           : resolve('src/renderer/src/components/ProviderIcons.tsx'),
@@ -196,9 +208,6 @@ export default defineConfig({
         '#commercial-account': openCoreBuild
           ? resolve('src/renderer/src/commercialAccountContext.disabled.tsx')
           : resolve('src/renderer/src/commercialAccountContext.tsx'),
-        '#commercial-account-settings': openCoreBuild
-          ? resolve('src/renderer/src/components/CommercialAccountSettings.disabled.tsx')
-          : resolve('src/renderer/src/components/CommercialAccountSettings.tsx'),
       }
     },
     plugins: disableReactRefresh ? [] : [react()]
