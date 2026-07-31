@@ -203,7 +203,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-      <DialogContent className="max-h-[88vh] w-[560px] max-w-[calc(100vw-32px)] overflow-y-auto p-0 no-drag">
+      <DialogContent className="max-h-[88vh] w-[640px] max-w-[calc(100vw-32px)] overflow-y-auto p-0 no-drag">
         <DialogHeader className="border-b border-border px-6 py-4">
           <DialogTitle>{isEdit ? 'Edit Secret' : 'New Secret'}</DialogTitle>
         </DialogHeader>

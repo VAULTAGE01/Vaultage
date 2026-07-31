@@ -2,7 +2,7 @@ import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import { resolveScreenshotReviewBuild } from './src/main/contentProtectionPolicy'
-import { resolveUi2026BuildFlags } from './src/main/ui2026BuildFlags'
+import { resolveUi2026BuildFlagsForEdition } from './src/main/ui2026BuildFlags'
 
 // electron-vite 5's isolated-entry reporter assumes a TTY even in CI. Keep its
 // sandbox-safe preload bundling usable when stdout is a pipe.
@@ -12,7 +12,7 @@ if (typeof process.stdout.moveCursor !== 'function') process.stdout.moveCursor =
 
 const openCoreBuild = process.env['VAULTAGE_OPEN_CORE'] === '1'
 const disableReactRefresh = process.env['VAULTAGE_DISABLE_REACT_REFRESH'] === '1'
-const ui2026Flags = resolveUi2026BuildFlags(process.env)
+const ui2026Flags = resolveUi2026BuildFlagsForEdition(process.env, openCoreBuild)
 const ui2026Showcase = !openCoreBuild
   && process.env['VAULTAGE_UI2026_SHOWCASE'] === '1'
   && process.env['NODE_ENV'] !== 'production'

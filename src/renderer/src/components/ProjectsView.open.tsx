@@ -5,9 +5,9 @@ import { useVault, flatSecrets } from '../vaultContext'
 import { useMode } from '../modeContext.open'
 import type { EnvProject } from '../types'
 import EnvProjectsModal from './EnvProjectsModal'
+import { ProjectsSurface } from '../ui2026/surfaces/ProjectsSurface'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, ArrowLeft, CheckCircle2, FolderKanban, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
-import { CommunityProjectsGuidanceHero } from './ProjectsGuidanceHero.open'
 
 function formatDate(value?: string): string {
   if (!value) return 'Never exported'
@@ -23,7 +23,6 @@ export default function ProjectsView() {
     initialProjectId?: string | null
     startNew?: boolean
   } | null>(null)
-  const [showGuidance, setShowGuidance] = useState(true)
   const projects = state.vault?.envProjects ?? []
   const secrets = useMemo(() => state.vault ? flatSecrets(state.vault.root) : [], [state.vault])
   const secretLabels = useMemo(
@@ -33,24 +32,13 @@ export default function ProjectsView() {
   const selectedProject = selectedProjectId
     ? projects.find(project => project.id === selectedProjectId) ?? null
     : null
-  const mappingCount = projects.reduce((total, project) => total + project.entries.length, 0)
-  const readyMappingCount = projects.reduce((total, project) => total + readyEntries(project).length, 0)
-  const readyProjectCount = projects.filter(project => project.path && readyEntries(project).length > 0).length
-  const needsAttention = projects.filter(project => !project.path || readyEntries(project).length < project.entries.length)
-  const autoGitignoreCount = projects.filter(project => project.addToGitignore).length
-  const lastExport = projects
-    .map(project => project.lastExportAt)
-    .filter((value): value is string => Boolean(value))
-    .sort()
-    .at(-1)
-
   const openManager = (projectId?: string | null, startNew = false) => {
     setProjectModal({ initialProjectId: projectId ?? null, startNew })
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
-      <header className="drag-region border-b border-border px-8 pb-5 pt-7">
+      {selectedProject ? <header className="drag-region border-b border-border px-8 pb-5 pt-7">
         <div className="no-drag flex items-start justify-between gap-4">
           <div>
             <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Projects</p>
@@ -81,9 +69,9 @@ export default function ProjectsView() {
             </Button>
           )}
         </div>
-      </header>
+      </header> : null}
 
-      <main className="min-h-0 flex-1 overflow-hidden px-8 py-6">
+      <main className={selectedProject ? 'min-h-0 flex-1 overflow-hidden px-8 py-6' : 'min-h-0 flex-1 overflow-hidden'}>
         {selectedProject ? (
           <div className="h-full overflow-y-auto">
             <ProjectDetail
@@ -93,105 +81,13 @@ export default function ProjectsView() {
             />
           </div>
         ) : (
-          <div className="dashboard-grid max-w-none">
-            {showGuidance && (
-              <CommunityProjectsGuidanceHero onDismiss={() => setShowGuidance(false)} />
-            )}
-            <section className="dashboard-section">
-              <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">Project overview</p>
-              <div className="dashboard-metric-grid">
-                <Metric title="Projects" value={projects.length} icon={<FolderKanban className="h-4 w-4" />} />
-                <Metric title="Mapped Keys" value={mappingCount} icon={<KeyRound className="h-4 w-4" />} />
-                <Metric title="Ready Keys" value={readyMappingCount} icon={<CheckCircle2 className="h-4 w-4" />} />
-                <Metric title="Last Export" value={formatDate(lastExport)} icon={<RefreshCw className="h-4 w-4" />} />
-                <Metric title="Needs Work" value={needsAttention.length} icon={<AlertCircle className="h-4 w-4" />} />
-                <Metric title="Auto Ignore" value={autoGitignoreCount} icon={<CheckCircle2 className="h-4 w-4" />} />
-              </div>
-            </section>
-
-            <section className="dashboard-bottom-grid">
-              <div className="dashboard-section">
-                <div className="flex items-center justify-between gap-3 px-1">
-                  <h2 className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">Saved Projects</h2>
-                  {projects.length > 0 && (
-                    <Button variant="outline" size="sm" onClick={() => openManager()}>
-                      Manage
-                    </Button>
-                  )}
-                </div>
-
-                {projects.length === 0 ? (
-                  <div className="dashboard-panel-card flex min-h-0 flex-col">
-                    <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 text-center">
-                      <p className="text-sm font-medium text-text">No projects yet</p>
-                      <p className="mt-1 max-w-md text-xs text-muted">
-                        Add a local project folder, map Vault fields to env keys, then export a plaintext .env file after confirmation.
-                      </p>
-                      <Button className="mt-4" onClick={() => openManager(null, true)}>
-                        <Plus className="mr-2 h-4 w-4" />
-                        Add Project
-                      </Button>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="dashboard-panel-card flex min-h-0 flex-col">
-                    <div className="dashboard-list">
-                      <div className="grid gap-3 xl:grid-cols-2">
-                        {projects.map(project => (
-                          <ProjectCard
-                            key={project.id}
-                            project={project}
-                            selected={selectedProjectId === project.id}
-                            onOpen={() => setSelectedProjectId(project.id)}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              <aside className="dashboard-section">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">Project Readiness</p>
-                    <p className="mt-1 text-[10px] text-muted">
-                      {readyProjectCount} of {projects.length} project{projects.length === 1 ? '' : 's'} can export at least one mapped key.
-                    </p>
-                  </div>
-                  <FolderKanban className="h-4 w-4 text-muted" />
-                </div>
-
-                <div className="dashboard-panel-card flex min-h-0 flex-col">
-                  <div className="dashboard-list">
-                    {needsAttention.map(project => (
-                      <button
-                        key={project.id}
-                        type="button"
-                        onClick={() => setSelectedProjectId(project.id)}
-                        className="dashboard-list-row"
-                      >
-                        <p className="truncate text-xs font-medium text-text">{project.name}</p>
-                        <p className="ml-auto truncate text-[10px] text-muted">{projectStatus(project)}</p>
-                      </button>
-                    ))}
-                    {projects.length > 0 && needsAttention.length === 0 && (
-                      <div className="dashboard-list-empty flex h-full items-center justify-center text-center">
-                        <p className="px-4 text-xs text-muted">
-                          All saved projects have a folder and complete mappings.
-                        </p>
-                      </div>
-                    )}
-                    {projects.length === 0 && (
-                      <div className="dashboard-list-empty flex h-full items-center justify-center text-center">
-                        <p className="px-4 text-xs text-muted">Create a project to start mapping env keys.</p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </aside>
-            </section>
-          </div>
+          <ProjectsSurface
+            projects={projects}
+            onOpenExistingWorkspace={(projectId) => setSelectedProjectId(projectId ?? null)}
+            onOpenNewProject={() => openManager(null, true)}
+            onOpenMappings={(projectId) => openManager(projectId)}
+            onOpenExport={(projectId) => openManager(projectId)}
+          />
         )}
       </main>
 
@@ -293,49 +189,8 @@ function ProjectDetail({
   )
 }
 
-function ProjectCard({
-  project,
-  selected,
-  onOpen,
-}: {
-  project: EnvProject
-  selected: boolean
-  onOpen: () => void
-}) {
-  const ready = readyEntries(project).length
-  return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className={cn(
-        'rounded-xl border bg-surface p-4 text-left transition-colors',
-        selected ? 'border-accent/50' : 'border-border hover:border-white/[0.16]',
-      )}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-text">{project.name}</p>
-          <p className="mt-1 truncate text-[11px] text-muted">{project.path || 'No folder linked'}</p>
-        </div>
-        <span className="rounded-lg border border-border bg-black/20 px-2 py-1 text-[10px] font-semibold text-text-secondary">
-          {ready}/{project.entries.length}
-        </span>
-      </div>
-      <p className="mt-3 text-[11px] text-muted">{projectStatus(project)}</p>
-    </button>
-  )
-}
-
 function readyEntries(project: EnvProject) {
   return project.entries.filter(entry => entry.envKey && entry.secretId && entry.fieldKey)
-}
-
-function projectStatus(project: EnvProject): string {
-  if (!project.path) return 'Needs a local folder'
-  const ready = readyEntries(project).length
-  if (project.entries.length === 0) return 'Needs env mappings'
-  if (ready < project.entries.length) return `${ready}/${project.entries.length} mappings ready`
-  return project.lastExportAt ? `Exported ${formatDate(project.lastExportAt)}` : 'Ready to export'
 }
 
 function Metric({ title, value, icon }: { title: string; value: string | number; icon: ReactNode }) {

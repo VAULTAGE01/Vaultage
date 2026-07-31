@@ -1,0 +1,245 @@
+.ui26-projects-layout {
+  display: grid;
+  height: 100%;
+  min-height: 0;
+  align-content: start;
+  gap: var(--ui26-space-4);
+  overflow-y: auto;
+  padding-right: var(--ui26-space-1);
+}
+
+.ui26-projects-hero-shell > .ui26-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(var(--ui26-project-guidance-art-min-width), 0.82fr);
+  align-items: center;
+  gap: var(--ui26-space-5);
+  min-height: 210px;
+  padding: var(--ui26-space-5);
+  border-color: var(--ui26-project-border);
+  background:
+    radial-gradient(circle at 87% 40%, var(--ui26-project-green-glow), transparent 30%),
+    radial-gradient(circle at 9% 0%, var(--ui26-project-violet-glow), transparent 42%),
+    linear-gradient(135deg, var(--ui26-project-hero-start), var(--ui26-project-hero-end) 74%);
+}
+
+.ui26-projects-hero-shell .ui26-hero > div:first-child {
+  min-width: 0;
+}
+
+.ui26-projects-hero-shell .ui26-hero h1 {
+  max-width: var(--ui26-project-guidance-copy-max-width);
+  font-size: var(--ui26-type-display-sm);
+}
+
+.ui26-projects-hero-art {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  height: auto;
+  margin-inline: auto;
+  object-fit: contain;
+}
+
+.ui26-projects-actions {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--ui26-space-3);
+}
+
+.ui26-projects-actions .ui26-quick-action {
+  min-height: 116px;
+}
+
+.ui26-projects-panels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  min-height: 190px;
+  gap: var(--ui26-space-3);
+}
+
+.ui26-projects-module {
+  min-width: 0;
+  padding: var(--ui26-space-3);
+  border: 1px solid var(--ui26-border);
+  border-radius: var(--ui26-radius-lg);
+  background: var(--ui26-glass-workspace-base);
+  box-shadow: inset 0 1px 0 var(--liquid-highlight);
+}
+
+.ui26-projects-module > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ui26-space-2);
+  margin-bottom: var(--ui26-space-2);
+}
+
+.ui26-projects-module h2 {
+  display: flex;
+  align-items: center;
+  gap: var(--ui26-space-2);
+  margin: 0;
+  font-size: var(--ui26-type-subtitle);
+}
+
+.ui26-projects-module > header > span,
+.ui26-projects-empty span,
+.ui26-projects-summary {
+  color: var(--ui26-text-muted);
+  font-size: var(--ui26-type-caption);
+}
+
+.ui26-projects-empty {
+  display: grid;
+  gap: var(--ui26-space-1);
+  padding: var(--ui26-space-4) var(--ui26-space-2);
+}
+
+.ui26-projects-empty strong {
+  font-size: var(--ui26-type-body);
+}
+
+.ui26-projects-summary {
+  margin: var(--ui26-space-4) var(--ui26-space-2);
+  line-height: var(--ui26-leading-copy);
+}
+
+.ui26-projects-module-action {
+  width: 100%;
+  min-height: var(--ui26-control-dense);
+  margin-top: var(--ui26-space-3);
+  padding: var(--ui26-space-2) var(--ui26-space-3);
+  border: 1px solid var(--ui26-border-strong);
+  border-radius: var(--ui26-radius-sm);
+  color: var(--ui26-accent-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--ui26-type-small);
+  font-weight: var(--ui26-weight-semibold);
+}
+
+.ui26-projects-module-action:hover:not(:disabled),
+.ui26-projects-module-action:focus-visible {
+  background: var(--ui26-surface-hover);
+}
+
+.ui26-projects-module-action:disabled {
+  color: var(--ui26-text-muted);
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.ui26-projects-readiness {
+  display: flex;
+  align-items: center;
+  gap: var(--ui26-space-1);
+  margin: var(--ui26-space-3) var(--ui26-space-2) 0;
+  color: var(--ui26-success);
+  font-size: var(--ui26-type-caption);
+}
+
+.ui26-projects-search-backdrop {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: start center;
+  padding: var(--ui26-space-12) var(--ui26-space-4);
+  background: var(--ui26-scrim);
+}
+
+.ui26-projects-search-dialog {
+  width: min(100%, 620px);
+  max-height: min(80dvh, 620px);
+  overflow: auto;
+  padding: var(--ui26-space-5);
+  border: 1px solid var(--ui26-border-strong);
+  border-radius: var(--ui26-radius-lg);
+  background: var(--ui26-surface-raised);
+  box-shadow: 0 24px 70px var(--ui26-scrim);
+}
+
+.ui26-projects-search-dialog > label {
+  display: block;
+  margin-bottom: var(--ui26-space-2);
+  color: var(--ui26-text-secondary);
+  font-size: var(--ui26-type-small);
+  font-weight: var(--ui26-weight-semibold);
+}
+
+.ui26-projects-search-input {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--ui26-space-2);
+  padding: var(--ui26-space-2) var(--ui26-space-3);
+  border: 1px solid var(--ui26-border-strong);
+  border-radius: var(--ui26-radius-md);
+  background: var(--ui26-surface);
+}
+
+.ui26-projects-search-input input {
+  min-width: 0;
+  border: 0;
+  color: var(--ui26-text);
+  background: transparent;
+  outline: none;
+  font: inherit;
+}
+
+.ui26-projects-search-input button {
+  border: 0;
+  color: var(--ui26-accent-text);
+  background: transparent;
+  font: inherit;
+  font-size: var(--ui26-type-small);
+}
+
+.ui26-projects-search-results {
+  display: grid;
+  gap: var(--ui26-space-1);
+  margin-top: var(--ui26-space-3);
+}
+
+.ui26-projects-search-results > button {
+  display: grid;
+  gap: var(--ui26-space-0-5);
+  padding: var(--ui26-space-3);
+  border: 1px solid transparent;
+  border-radius: var(--ui26-radius-sm);
+  color: var(--ui26-text);
+  background: transparent;
+  text-align: left;
+}
+
+.ui26-projects-search-results > button:hover,
+.ui26-projects-search-results > button:focus-visible {
+  border-color: var(--ui26-border-strong);
+  background: var(--ui26-surface-hover);
+  outline: none;
+}
+
+.ui26-projects-search-results > button span,
+.ui26-projects-search-results > button em {
+  color: var(--ui26-text-muted);
+  font-size: var(--ui26-type-caption);
+  font-style: normal;
+}
+
+@media (max-width: 980px) {
+  .ui26-projects-actions,
+  .ui26-projects-panels {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 680px) {
+  .ui26-projects-hero-shell > .ui26-hero {
+    grid-template-columns: 1fr;
+  }
+
+  .ui26-projects-actions,
+  .ui26-projects-panels {
+    grid-template-columns: 1fr;
+  }
+}

@@ -34,8 +34,8 @@ const DialogContent = React.forwardRef<
       ref={ref}
       className={cn(
         '!fixed left-[50%] top-[50%] z-50 translate-x-[-50%] translate-y-[-50%]',
-        'max-h-[calc(100vh-2rem)] max-w-[calc(100vw-2rem)]',
-        'liquid-modal-shell no-drag w-full max-w-lg overflow-hidden rounded-2xl border p-0 shadow-modal',
+        'max-h-[calc(100vh-2rem)] w-[calc(100vw-2rem)] max-w-5xl',
+        'liquid-modal-shell no-drag overflow-hidden rounded-2xl border p-0 shadow-modal',
         'data-[state=open]:animate-dialog-scale-in data-[state=closed]:animate-fade-out',
         'focus:outline-none',
         className
