@@ -19,19 +19,19 @@ vi.mock('./EnvProjectsModal', () => ({
 
 import ProjectsView from './ProjectsView.open'
 
-describe('ProjectsView Community dashboard', () => {
-  it('keeps the dashboard pane bounded and presents the empty saved-project action without a nested empty card', () => {
+describe('ProjectsView Community Projects surface', () => {
+  it('renders the open UI2026 surface with a bounded scroll owner and actionable empty state', () => {
     envProjects = []
     const html = renderToStaticMarkup(<ProjectsView />)
 
-    expect(html).toContain('min-h-0 flex-1 overflow-hidden px-8 py-6')
-    expect(html).not.toContain('overflow-y-auto')
-    expect(html).not.toContain('border-dashed')
+    expect(html).toContain('class="ui26-shell is-embedded"')
+    expect(html).toContain('Scan or import a local project')
+    expect(html).toContain('No local projects yet')
     expect(html).not.toContain('Turn a local folder into a reviewed .env export')
-    expect(html).toContain('Add Project')
+    expect(html).not.toMatch(/Services|Agent|provider|billing|cloud environment/i)
   })
 
-  it('puts all saved-project and readiness rows in internal dashboard lists', () => {
+  it('keeps saved projects and readiness rows inside the UI2026 modules', () => {
     envProjects = Array.from({ length: 6 }, (_, index) => ({
       id: `project-${index}`,
       name: `Project ${index}`,
@@ -42,7 +42,9 @@ describe('ProjectsView Community dashboard', () => {
 
     const html = renderToStaticMarkup(<ProjectsView />)
 
-    expect(html.match(/class="dashboard-list"/g)).toHaveLength(2)
-    expect(html.match(/class="dashboard-list-row"/g)).toHaveLength(6)
+    expect(html.match(/class="ui26-projects-module"/g)).toHaveLength(3)
+    expect(html.match(/Project \d/g)).toHaveLength(12)
+    expect(html).toContain('Saved projects')
+    expect(html).toContain('Needs attention')
   })
 })
