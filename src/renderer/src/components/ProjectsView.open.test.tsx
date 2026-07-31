@@ -17,10 +17,6 @@ vi.mock('./EnvProjectsModal', () => ({
   default: () => null,
 }))
 
-vi.mock('./ProjectsGuidanceHero.open', () => ({
-  CommunityProjectsGuidanceHero: () => <div />,
-}))
-
 import ProjectsView from './ProjectsView.open'
 
 describe('ProjectsView Community dashboard', () => {
@@ -31,6 +27,7 @@ describe('ProjectsView Community dashboard', () => {
     expect(html).toContain('min-h-0 flex-1 overflow-hidden px-8 py-6')
     expect(html).not.toContain('overflow-y-auto')
     expect(html).not.toContain('border-dashed')
+    expect(html).not.toContain('Turn a local folder into a reviewed .env export')
     expect(html).toContain('Add Project')
   })
 
