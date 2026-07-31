@@ -48,29 +48,48 @@ describe('menu panel usage batching', () => {
     expect(mocks.updateVault).not.toHaveBeenCalled()
   })
 
-  it('reports and enforces live paid capabilities while retaining stop controls for cleanup', async () => {
+  it('keeps closed Free Agent controls available while retaining extension gating', async () => {
+    const startAgent = vi.fn()
     const stopAgent = vi.fn()
+    const copyAgentInstructions = vi.fn()
     const { ipcMain, handlers } = fakeIpcMain()
     registerMenuPanelIpc(ipcMain, deps({
       isAgentListening: () => true,
-      hasAgentCapability: () => false,
       hasBrowserCapability: () => false,
+      startAgent,
       stopAgent,
+      copyAgentInstructions,
     }))
 
     await expect(handlers.get('menu-panel:status')?.({}, undefined)).resolves.toMatchObject({
       success: true,
-      agentAvailable: false,
+      agentAvailable: true,
       agentListening: true,
       browserAvailable: false,
       browserEnabled: false,
     })
-    await expect(handlers.get('menu-panel:action')?.({}, { action: 'startAgent' })).resolves.toEqual({
-      success: false,
-      error: 'Vaultage Pro Agent access is required',
-    })
+    await expect(handlers.get('menu-panel:action')?.({}, { action: 'startAgent' }))
+      .resolves.toEqual({ success: true })
+    await expect(handlers.get('menu-panel:action')?.({}, { action: 'copyAgentInstructions' }))
+      .resolves.toEqual({ success: true })
     await expect(handlers.get('menu-panel:action')?.({}, { action: 'stopAgent' })).resolves.toEqual({ success: true })
+    expect(startAgent).toHaveBeenCalledOnce()
+    expect(copyAgentInstructions).toHaveBeenCalledOnce()
     expect(stopAgent).toHaveBeenCalledOnce()
+  })
+
+  it('keeps Agent controls excluded from Community builds', async () => {
+    const startAgent = vi.fn()
+    const { ipcMain, handlers } = fakeIpcMain()
+    registerMenuPanelIpc(ipcMain, deps({ openCoreBuild: true, startAgent }))
+
+    await expect(handlers.get('menu-panel:status')?.({}, undefined)).resolves.toMatchObject({
+      agentAvailable: false,
+      openCoreBuild: true,
+    })
+    await expect(handlers.get('menu-panel:action')?.({}, { action: 'startAgent' }))
+      .resolves.toMatchObject({ success: false })
+    expect(startAgent).not.toHaveBeenCalled()
   })
 
   it('clears copied plaintext and fails when menu-bar audit evidence is not durable', async () => {
@@ -104,7 +123,6 @@ function deps(overrides: Partial<MenuPanelIpcDeps> = {}): MenuPanelIpcDeps {
     readVault: vi.fn(),
     pendingCount: () => 0,
     isAgentListening: () => false,
-    hasAgentCapability: () => true,
     agentPort: () => 32123,
     isBrowserEnabled: () => false,
     hasBrowserCapability: () => true,

@@ -42,7 +42,6 @@ export interface MenuPanelIpcDeps {
   readVault: (key: Buffer) => Promise<unknown>
   pendingCount: () => number
   isAgentListening: () => boolean
-  hasAgentCapability: () => boolean | Promise<boolean>
   agentPort: () => number
   isBrowserEnabled: () => boolean
   hasBrowserCapability: () => boolean | Promise<boolean>
@@ -75,17 +74,14 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
         quickRevealPinEnabled = false
       }
     }
-    const [agentAvailable, browserAvailable] = await Promise.all([
-      availableCapability(deps.hasAgentCapability),
-      availableCapability(deps.hasBrowserCapability),
-    ])
+    const browserAvailable = await availableCapability(deps.hasBrowserCapability)
     return {
       success: true,
       appName: deps.appName,
       unlocked: Boolean(vaultKey),
       pendingCount: deps.pendingCount(),
       agentListening: deps.isAgentListening(),
-      agentAvailable,
+      agentAvailable: !deps.openCoreBuild,
       agentPort: deps.agentPort(),
       browserEnabled: deps.isBrowserEnabled(),
       browserAvailable,
@@ -267,9 +263,7 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
         return { success: true }
       }
       if (payload.action === 'startAgent') {
-        if (deps.openCoreBuild || !await deps.hasAgentCapability()) {
-          return { success: false, error: 'Vaultage Pro Agent access is required' }
-        }
+        if (deps.openCoreBuild) return { success: false, error: 'Agent controls are unavailable in this build' }
         await deps.startAgent()
         return { success: true }
       }
@@ -291,9 +285,7 @@ export function registerMenuPanelIpc(ipcMain: IpcMain, deps: MenuPanelIpcDeps): 
         return { success: true }
       }
       if (payload.action === 'copyAgentInstructions') {
-        if (deps.openCoreBuild || !await deps.hasAgentCapability()) {
-          return { success: false, error: 'Vaultage Pro Agent access is required' }
-        }
+        if (deps.openCoreBuild) return { success: false, error: 'Agent controls are unavailable in this build' }
         await deps.copyAgentInstructions()
         return { success: true }
       }

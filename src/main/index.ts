@@ -459,9 +459,9 @@ registerProjectIpc(mainWindowIpc, {
   authController,
   recordAudit,
   recordAuditDurable,
-  acquireProjectScanLease: async (vault, path, projectId, replaceProjectId) => {
+  acquireProjectScanLease: async (vault, path, projectId) => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
-    return commercialRuntime.acquireProjectScanLease(vault, path, projectId, replaceProjectId)
+    return commercialRuntime.acquireProjectScanLease(vault, path, projectId)
   },
   acquireProjectExportLease: async (vault, projectId) => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
@@ -515,7 +515,6 @@ registerMenuPanelIpc(menuPanelIpc, {
   readVault,
   pendingCount: () => agentServer.pendingCount(),
   isAgentListening: () => isAgentListening(),
-  hasAgentCapability: async () => await commercialRuntime?.hasCapability('pro.agent') ?? false,
   agentPort: () => agentServer.configuredPort(),
   isBrowserEnabled: () => agentServer.isExtensionEnabled(),
   hasBrowserCapability: async () => await commercialRuntime?.hasCapability('pro.extension') ?? false,
@@ -685,8 +684,6 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 async function startAgentListeningFromMenu(): Promise<void> {
-  if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
-  await commercialRuntime.requireCapability('pro.agent')
   if (!vaultSession.isUnlocked()) {
     showMainWindow()
     return
@@ -734,8 +731,6 @@ async function stopBrowserExtensionFromMenu(): Promise<void> {
 }
 
 async function copyAgentInstructionsFromMenu(): Promise<void> {
-  if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
-  const capabilityLease = await commercialRuntime.acquireCapabilityLease('pro.agent')
   if (!vaultSession.isUnlocked()) {
     showMainWindow()
     return
@@ -745,7 +740,6 @@ async function copyAgentInstructionsFromMenu(): Promise<void> {
   let clipboardFingerprint: string | null = null
   try {
     const snippet = await agentComposition.instructionsSnippet()
-    capabilityLease.assertCurrent()
     operation.assertCurrent()
     clipboardFingerprint = writeSensitiveClipboardText(snippet)
     await recordAuditDurable('agent.instructions.copied', {
@@ -753,7 +747,6 @@ async function copyAgentInstructionsFromMenu(): Promise<void> {
       port: agentServer.configuredPort(),
       clearAfterMs: AGENT_INSTRUCTIONS_CLIPBOARD_CLEAR_MS,
     })
-    capabilityLease.assertCurrent()
     operation.assertCurrent()
   } catch (error) {
     clearOwnedSensitiveClipboardText(clipboardFingerprint)

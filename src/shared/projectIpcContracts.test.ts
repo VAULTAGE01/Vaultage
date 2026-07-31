@@ -50,12 +50,12 @@ describe('project IPC contracts', () => {
     expect(projectIpcContracts.scan.validate({
       path: '/tmp/project',
       projectId: 'project-1',
-    })).toEqual({ path: '/tmp/project', projectId: 'project-1', replaceProjectId: undefined, manualFiles: undefined })
+    })).toEqual({ path: '/tmp/project', projectId: 'project-1', manualFiles: undefined })
     expect(() => projectIpcContracts.scan.validate({
       path: '/tmp/project', projectId: 'x'.repeat(241),
     })).toThrow('Invalid project id')
-    expect(projectIpcContracts.scan.validate({
+    expect(() => projectIpcContracts.scan.validate({
       path: '/tmp/project', replaceProjectId: 'project-active',
-    })).toMatchObject({ replaceProjectId: 'project-active' })
+    })).toThrow('Unexpected project scan field')
   })
 })

@@ -43,7 +43,6 @@ export interface ProjectIpcDeps {
     vault: unknown,
     path: string,
     projectId?: string,
-    replaceProjectId?: string,
   ) => Promise<ProjectScanAuthorizationLease>
   acquireProjectExportLease: (
     vault: unknown,
@@ -131,7 +130,6 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
         currentVault,
         path,
         payload.projectId,
-        payload.replaceProjectId,
       )
       const result = await scanProject({ path, manualFiles })
       await commercialLease.assertCurrent()
@@ -164,7 +162,6 @@ export function registerProjectIpc(ipcMain: IpcMain, deps: ProjectIpcDeps): void
             currentVault,
             path,
             undefined,
-            payload.replaceProjectId,
           )
           commercialLeases.push(lease)
           return lease

@@ -59,28 +59,22 @@ describe('applyVaultMutationCommand', () => {
     expect(() => validateVaultRoot(vault)).not.toThrow()
   })
 
-  it('persists explicit project activation and cleans it on project deletion', () => {
+  it('preserves legacy project activation preferences while deleting a Project', () => {
     const current = sampleVault()
     current.envProjects.push({
       id: 'project-b', name: 'Project B', path: '/tmp/project-b', entries: [], addToGitignore: true,
     })
     current.preferences.activeEnvProjectIds = ['project-a']
 
-    const activated = applyVaultMutationCommand(current, {
-      type: 'env-project.activate', projectId: 'project-b', replaceProjectId: 'project-a',
-    }).vault as any
-    expect(activated.preferences.activeEnvProjectIds).toEqual(['project-b'])
-    expect(activated.envProjects).toHaveLength(2)
-
-    const deleted = applyVaultMutationCommand(activated, {
+    const deleted = applyVaultMutationCommand(current, {
       type: 'env-project.delete', projectId: 'project-b',
     }).vault as any
-    expect(deleted.preferences.activeEnvProjectIds).toEqual([])
+    expect(deleted.preferences.activeEnvProjectIds).toEqual(['project-a'])
     expect(deleted.envProjects.map((project: any) => project.id)).toEqual(['project-a'])
     expect(() => validateVaultRoot(deleted)).not.toThrow()
   })
 
-  it('atomically creates a replacement Project without deleting the replaced definition', () => {
+  it('creates a Project without changing legacy activation preferences', () => {
     const current = sampleVault()
     current.envProjects.push({
       id: 'project-b', name: 'Project B', path: '/tmp/project-b', entries: [], addToGitignore: true,
@@ -89,11 +83,9 @@ describe('applyVaultMutationCommand', () => {
     const created = applyVaultMutationCommand(current, {
       type: 'env-project.create',
       project: { id: 'project-c', name: 'Project C', path: '/tmp/project-c', entries: [], addToGitignore: true },
-      replaceProjectId: 'project-a',
-      activeProjectIds: ['project-c'],
     }).vault as any
     expect(created.envProjects.map((project: any) => project.id)).toEqual(['project-a', 'project-b', 'project-c'])
-    expect(created.preferences.activeEnvProjectIds).toEqual(['project-c'])
+    expect(created.preferences.activeEnvProjectIds).toEqual(['project-a'])
     expect(() => validateVaultRoot(created)).not.toThrow()
   })
 

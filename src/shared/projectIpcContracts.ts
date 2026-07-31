@@ -88,6 +88,10 @@ function validateProjectPickFolderPayload(payload: unknown): ProjectPickFolderPa
 
 function validateProjectScanPayload(payload: unknown): ProjectScanRequest {
   const record = requireRecord(payload, 'project scan payload')
+  const allowedKeys = new Set(['path', 'manualFiles', 'projectId'])
+  for (const key of Object.keys(record)) {
+    if (!allowedKeys.has(key)) throw new Error(`Unexpected project scan field: ${key}`)
+  }
   const manualFiles = optionalStringArray(record.manualFiles, 'manual files')
   if (manualFiles && manualFiles.length > MAX_PROJECT_MANUAL_FILES) {
     throw new Error(`Choose at most ${MAX_PROJECT_MANUAL_FILES} manual scan files`)
@@ -98,23 +102,17 @@ function validateProjectScanPayload(payload: unknown): ProjectScanRequest {
     projectId: record.projectId === undefined
       ? undefined
       : validateIdentifier(requireString(record.projectId, 'project id'), 'project id'),
-    replaceProjectId: record.replaceProjectId === undefined
-      ? undefined
-      : validateIdentifier(requireString(record.replaceProjectId, 'replacement project id'), 'replacement project id'),
   }
 }
 
 function validateProjectDiscoverPayload(payload: unknown): ProjectDiscoverRequest {
   const record = requireRecord(payload, 'project discovery payload')
-  const allowedKeys = new Set(['parentPath', 'replaceProjectId'])
+  const allowedKeys = new Set(['parentPath'])
   for (const key of Object.keys(record)) {
     if (!allowedKeys.has(key)) throw new Error(`Unexpected project discovery field: ${key}`)
   }
   return {
     parentPath: validatePathString(requireString(record.parentPath, 'parent path'), 'parent path'),
-    replaceProjectId: record.replaceProjectId === undefined
-      ? undefined
-      : validateIdentifier(requireString(record.replaceProjectId, 'replacement project id'), 'replacement project id'),
   }
 }
 

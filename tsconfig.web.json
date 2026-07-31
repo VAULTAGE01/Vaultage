@@ -59,9 +59,6 @@
       "#commercial-readiness": [
         "src/renderer/src/components/CommercialReadiness.disabled.tsx"
       ],
-      "#commercial-project-activation": [
-        "src/renderer/src/components/CommercialProjectActivation.disabled.tsx"
-      ],
       "#commercial-capabilities": [
         "src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts"
       ],

@@ -40,7 +40,6 @@ export const VAULT_MUTATION_TYPES = [
   'env-project.create',
   'env-project.update',
   'env-project.update-many',
-  'env-project.activate',
   'env-project.delete',
   'preferences.patch',
 ] as const
@@ -414,9 +413,8 @@ function validateVaultMutationCommand(command: Record<string, unknown>, type: Va
       return
     }
     case 'env-project.create':
-      requireExactKeys(command, ['type', 'project'], ['replaceProjectId', 'targetVerificationGrant'], type)
+      requireExactKeys(command, ['type', 'project'], ['targetVerificationGrant'], type)
       validateEnvProject(command.project, 'environment project')
-      optionalBoundedId(command.replaceProjectId, 'replacement environment project id')
       validateOptionalVerificationGrant(command.targetVerificationGrant)
       return
     case 'env-project.update':
@@ -431,11 +429,6 @@ function validateVaultMutationCommand(command: Record<string, unknown>, type: Va
       validateOptionalVerificationGrant(command.targetVerificationGrant)
       return
     }
-    case 'env-project.activate':
-      requireExactKeys(command, ['type', 'projectId'], ['replaceProjectId'], type)
-      boundedId(command.projectId, 'environment project id')
-      optionalBoundedId(command.replaceProjectId, 'replacement environment project id')
-      return
     case 'env-project.delete':
       requireExactKeys(command, ['type', 'projectId'], [], type)
       boundedId(command.projectId, 'environment project id')

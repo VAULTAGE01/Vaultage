@@ -2,17 +2,17 @@
   "schemaVersion": 1,
   "kind": "vaultage-community-source-provenance-v1",
   "source": {
-    "commitSha": "798e3bf883247eb1116f426a704636c4d3fd74ff",
-    "treeSha": "403dca89436cdb42f6ac899e9fb93f0e6324434a",
+    "commitSha": "2180d3bf5dadd9a962f7c208a3ba8941627c8b23",
+    "treeSha": "37f106ea36b37120dd7be8520a8b17132d0d8c3f",
     "trackedState": "clean"
   },
   "generator": {
     "path": "scripts/stage-open-source.mjs",
-    "sha256": "5355bb9d55e902c942ac196b555d03c54e7a1265d8b7004a52898c15b1ec3a2f"
+    "sha256": "b87c1507c93555c287408823135c5440cf23e25eb92bb8a08a21b5445fcf6052"
   },
   "packageVersion": "0.1.0",
   "stagedTree": {
     "algorithm": "sha256",
-    "sha256": "be293b1353fa00044b4737efb3786cf72fc36006b326843d53812eff225fe741"
+    "sha256": "cb8bc45b8f2eb506529ddf796c50adb0d2fe4b211625ebcc2677c5a53cbc1c37"
   }
 }

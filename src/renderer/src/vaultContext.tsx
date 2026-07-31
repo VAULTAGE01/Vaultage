@@ -436,10 +436,9 @@ interface Ctx {
   moveProvider: (providerId: string, groupId: string | null, targetProviderId?: string, position?: 'before' | 'after') => Promise<void>
 
   // Env projects
-  addEnvProject:    (p: Omit<EnvProject, 'id'>, replaceProjectId?: string) => Promise<EnvProject | null>
+  addEnvProject:    (p: Omit<EnvProject, 'id'>) => Promise<EnvProject | null>
   updateEnvProject: (p: EnvProject, authorization?: EnvProjectMutationAuthorization) => Promise<void>
   updateEnvProjects: (projects: EnvProject[]) => Promise<void>
-  activateEnvProject: (projectId: string, replaceProjectId?: string) => Promise<void>
   deleteEnvProject: (id: string) => Promise<void>
 
   // Preferences
@@ -1086,12 +1085,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
   // ── Env projects ─────────────────────────────────────────────────────────────
 
-  const addEnvProject = useCallback(async (p: Omit<EnvProject, 'id'>, replaceProjectId?: string) => {
+  const addEnvProject = useCallback(async (p: Omit<EnvProject, 'id'>) => {
     const project = ensureProjectEnvironments({ ...p, id: crypto.randomUUID() })
-    await runVaultCommand({
-      type: 'env-project.create', project,
-      ...(replaceProjectId ? { replaceProjectId } : {}),
-    }, () => undefined)
+    await runVaultCommand({ type: 'env-project.create', project }, () => undefined)
     return project
   }, [runVaultCommand])
 
@@ -1116,14 +1112,6 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }, () => undefined)
   }, [runVaultCommand])
 
-  const activateEnvProject = useCallback(async (projectId: string, replaceProjectId?: string) => {
-    await runVaultCommand({
-      type: 'env-project.activate',
-      projectId,
-      ...(replaceProjectId ? { replaceProjectId } : {}),
-    }, () => undefined)
-  }, [runVaultCommand])
-
   const deleteEnvProject = useCallback(async (id: string) => {
     await runVaultCommand({ type: 'env-project.delete', projectId: id }, () => undefined)
   }, [runVaultCommand])
@@ -1143,7 +1131,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setRevealPin, clearRevealPin,
     addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
     addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
-    addEnvProject, updateEnvProject, updateEnvProjects, activateEnvProject, deleteEnvProject,
+    addEnvProject, updateEnvProject, updateEnvProjects, deleteEnvProject,
     setPreferences,
   }), [
     state,
@@ -1155,7 +1143,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setRevealPin, clearRevealPin,
     addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
     addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
-    addEnvProject, updateEnvProject, updateEnvProjects, activateEnvProject, deleteEnvProject,
+    addEnvProject, updateEnvProject, updateEnvProjects, deleteEnvProject,
     setPreferences,
   ])
 

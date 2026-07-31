@@ -13,6 +13,7 @@ describe('CommunityProjectsGuidanceHero', () => {
     expect(html).toContain('Scan a local folder')
     expect(html).toContain('Map Vault fields')
     expect(html).toContain('Confirm every export')
-    expect(html).not.toMatch(/agent|cloud|provider|service/i)
+    const visibleCopy = html.replace(/<[^>]+>/gu, ' ')
+    expect(visibleCopy).not.toMatch(/agent|cloud|provider|service/i)
   })
 })

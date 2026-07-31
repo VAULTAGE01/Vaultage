@@ -190,9 +190,6 @@ export default defineConfig({
         '#commercial-readiness': openCoreBuild
           ? resolve('src/renderer/src/components/CommercialReadiness.disabled.tsx')
           : resolve('src/renderer/src/components/CommercialReadiness.tsx'),
-        '#commercial-project-activation': openCoreBuild
-          ? resolve('src/renderer/src/components/CommercialProjectActivation.disabled.tsx')
-          : resolve('src/renderer/src/components/CommercialProjectActivation.tsx'),
         '#commercial-capabilities': openCoreBuild
           ? resolve('src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts')
           : resolve('src/renderer/src/lib/CommercialFeatureCapabilities.ts'),

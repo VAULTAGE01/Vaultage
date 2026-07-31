@@ -238,7 +238,6 @@ describe('project scan policy IPC', () => {
       expect.any(Object),
       await realpath(folder),
       undefined,
-      undefined,
     )
   })
 
@@ -271,7 +270,7 @@ describe('project scan policy IPC', () => {
       },
     })
 
-    await expect(harness.discover('project-a')).resolves.toMatchObject({
+    await expect(harness.discover()).resolves.toMatchObject({
       success: false,
       error: 'The Free plan active-project limit is full',
     })
@@ -279,7 +278,6 @@ describe('project scan policy IPC', () => {
       expect.any(Object),
       await realpath(candidate),
       undefined,
-      'project-a',
     )
     await expect(harness.pathCapabilities.requireProjectFolder(
       harness.rendererId,
@@ -437,10 +435,7 @@ async function scanHarness(options: {
     pathCapabilities,
     rendererId,
     scan: () => scan(event, { path: options.folder }),
-    discover: (replaceProjectId?: string) => discover(event, {
-      parentPath: options.folder,
-      ...(replaceProjectId ? { replaceProjectId } : {}),
-    }),
+    discover: () => discover(event, { parentPath: options.folder }),
   }
 }
 
