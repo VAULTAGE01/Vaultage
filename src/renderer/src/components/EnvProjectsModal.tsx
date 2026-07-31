@@ -985,7 +985,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
     return createPortal(
       <div className="liquid-modal-overlay fixed inset-0 z-50 flex items-center justify-center no-drag">
-        <div className="liquid-modal-shell flex h-[640px] max-h-[88vh] w-[900px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl border shadow-modal">
+        <div className="liquid-modal-shell flex h-[640px] max-h-[88vh] w-[960px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl border shadow-modal">
           <div className="flex flex-shrink-0 items-center justify-between border-b border-border px-6 py-4">
             <div>
               <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Projects</p>
@@ -1207,7 +1207,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   return createPortal(
     <div className="liquid-modal-overlay fixed inset-0 z-50 flex items-center justify-center no-drag">
-      <div className="liquid-modal-shell flex h-[600px] max-h-[88vh] w-[860px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl border shadow-modal">
+      <div className="liquid-modal-shell flex h-[600px] max-h-[88vh] w-[960px] max-w-[calc(100vw-32px)] flex-col overflow-hidden rounded-2xl border shadow-modal">
 
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border flex-shrink-0">

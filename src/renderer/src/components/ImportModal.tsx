@@ -639,7 +639,7 @@ export default function ImportModal({ initialFolderId, onClose }: Props) {
 
 	  return (
 	    <Dialog open onOpenChange={open => { if (!open && !importing) onClose() }}>
-	      <DialogContent className="max-w-3xl max-h-[85vh] flex flex-col">
+	      <DialogContent className="max-w-5xl max-h-[85vh] flex flex-col">
 	        <DialogHeader>
 	          <DialogTitle>
 	            {step === 'source' ? 'Migrate your data' : step === 'preview' ? 'Review import' : `Import from ${selectedSource?.label ?? 'source'}`}
