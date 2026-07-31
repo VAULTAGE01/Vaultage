@@ -1,6 +1,6 @@
-import type { ReactElement, ReactNode } from 'react'
-import { ActionButton } from './rows'
-import type { ActionSpec } from './types'
+import type { ReactElement, ReactNode } from 'react';
+import { ActionButton } from './rows';
+import type { ActionSpec } from './types';
 
 export function ContextRail({
   title,
@@ -11,46 +11,46 @@ export function ContextRail({
   children,
   footer,
 }: {
-  readonly title: string
-  readonly description?: string
-  readonly primaryAction?: ActionSpec
-  readonly icon?: ReactNode
+  readonly title: string;
+  readonly description?: string;
+  readonly primaryAction?: ActionSpec;
+  readonly icon?: ReactNode;
   readonly stats?: readonly {
-    readonly label: string
-    readonly value: string | number
-  }[]
-  readonly children: ReactNode
-  readonly footer?: ReactNode
+    readonly label: string;
+    readonly value: string | number;
+  }[];
+  readonly children: ReactNode;
+  readonly footer?: ReactNode;
 }): ReactElement {
   return (
-    <div className='ui26-rail-content'>
-      <div className='ui26-rail-promo'>
+    <div className="ui26-rail-content">
+      <div className="ui26-rail-promo">
         {icon ? (
-          <span className='ui26-rail-promo-icon' aria-hidden>
+          <span className="ui26-rail-promo-icon" aria-hidden>
             {icon}
           </span>
         ) : null}
         <h2>{title}</h2>
-        {description ? <p className='ui26-muted'>{description}</p> : null}
+        {description ? <p className="ui26-muted">{description}</p> : null}
         {primaryAction ? <ActionButton action={primaryAction} /> : null}
       </div>
       {stats.length > 0 ? <RailStatSplit stats={stats} /> : null}
-      <div className='ui26-rail-tree'>{children}</div>
+      <div className="ui26-rail-tree">{children}</div>
       {footer ? <footer>{footer}</footer> : null}
     </div>
-  )
+  );
 }
 
 export function RailStatSplit({
   stats,
 }: {
   readonly stats: readonly {
-    readonly label: string
-    readonly value: string | number
-  }[]
+    readonly label: string;
+    readonly value: string | number;
+  }[];
 }): ReactElement {
   return (
-    <div className='ui26-stats'>
+    <div className="ui26-stats">
       {stats.map((stat) => (
         <div key={stat.label}>
           <strong>{stat.value}</strong>
@@ -58,7 +58,7 @@ export function RailStatSplit({
         </div>
       ))}
     </div>
-  )
+  );
 }
 
 export function RailSection({
@@ -66,23 +66,23 @@ export function RailSection({
   action,
   children,
 }: {
-  readonly title: string
-  readonly action?: ActionSpec
-  readonly children: ReactNode
+  readonly title: string;
+  readonly action?: ActionSpec;
+  readonly children: ReactNode;
 }): ReactElement {
   return (
-    <section className='ui26-rail-section'>
+    <section className="ui26-rail-section">
       <header>
         <h3>{title}</h3>
         {action ? (
           <button
-            type='button'
-            className='ui26-rail-section-action'
+            type="button"
+            className="ui26-rail-section-action"
             disabled={action.disabled}
             onClick={action.onActivate}
           >
             {action.icon ? (
-              <span className='ui26-icon' aria-hidden>
+              <span className="ui26-icon" aria-hidden>
                 {action.icon}
               </span>
             ) : null}
@@ -92,5 +92,5 @@ export function RailSection({
       </header>
       {children}
     </section>
-  )
+  );
 }

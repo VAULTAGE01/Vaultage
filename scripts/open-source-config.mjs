@@ -11,6 +11,7 @@ const privateOverlaySourcePatterns = [
   /^scripts\/run-agent-user-presence-benchmark(?:\.test\.mjs|\.sh)$/,
   /^scripts\/services-ui-e2e\.mjs$/,
   /^scripts\/services-provider-flow-visual-qa\.mjs$/,
+  /^scripts\/product-flow-composition\.test\.ts$/,
   /^scripts\/check-browser-extension-pairing(?:\.test)?\.mjs$/,
   /^scripts\/mcp-demo\.mjs$/,
   /^src\/cli\//,
@@ -32,44 +33,68 @@ const privateOverlaySourcePatterns = [
   /^src\/renderer\/.*\/(?:agent|commercial|extension|integration|provider|service)[^/]*\.[cm]?[jt]sx?$/i,
   /^src\/renderer\/.*\/(?:PaidBeta|paidBeta)[^/]*\.[cm]?[jt]sx?$/,
   /^src\/renderer\/src\/components\/SettingsModal\.tsx$/,
+  /^src\/renderer\/src\/components\/ModalLayoutContracts\.test\.mjs$/,
 ]
 
+// UI2026 .open files below are explicit manual ports of official Community
+// main 698e3424a1867722c5542ff5b7e1e9344b867630. They intentionally do not
+// replace closed/private counterparts with the same conceptual surface, so
+// this boundary is not reversible reconciliation provenance.
 export const publicUi2026SourcePaths = new Set([
   'src/renderer/src/ui2026/assets/projects-hero.png',
-  'src/renderer/src/ui2026/assets/index.ts',
+  'src/renderer/src/ui2026/assets/open.ts',
   'src/renderer/src/ui2026/flags.test.ts',
   'src/renderer/src/ui2026/flags.ts',
   'src/renderer/src/ui2026/focusRestoration.test.ts',
   'src/renderer/src/ui2026/focusRestoration.ts',
-  'src/renderer/src/ui2026/primitives.test.tsx',
-  'src/renderer/src/ui2026/primitives.tsx',
-  'src/renderer/src/ui2026/primitives/cards.tsx',
+  'src/renderer/src/ui2026/primitives.open.test.tsx',
+  'src/renderer/src/ui2026/primitives.open.tsx',
+  'src/renderer/src/ui2026/primitives/cards.open.tsx',
   'src/renderer/src/ui2026/primitives/hero.tsx',
   'src/renderer/src/ui2026/primitives/rail.tsx',
   'src/renderer/src/ui2026/primitives/rows.tsx',
   'src/renderer/src/ui2026/primitives/shell.tsx',
   'src/renderer/src/ui2026/primitives/types.ts',
   'src/renderer/src/ui2026/referenceComposition.tsx',
+  'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
+  'src/renderer/src/ui2026/surfaceNavigation.tsx',
+  'src/renderer/src/ui2026/surfaceSearch.ts',
+  'src/renderer/src/ui2026/surfaces/ProjectsSurface.open.test.tsx',
+  'src/renderer/src/ui2026/surfaces/ProjectsSurface.open.tsx',
+  'src/renderer/src/ui2026/surfaces/projectsModel.open.test.ts',
+  'src/renderer/src/ui2026/surfaces/projectsModel.open.ts',
+  'src/renderer/src/ui2026/surfaces/projectsSurface.open.css',
   'src/renderer/src/ui2026/surfaces/VaultDashboard.open.tsx',
   'src/renderer/src/ui2026/surfaces/VaultReferenceRail.open.tsx',
   'src/renderer/src/ui2026/surfaces/VaultSearchPanel.open.tsx',
   'src/renderer/src/ui2026/surfaces/VaultSurface.open.css',
   'src/renderer/src/ui2026/surfaces/VaultSurface.open.test.tsx',
   'src/renderer/src/ui2026/surfaces/VaultSurface.open.tsx',
-  'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
   'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.test.ts',
+  'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
   'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.test.ts',
   'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.ts',
-  'src/renderer/src/ui2026/surfaces/ProjectsSurface.test.tsx',
-  'src/renderer/src/ui2026/surfaces/ProjectsSurface.tsx',
-  'src/renderer/src/ui2026/surfaces/projectsModel.test.ts',
-  'src/renderer/src/ui2026/surfaces/projectsModel.ts',
-  'src/renderer/src/ui2026/surfaces/projectsSurface.css',
-  'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
-  'src/renderer/src/ui2026/surfaceNavigation.tsx',
-  'src/renderer/src/ui2026/surfaceSearch.ts',
   'src/renderer/src/ui2026/ui2026.css',
 ])
+
+// Community changes are not mirrored wholesale into the private product. The
+// reconciliation tool accepts only these public Vault/Projects source files,
+// and then only when the public baseline blob is byte-identical to the private
+// source commit recorded in the sync ledger. Files rewritten by staging remain
+// intentionally non-reversible and require a manual private port.
+export const communityReconciliableSourcePatterns = Object.freeze([
+  /^src\/main\/(?:project(?:Ipc|Scanner|Scan|MappingPolicy)|vault(?:Ipc|DataIpc|SecretIpc|CommandMutations|Mutations|Storage|UsageBatcher|SessionIpc)|audit|auth|envFile)(?:\.test)?\.ts$/u,
+  /^src\/shared\/(?:project|vault|secretAccessPolicy)[^/]*\.[cm]?[jt]sx?$/u,
+  /^src\/renderer\/src\/components\/(?:MainLayout|ProjectsView|SecretDetail|Sidebar|CommunityProjectRow|CommunitySecretContext|CommunitySettingsModal|VaultFolderTree|PinnedVaultLists|ProjectsGuidanceHero|AddSecretModal)\.open(?:\.test)?\.tsx$/u,
+  /^src\/renderer\/src\/hooks\/useCommunitySidebarShortcuts\.open(?:\.test)?\.ts$/u,
+  /^src\/renderer\/src\/lib\/(?:projectEnvironments|projectMappingPolicy|projectActionPreviews|secretLifecycle|textInputRequests)\.ts$/u,
+])
+
+export function isCommunityReconciliableSourcePath(path) {
+  const normalized = path.replaceAll('\\', '/')
+  return publicUi2026SourcePaths.has(normalized)
+    || communityReconciliableSourcePatterns.some(pattern => pattern.test(normalized))
+}
 
 // Disabled seams are public source, so every one must be reviewed explicitly.
 // Never restore a blanket `*.disabled.*` exception: a closed implementation
@@ -83,6 +108,7 @@ export const reviewedDisabledSeamPaths = new Set([
   'src/main/extensionNativeHostIpc.disabled.ts',
   'src/main/extensionHandoff.disabled.ts',
   'src/main/providerIpc.disabled.ts',
+  'src/main/providerRecovery.disabled.ts',
   'src/main/providerBasicOps.disabled.ts',
   'src/main/providerLifecycleOps.disabled.ts',
   'src/main/providerVote.disabled.ts',
@@ -209,6 +235,37 @@ export function findPrivateAgentCompositionLeaks(source) {
   return privateAgentCompositionTerms.filter(term => source.includes(term))
 }
 
+export const privateVaultValidationTerms = Object.freeze([
+  'CloudflareTokenPolicyLineage',
+  'cloudflarePolicyTargets',
+  'cloudflareProviders',
+  'cloudflareTokenPolicies',
+  'maxCloudflarePermissionGroupsPerPolicy',
+  'maxCloudflareScopesPerPermissionGroup',
+  'maxCloudflareTokenPolicies',
+  'validateCloudflareTokenPolicy',
+  'validateCloudflareTokenPolicies',
+  'validateCloudflareTokenPolicyLineage',
+  'cf-api-token/v1',
+])
+
+const normalizedPrivateVaultValidationTerms = new Set(
+  privateVaultValidationTerms.map(term => normalizePrivateVaultValidationTerm(term)),
+)
+
+function normalizePrivateVaultValidationTerm(term) {
+  return term.toLowerCase().replaceAll(/[-_/]/gu, '')
+}
+
+export function findPrivateVaultValidationLeaks(source) {
+  const sourceTerms = source.match(/\b[A-Za-z_][A-Za-z0-9_-]*(?:\/v[0-9]+)?\b/gu) ?? []
+  return [...new Set(
+    sourceTerms.filter(term => (
+      normalizedPrivateVaultValidationTerms.has(normalizePrivateVaultValidationTerm(term))
+    )),
+  )]
+}
+
 export const openNodeAliasPaths = {
   '#agent-composition': ['src/main/agentComposition.disabled.ts'],
   '#extension-handoff': ['src/main/extensionHandoff.disabled.ts'],
@@ -216,6 +273,7 @@ export const openNodeAliasPaths = {
   '#extension-native-host-composition': ['src/main/extensionNativeHostComposition.disabled.ts'],
   '#extension-native-host-ipc': ['src/main/extensionNativeHostIpc.disabled.ts'],
   '#provider-ipc': ['src/main/providerIpc.disabled.ts'],
+  '#provider-recovery': ['src/main/providerRecovery.disabled.ts'],
   '#provider-vote': ['src/main/providerVote.disabled.ts'],
   '#provider-worker-client': ['src/main/providerWorkerClient.disabled.ts'],
   '#provider-basic-ops': ['src/main/providerBasicOps.disabled.ts'],
@@ -257,6 +315,10 @@ export const openNodeTypecheckExclude = [
   'src/main/agentComposition.ts',
   'src/main/agentAuthToken.ts',
   'src/main/agentAutoApproval.ts',
+  'src/main/agentCredentialDepositComposition.ts',
+  'src/main/agentCredentialDepositHttp.ts',
+  'src/main/agentCredentialDepositRegistration.ts',
+  'src/main/agentCredentialDepositVault.ts',
   'src/main/agentDiscovery.ts',
   'src/main/agentIpc.ts',
   'src/main/agentRelease.ts',
@@ -364,6 +426,7 @@ export const openWebTypecheckExclude = [
   'src/renderer/src/components/SecretLocalDashboardModel.ts',
   'src/renderer/src/components/SecretLocalDashboardModel.test.ts',
   'src/renderer/src/components/SecretRequestPanel.tsx',
+  'src/renderer/src/components/SecretRequestPanel.deposit.test.tsx',
   'src/renderer/src/components/SettingsModal.tsx',
   'src/renderer/src/components/Sidebar.tsx',
   'src/renderer/src/components/UsageMapView.tsx',

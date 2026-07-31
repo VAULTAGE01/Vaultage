@@ -7,6 +7,8 @@ import {
   findPrivateAgentCompositionLeaks,
   findPrivatePreloadModuleImportLeaks,
   findPrivatePreloadIpcChannelLeaks,
+  findPrivateVaultValidationLeaks,
+  isCommunityReconciliableSourcePath,
   isPrivateOverlaySourcePath,
   isReviewedDisabledSeamPath,
   reviewedDisabledSeamPaths,
@@ -31,6 +33,55 @@ function writeFixture(root, path, source) {
 }
 
 describe('Community source boundary configuration', () => {
+  it('detects private Agent token-policy validation in otherwise shared vault source', () => {
+    expect(findPrivateVaultValidationLeaks(`
+      interface CloudflareTokenPolicyLineage {}
+      const tokenTemplateId = 'cf-api-token/v1'
+    `)).toEqual(['CloudflareTokenPolicyLineage', 'cf-api-token/v1'])
+
+    for (const privateVariant of [
+      'CloudFlareTokenPolicyLineage',
+      'cloudflare_token_policies',
+      'validateCloudflareTokenPolicy',
+      'cf_api_token/v1',
+    ]) {
+      expect(findPrivateVaultValidationLeaks(privateVariant), privateVariant).toEqual([privateVariant])
+    }
+
+    for (const communitySource of [
+      'export const CURRENT_VAULT_VERSION = 2',
+      'const cloudflareProviderLabel = "Cloudflare"',
+      'validate provider token policy manually',
+      'const maxCloudflareRetries = 3',
+    ]) {
+      expect(findPrivateVaultValidationLeaks(communitySource), communitySource).toEqual([])
+    }
+  })
+
+  it('allows real reversible Vault and Projects source/test names without accepting lookalikes', () => {
+    for (const path of [
+      'src/main/projectScanner.ts',
+      'src/main/projectScanner.test.ts',
+      'src/main/projectIpc.ts',
+      'src/main/projectIpc.test.ts',
+      'src/shared/vaultIpcContracts.ts',
+      'src/shared/vaultIpcContracts.test.ts',
+      'src/renderer/src/ui2026/ui2026.css',
+    ]) {
+      expect(isCommunityReconciliableSourcePath(path), path).toBe(true)
+    }
+
+    for (const path of [
+      'src/main/projectScannerExtra.ts',
+      'src/main/projectScanner.tsx',
+      'src/main/projectsScanner.test.ts',
+      'src/main/projectScanner.disabled.ts',
+      'src/renderer/src/ui2026/surfaces/ProjectsSurface.tsx',
+    ]) {
+      expect(isCommunityReconciliableSourcePath(path), path).toBe(false)
+    }
+  })
+
   it('allows only explicitly reviewed disabled seams', () => {
     expect(isReviewedDisabledSeamPath('src/main/commercialRuntime.disabled.ts')).toBe(true)
     expect(isPrivateOverlaySourcePath('src/main/commercialRuntime.disabled.ts')).toBe(false)
@@ -42,6 +93,8 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('src/renderer/src/commercialAccountContext.tsx'))
       .toBe(true)
     expect(isPrivateOverlaySourcePath('src/renderer/src/CommercialAccountSettings.tsx'))
+      .toBe(true)
+    expect(isPrivateOverlaySourcePath('src/renderer/src/components/ModalLayoutContracts.test.mjs'))
       .toBe(true)
   })
 
@@ -70,11 +123,26 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('scripts/services-provider-flow-visual-qa.mjs')).toBe(true)
   })
 
-  it('allows only the reviewed Community-safe UI2026 foundation', () => {
+  it('keeps closed UI2026 product-flow composition artifacts private', () => {
     for (const path of [
-      'src/renderer/src/ui2026/surfaces/ServicesSurface.tsx',
+      'scripts/product-flow-composition.test.ts',
+      'src/renderer/src/components/CommercialAccountSettingsContent.tsx',
+    ]) {
+      expect(isPrivateOverlaySourcePath(path), path).toBe(true)
+    }
+
+    const publicSettingsSource = readFileSync(
+      resolve(import.meta.dirname, '..', 'src/renderer/src/components/settingsInitialTab.ts'),
+      'utf8',
+    )
+    expect(publicSettingsSource).not.toContain('settingsTabForAccountPlanRequest')
+  })
+
+  it('allows only the reviewed Projects visual primitives from UI2026', () => {
+    for (const path of [
       'src/renderer/src/ui2026/Ui2026Showcase.tsx',
       'src/renderer/src/ui2026/surfaces/VaultSurface.tsx',
+      'src/renderer/src/ui2026/surfaces/ProjectsSurface.tsx',
       'src/renderer/src/ui2026/surfaces/servicesWorkspace.ts',
       'src/renderer/src/ui2026/assets/services-destinations/all-services-hero.png',
       'src/renderer/src/ui2026/ui2026Structure.test.ts',
@@ -84,38 +152,38 @@ describe('Community source boundary configuration', () => {
 
     for (const path of [
       'src/renderer/src/ui2026/assets/projects-hero.png',
-      'src/renderer/src/ui2026/assets/index.ts',
+      'src/renderer/src/ui2026/assets/open.ts',
       'src/renderer/src/ui2026/flags.test.ts',
       'src/renderer/src/ui2026/flags.ts',
       'src/renderer/src/ui2026/focusRestoration.test.ts',
       'src/renderer/src/ui2026/focusRestoration.ts',
-      'src/renderer/src/ui2026/primitives.test.tsx',
-      'src/renderer/src/ui2026/primitives.tsx',
-      'src/renderer/src/ui2026/primitives/cards.tsx',
+      'src/renderer/src/ui2026/primitives.open.test.tsx',
+      'src/renderer/src/ui2026/primitives.open.tsx',
+      'src/renderer/src/ui2026/primitives/cards.open.tsx',
       'src/renderer/src/ui2026/primitives/hero.tsx',
       'src/renderer/src/ui2026/primitives/rail.tsx',
       'src/renderer/src/ui2026/primitives/rows.tsx',
       'src/renderer/src/ui2026/primitives/shell.tsx',
       'src/renderer/src/ui2026/primitives/types.ts',
       'src/renderer/src/ui2026/referenceComposition.tsx',
+      'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
+      'src/renderer/src/ui2026/surfaceNavigation.tsx',
+      'src/renderer/src/ui2026/surfaceSearch.ts',
+      'src/renderer/src/ui2026/surfaces/ProjectsSurface.open.test.tsx',
+      'src/renderer/src/ui2026/surfaces/ProjectsSurface.open.tsx',
+      'src/renderer/src/ui2026/surfaces/projectsModel.open.test.ts',
+      'src/renderer/src/ui2026/surfaces/projectsModel.open.ts',
+      'src/renderer/src/ui2026/surfaces/projectsSurface.open.css',
       'src/renderer/src/ui2026/surfaces/VaultDashboard.open.tsx',
       'src/renderer/src/ui2026/surfaces/VaultReferenceRail.open.tsx',
       'src/renderer/src/ui2026/surfaces/VaultSearchPanel.open.tsx',
       'src/renderer/src/ui2026/surfaces/VaultSurface.open.css',
       'src/renderer/src/ui2026/surfaces/VaultSurface.open.test.tsx',
       'src/renderer/src/ui2026/surfaces/VaultSurface.open.tsx',
-      'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.test.ts',
+      'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.test.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.ts',
-      'src/renderer/src/ui2026/surfaces/ProjectsSurface.test.tsx',
-      'src/renderer/src/ui2026/surfaces/ProjectsSurface.tsx',
-      'src/renderer/src/ui2026/surfaces/projectsModel.test.ts',
-      'src/renderer/src/ui2026/surfaces/projectsModel.ts',
-      'src/renderer/src/ui2026/surfaces/projectsSurface.css',
-      'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
-      'src/renderer/src/ui2026/surfaceNavigation.tsx',
-      'src/renderer/src/ui2026/surfaceSearch.ts',
       'src/renderer/src/ui2026/ui2026.css',
     ]) {
       expect(isPrivateOverlaySourcePath(path), path).toBe(false)
@@ -206,6 +274,17 @@ describe('Community source boundary configuration', () => {
       }
     }
   }, 15_000)
+
+  it('routes provider recovery through the reviewed Community alias instead of private source', () => {
+    const root = resolve(import.meta.dirname, '..')
+    const mainSource = readFileSync(resolve(root, 'src/main/index.ts'), 'utf8')
+
+    expect(openNodeAliasPaths['#provider-recovery']).toEqual([
+      'src/main/providerRecovery.disabled.ts',
+    ])
+    expect(mainSource).toContain("from '#provider-recovery'")
+    expect(mainSource).not.toContain("from './providerRecovery'")
+  })
 
   it('rejects every current and future commercial IPC channel or event', () => {
     const hardcodedChannels = [

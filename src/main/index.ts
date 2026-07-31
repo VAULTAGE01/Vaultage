@@ -10,6 +10,7 @@ import {
   sendExtensionHandoff,
   type ExtensionHandoff,
 } from '#extension-handoff'
+import { parseHostedBillingReturnUrl } from './billingReturnHandoff'
 import { AuthController } from './auth'
 import { installRendererCsp } from './contentSecurityPolicy'
 import { shouldUseWindowContentProtection } from './contentProtectionPolicy'
@@ -30,6 +31,7 @@ import { registerVaultIpc } from './vaultIpc'
 import { redactVaultForRenderer } from './vaultRedaction'
 import { createRailwayProviderRuntime, registerProviderIpc } from '#provider-ipc'
 import { ProviderWorkerClient } from '#provider-worker-client'
+import { ProviderRecoveryStore } from '#provider-recovery'
 import { IS_MAC, keychainRemove, keychainRetrieve, keychainStore } from './keychain'
 import {
   createE2EHeadlessPolicy,
@@ -112,12 +114,14 @@ const authKeychain = {
 }
 const commercialSafeStorage = safeStorage
 const providerClient = new ProviderWorkerClient()
+const providerRecovery = new ProviderRecoveryStore()
 const hasSingleInstanceLock = app.requestSingleInstanceLock()
 if (!hasSingleInstanceLock) app.quit()
 let idleAutoLock: IdleAutoLockController | null = null
 let vaultRevision = 0
 let pendingExtensionHandoff: ExtensionHandoff | null = null
 let pendingExtensionHandoffUrls: string[] = []
+let pendingHostedBillingReturnUrls: string[] = []
 let menuBar: MenuBarController | null = null
 let menuPanelWindow: BrowserWindow | null = null
 let quitPreparing = false
@@ -242,6 +246,14 @@ const agentComposition = registerAgentComposition({
   beginSessionOperation: () => vaultSession.beginOperation(),
   leaseVaultKey: () => vaultSession.leaseCurrentKey(),
   readVault,
+  updateVault,
+  getVaultRevision: () => vaultRevision,
+  setVaultRevision: revision => { vaultRevision = revision },
+  onVaultChanged: ({ revision, snapshot }) => notifyVaultChanged({
+    revision,
+    data: redactVaultForRenderer(snapshot),
+    source: 'agent',
+  }),
   shouldProtectContent: shouldUseContentProtection,
   onStateChanged: syncMenuBar,
   getWindow: () => mainWindow,
@@ -283,6 +295,9 @@ const agentComposition = registerAgentComposition({
     if (!app.isPackaged) return
     await requireInstalledExtensionNativeHost(extensionNativeHostRegistrar)
   },
+  providerWorkerClient: providerClient,
+  providerRecovery,
+  openExternal: async url => { await shell.openExternal(url) },
 })
 const agentServer = agentComposition.server
 
@@ -445,6 +460,8 @@ providerRuntime = registerProviderIpc(mainWindowIpc, providerClient, recordAudit
   setVaultRevision: (revision) => { vaultRevision = revision },
   onVaultChanged: ({ revision, data }) => notifyVaultChanged({ revision, data, source: 'provider' }),
   confirmProviderAction: (prompt) => authController.confirmAgentApproval(prompt),
+  recordAuditDurable,
+  recoveryStore: providerRecovery,
   authorizeServices: async () => {
     if (!commercialRuntime) throw new Error('Commercial policy is still initializing')
     return commercialRuntime.acquireCapabilityLease('pro.services')
@@ -597,6 +614,7 @@ function syncAgentApiPortFromVault(vault: unknown): void {
 
 function createWindow(): void {
   mainWindow = createMainWindow(() => {
+    agentComposition.clearCredentialDeposits('vault_locked')
     mainWindow = null
     syncMenuBar()
   }, e2eHeadlessPolicy)
@@ -836,6 +854,25 @@ function flushExtensionHandoffUrls(): void {
   for (const rawUrl of urls) void receiveExtensionHandoff(agentComposition.parseHandoffUrl(rawUrl))
 }
 
+function receiveHostedBillingReturnUrl(rawUrl: string): void {
+  const billingReturn = parseHostedBillingReturnUrl(rawUrl)
+  if (!billingReturn) return
+  if (!commercialRuntime) {
+    pendingHostedBillingReturnUrls = [...pendingHostedBillingReturnUrls, rawUrl].slice(-4)
+    return
+  }
+  void commercialRuntime.observeHostedBillingReturn(billingReturn).then(() => {
+    showMainWindow()
+  }).catch(() => undefined)
+}
+
+function flushHostedBillingReturnUrls(): void {
+  if (!commercialRuntime || pendingHostedBillingReturnUrls.length === 0) return
+  const urls = pendingHostedBillingReturnUrls
+  pendingHostedBillingReturnUrls = []
+  for (const rawUrl of urls) receiveHostedBillingReturnUrl(rawUrl)
+}
+
 async function flushExtensionHandoff(): Promise<void> {
   if (!mainWindow || !pendingExtensionHandoff) return
   const authorized = await authorizeCommercialExtensionHandoff(commercialRuntime, pendingExtensionHandoff)
@@ -851,6 +888,7 @@ async function flushExtensionHandoff(): Promise<void> {
 app.on('open-url', (event, rawUrl) => {
   event.preventDefault()
   if (!e2eHeadlessPolicy.allow('openUrl')) return
+  receiveHostedBillingReturnUrl(rawUrl)
   receiveExtensionHandoffUrl(rawUrl)
 })
 
@@ -899,6 +937,7 @@ app.whenReady().then(async () => {
     },
   })
   registerExtensionProtocol()
+  flushHostedBillingReturnUrls()
   await agentComposition.initialize()
   await receiveExtensionHandoff(agentComposition.findHandoffArg(process.argv))
   flushExtensionHandoffUrls()
@@ -972,6 +1011,7 @@ async function notifyExtensionNativeHostLaunchIssue(): Promise<void> {
 
 app.on('second-instance', (_event, argv) => {
   if (!e2eHeadlessPolicy.allow('secondInstance')) return
+  for (const rawUrl of argv) receiveHostedBillingReturnUrl(rawUrl)
   void receiveExtensionHandoff(agentComposition.findHandoffArg(argv))
   showMainWindow()
 })
@@ -992,6 +1032,7 @@ app.on('before-quit', (event) => {
   void runGracefulShutdown({
     cleanup: async () => {
       await lockVault(false, 'app-quit')
+      agentComposition.shutdown()
       await flushAuditQueue()
     },
     dispose: () => commercialRuntime?.dispose(),

@@ -6,7 +6,7 @@ import {
   QuickActionCard,
   ScopedSearchTrigger,
   Ui2026Shell,
-} from './primitives'
+} from './primitives.open'
 
 describe('Community UI2026 primitives', () => {
   it('keeps the shell landmarks and skip link stable', () => {

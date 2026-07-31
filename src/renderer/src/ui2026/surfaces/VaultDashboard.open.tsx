@@ -15,7 +15,7 @@ import {
   EnvBadge,
   QuickActionCard,
   SurfaceSectionHeader,
-} from '../primitives'
+} from '../primitives.open'
 import type { createVaultSurfaceActions } from './vaultSurfaceActions.open'
 import type {
   filterVaultSurfaceModel,

@@ -2,7 +2,7 @@ import { Folder } from 'lucide-react'
 import type { ReactElement } from 'react'
 import type { Ui2026Surface } from '../flags'
 import { ReferenceRail } from '../referenceComposition'
-import { ContextRail, EnvBadge, type ActionSpec } from '../primitives'
+import { ContextRail, EnvBadge, type ActionSpec } from '../primitives.open'
 import type { filterVaultSurfaceModel } from './vaultSurfaceModel.open'
 
 type VisibleVault = ReturnType<typeof filterVaultSurfaceModel>
@@ -21,6 +21,7 @@ export function VaultReferenceRail({
   return (
     <ReferenceRail
       surface='vault'
+      servicesAvailable={false}
       searchPlaceholder='Search secrets and collections'
       onSearch={onSearch}
       onSurfaceChange={onSurfaceChange}

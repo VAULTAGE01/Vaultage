@@ -3,6 +3,7 @@ import { join, relative } from 'path'
 import {
   findPrivatePreloadIpcChannelLeaks,
   findPrivatePreloadModuleImportLeaks,
+  findPrivateVaultValidationLeaks,
   isPrivateOverlaySourcePath,
 } from './open-source-config.mjs'
 import { validateLocalPackageTargets } from './script-targets.mjs'
@@ -48,6 +49,13 @@ for (const path of [
     /PaidBetaOnboarding|paidBetaOnboarding/u.test(readFileSync(path, 'utf8'))
   ) {
     blockers.push(`${path} contains private paid-beta onboarding metadata.`)
+  }
+}
+
+if (existsSync('src/shared/vaultValidation.ts')) {
+  const vaultValidationSource = readFileSync('src/shared/vaultValidation.ts', 'utf8')
+  for (const term of findPrivateVaultValidationLeaks(vaultValidationSource)) {
+    blockers.push(`src/shared/vaultValidation.ts contains private Agent token-policy validation term ${term}.`)
   }
 }
 
