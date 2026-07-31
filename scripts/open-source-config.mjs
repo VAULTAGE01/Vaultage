@@ -36,9 +36,23 @@ const privateOverlaySourcePatterns = [
 
 export const publicUi2026SourcePaths = new Set([
   'src/renderer/src/ui2026/assets/projects-hero.png',
+  'src/renderer/src/ui2026/assets/index.ts',
+  'src/renderer/src/ui2026/flags.test.ts',
+  'src/renderer/src/ui2026/flags.ts',
+  'src/renderer/src/ui2026/focusRestoration.test.ts',
+  'src/renderer/src/ui2026/focusRestoration.ts',
+  'src/renderer/src/ui2026/primitives.test.tsx',
+  'src/renderer/src/ui2026/primitives.tsx',
+  'src/renderer/src/ui2026/primitives/cards.tsx',
   'src/renderer/src/ui2026/primitives/hero.tsx',
+  'src/renderer/src/ui2026/primitives/rail.tsx',
   'src/renderer/src/ui2026/primitives/rows.tsx',
+  'src/renderer/src/ui2026/primitives/shell.tsx',
   'src/renderer/src/ui2026/primitives/types.ts',
+  'src/renderer/src/ui2026/referenceComposition.tsx',
+  'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
+  'src/renderer/src/ui2026/surfaceNavigation.tsx',
+  'src/renderer/src/ui2026/surfaceSearch.ts',
   'src/renderer/src/ui2026/ui2026.css',
 ])
 
