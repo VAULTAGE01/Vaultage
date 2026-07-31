@@ -270,7 +270,7 @@ export default function ExportModal({ initialScope = { kind: 'vault' }, onClose 
 
   return (
     <Dialog open onOpenChange={open => { if (!open && !exportBusy && !backupBusy) onClose() }}>
-      <DialogContent className="max-w-2xl max-h-[88vh] flex flex-col overflow-hidden">
+      <DialogContent className="max-w-4xl max-h-[88vh] flex flex-col overflow-hidden">
         <DialogHeader>
           <DialogTitle>Export Vault</DialogTitle>
           <DialogDescription>
