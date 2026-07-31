@@ -67,6 +67,14 @@ RailSection, and RailStatSplit are reusable Vault/Projects building blocks.
 Their states are represented by the existing CSS classes and focused
 server-render tests.
 
+### Vault surface
+
+- Structure: command header, optional context rail, local metrics, pinned secrets, quick actions, reminders, recent secrets, pinned collections, and scoped search results.
+- States: empty first-use guidance, populated local vault, filtered results, and no-match search feedback.
+- Behavior: selecting a secret or collection hands off to the existing local Vault workspace, preserving CRUD, folders, drag/drop, import/export, backup/restore, and selection behavior.
+- Boundary: Community renders only local vault data and keeps Services, provider, agent, billing, and cloud surfaces out of the composition.
+- Accessibility: shell landmarks, scoped search labels, native buttons, keyboard-focusable rows, and environment badges with full accessible names.
+
 ## 6. Motion & Interaction
 
 The existing motion tokens are --ui26-motion-fast, --ui26-motion-standard, and
@@ -84,6 +92,5 @@ sheen. Elevation is expressed by --ui26-surface-*, --ui26-glass-*, and
 
 Target WCAG 2.2 AA: visible focus, keyboard reachability, semantic landmarks,
 accessible names for controls, and no hidden Services control in the Community
-edition. Visual QA for the composed Vault and Projects screens is intentionally
-deferred until those surfaces are implemented; this foundation slice is
-verified with focused render and keyboard-contract tests.
+edition. The Vault surface has focused server-render coverage; full visual QA
+of the composed Vault and Projects screens remains a release-stage check.

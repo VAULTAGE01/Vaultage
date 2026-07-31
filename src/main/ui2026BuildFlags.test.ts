@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { resolveUi2026BuildFlags } from './ui2026BuildFlags';
+import {
+  resolveUi2026BuildFlags,
+  resolveUi2026BuildFlagsForEdition,
+} from './ui2026BuildFlags';
 
 describe('UI 2026 landing build flags', () => {
   it('keeps the established Vault and Projects landings while enabling Services', () => {
@@ -18,6 +21,31 @@ describe('UI 2026 landing build flags', () => {
     })).toEqual({
       vault: false,
       projects: true,
+      services: false,
+    });
+  });
+
+  it('enables the open Vault and Projects landings and disables Services', () => {
+    expect(resolveUi2026BuildFlagsForEdition({}, true)).toEqual({
+      vault: true,
+      projects: true,
+      services: false,
+    });
+  });
+
+  it('preserves closed defaults and only permits open Vault/Projects rollback', () => {
+    expect(resolveUi2026BuildFlagsForEdition({}, false)).toEqual({
+      vault: false,
+      projects: false,
+      services: true,
+    });
+    expect(resolveUi2026BuildFlagsForEdition({
+      VAULTAGE_UI2026_VAULT: '0',
+      VAULTAGE_UI2026_PROJECTS: '0',
+      VAULTAGE_UI2026_SERVICES: '1',
+    }, true)).toEqual({
+      vault: false,
+      projects: false,
       services: false,
     });
   });

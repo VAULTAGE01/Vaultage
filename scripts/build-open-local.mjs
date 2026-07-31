@@ -3,7 +3,13 @@ import { rmSync } from 'fs'
 import { exit, platform } from 'process'
 import { resolve } from 'path'
 
-const env = { ...process.env, VAULTAGE_OPEN_CORE: '1' }
+const env = {
+  ...process.env,
+  VAULTAGE_OPEN_CORE: '1',
+  VAULTAGE_UI2026_VAULT: '1',
+  VAULTAGE_UI2026_PROJECTS: '1',
+  VAULTAGE_UI2026_SERVICES: '0',
+}
 rmSync(resolve(process.cwd(), 'out'), { recursive: true, force: true })
 const commands = platform === 'darwin'
   ? [

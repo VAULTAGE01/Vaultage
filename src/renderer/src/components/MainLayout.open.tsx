@@ -9,6 +9,8 @@ import ProjectsView from './ProjectsView.open'
 import CommunityOnboardingResearchPrompt from './OnboardingResearchPrompt.open'
 import { OPEN_SHELL_BACKGROUND_CONTRACT } from '../lib/editionTheme'
 import { ApplicationShell } from './ApplicationShell'
+import { isUi2026Enabled } from '../ui2026/flags'
+import VaultSurface from '../ui2026/surfaces/VaultSurface.open'
 
 export type AppView = 'dashboard' | 'folders'
 
@@ -22,6 +24,9 @@ export default function MainLayout() {
   const [showSearch, setShowSearch] = useState(false)
   const [view, setView] = useState<AppView>('dashboard')
   const shellBackground = OPEN_SHELL_BACKGROUND_CONTRACT
+  const showUi2026Vault = mode === 'local'
+    && view === 'dashboard'
+    && isUi2026Enabled('vault')
 
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
@@ -59,7 +64,16 @@ export default function MainLayout() {
       background={shellBackground}
       sidebar={<Sidebar view={view} onViewChange={setView} />}
     >
-        {mode === 'projects' ? (
+        {showUi2026Vault ? (
+          <div className="application-shell-content liquid-content relative min-w-0 flex-1 overflow-hidden bg-bg">
+            <MainContentDragStrip />
+            <VaultSurface
+              embedded
+              onSurfaceChange={() => undefined}
+              onOpenLegacyWorkspace={setView}
+            />
+          </div>
+        ) : mode === 'projects' ? (
           <div className="application-shell-content liquid-content relative flex-1 overflow-hidden bg-bg">
             <MainContentDragStrip />
             <ProjectsView />

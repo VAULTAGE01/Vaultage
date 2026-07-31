@@ -17,3 +17,22 @@ export function resolveUi2026BuildFlags(
     services: resolveFlag(environment['VAULTAGE_UI2026_SERVICES'], true),
   });
 }
+
+/**
+ * Resolve the edition-specific UI 2026 defaults without changing the closed
+ * application's established landing choices. Community ships the open Vault
+ * and Projects surfaces, while Services remains private to the closed build.
+ */
+export function resolveUi2026BuildFlagsForEdition(
+  environment: Readonly<Record<string, string | undefined>>,
+  openCoreBuild: boolean,
+): Ui2026BuildFlags {
+  if (!openCoreBuild) return resolveUi2026BuildFlags(environment);
+
+  return resolveUi2026BuildFlags({
+    ...environment,
+    VAULTAGE_UI2026_VAULT: environment['VAULTAGE_UI2026_VAULT'] ?? '1',
+    VAULTAGE_UI2026_PROJECTS: environment['VAULTAGE_UI2026_PROJECTS'] ?? '1',
+    VAULTAGE_UI2026_SERVICES: '0',
+  });
+}
