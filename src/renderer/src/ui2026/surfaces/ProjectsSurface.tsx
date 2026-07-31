@@ -61,7 +61,7 @@ export function ProjectsSurface({
           searchTriggerId='ui26-projects-search-trigger-header'
           onSearch={() => setSearchOpen(true)}
           actions={[
-            { label: 'New project', onActivate: onOpenNewProject, icon: <Plus size={16} /> },
+            { label: 'New Project', onActivate: onOpenNewProject, icon: <Plus size={16} /> },
             { label: 'Manage mappings', onActivate: openMappings, variant: 'secondary', icon: <Settings2 size={16} /> },
           ]}
         />
@@ -71,7 +71,7 @@ export function ProjectsSurface({
         {heroVisible ? (
           <div className='ui26-projects-hero-shell'>
             <SurfaceHero
-              eyebrow='Local project context'
+              eyebrow='Local Project Mappings'
               title='Keep local projects and Vault mappings in sync'
               description='Scan a folder, connect Vault fields to env keys, and export only when you choose.'
               facts={[
