@@ -164,7 +164,7 @@ describe('Community source boundary configuration', () => {
       'src/renderer/src/ui2026/primitives/rail.tsx',
       'src/renderer/src/ui2026/primitives/rows.tsx',
       'src/renderer/src/ui2026/primitives/shell.tsx',
-      'src/renderer/src/ui2026/primitives/types.ts',
+      'src/renderer/src/ui2026/primitives/types.open.ts',
       'src/renderer/src/ui2026/referenceComposition.tsx',
       'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
       'src/renderer/src/ui2026/surfaceNavigation.tsx',

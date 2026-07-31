@@ -34,16 +34,3 @@ export type EmptyStateSpec = {
   readonly description: string;
   readonly action?: ActionSpec;
 };
-
-export type CategoryAccent =
-  | 'violet'
-  | 'cyan'
-  | 'blue'
-  | 'amber'
-  | 'lime'
-  | 'rose';
-
-export type SponsorDisclosure = {
-  readonly label: 'Sponsored';
-  readonly sponsorName?: string;
-};
