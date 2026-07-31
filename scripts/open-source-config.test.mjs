@@ -70,8 +70,9 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('scripts/services-provider-flow-visual-qa.mjs')).toBe(true)
   })
 
-  it('allows only the reviewed Projects visual primitives from UI2026', () => {
+  it('allows only the reviewed Community-safe UI2026 foundation', () => {
     for (const path of [
+      'src/renderer/src/ui2026/surfaces/ServicesSurface.tsx',
       'src/renderer/src/ui2026/Ui2026Showcase.tsx',
       'src/renderer/src/ui2026/surfaces/VaultSurface.tsx',
       'src/renderer/src/ui2026/surfaces/ProjectsSurface.tsx',
@@ -84,9 +85,23 @@ describe('Community source boundary configuration', () => {
 
     for (const path of [
       'src/renderer/src/ui2026/assets/projects-hero.png',
+      'src/renderer/src/ui2026/assets/index.ts',
+      'src/renderer/src/ui2026/flags.test.ts',
+      'src/renderer/src/ui2026/flags.ts',
+      'src/renderer/src/ui2026/focusRestoration.test.ts',
+      'src/renderer/src/ui2026/focusRestoration.ts',
+      'src/renderer/src/ui2026/primitives.test.tsx',
+      'src/renderer/src/ui2026/primitives.tsx',
+      'src/renderer/src/ui2026/primitives/cards.tsx',
       'src/renderer/src/ui2026/primitives/hero.tsx',
+      'src/renderer/src/ui2026/primitives/rail.tsx',
       'src/renderer/src/ui2026/primitives/rows.tsx',
+      'src/renderer/src/ui2026/primitives/shell.tsx',
       'src/renderer/src/ui2026/primitives/types.ts',
+      'src/renderer/src/ui2026/referenceComposition.tsx',
+      'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
+      'src/renderer/src/ui2026/surfaceNavigation.tsx',
+      'src/renderer/src/ui2026/surfaceSearch.ts',
       'src/renderer/src/ui2026/ui2026.css',
     ]) {
       expect(isPrivateOverlaySourcePath(path), path).toBe(false)
