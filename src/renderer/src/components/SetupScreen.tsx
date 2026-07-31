@@ -57,7 +57,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
 
   return (
     <>
-      <div className={cn('no-drag w-[440px] animate-scale-in', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
+      <div className={cn('no-drag w-[440px] animate-scale-in relative z-10', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
         {/* Header */}
         <div className="text-center mb-7 flex flex-col items-center">
           <VaultageLogoWordmark className="w-64 h-16 text-white mb-3" />
@@ -98,7 +98,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
                 <p className="text-xs text-text-secondary mt-1 leading-relaxed">
                   {localOnly
                     ? 'Local-first Community. Complete encrypted vault and unlimited local Projects, no signup.'
-                    : 'Local-first Free. Complete encrypted vault and up to two active Projects, no signup.'}
+                    : 'Local-first Free. Complete encrypted vault, unlimited local Projects, and local Agent access, no signup.'}
                 </p>
               </div>
               <svg className="w-4 h-4 text-text-secondary mt-2 flex-shrink-0 transition-transform group-hover:translate-x-0.5"
@@ -110,7 +110,7 @@ function WelcomeStep({ onContinueLocal }: { onContinueLocal: () => void }) {
 
           {!localOnly && (
             <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] px-5 py-4 text-xs leading-relaxed text-text-secondary">
-              After setup, Account &amp; Plan reports whether optional paid-beta activation is available. When enabled, an eligible new account receives one 30-day, no-card Pro trial for Agent and Services. Browser-extension access remains separately release-gated.
+              After setup, Account &amp; Plan reports whether optional Services access is available. When enabled, an eligible new account receives one 30-day, no-card Pro trial for Services. Browser-extension access remains deferred and unavailable.
             </div>
           )}
         </div>
@@ -137,7 +137,7 @@ function PasswordStep({ onBack }: { onBack: () => void }) {
   const str      = strength(pw)
   const mismatch = confirm.length > 0 && pw !== confirm
   const policyError = pw.length > 0 ? masterPasswordPolicyError(pw, 'Master password') : null
-  const ready    = !policyError && pw === confirm && !loading
+  const ready    = pw.length > 0 && !policyError && pw === confirm && !loading
 
   const handleCreate = async () => {
     if (!ready) return
@@ -147,7 +147,7 @@ function PasswordStep({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className={cn('no-drag w-[400px] animate-scale-in', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
+    <div className={cn('no-drag w-[400px] animate-scale-in relative z-10', __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName)}>
       {/* Header with back */}
       <div className="text-center mb-7 relative flex flex-col items-center">
 	        <button

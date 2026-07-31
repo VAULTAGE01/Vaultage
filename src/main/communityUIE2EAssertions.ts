@@ -25,6 +25,12 @@ export type CommunityUIE2EPlaintextPolicy = {
   readonly auditFieldIdentifiers: readonly string[]
 }
 
+function expectedOpenLocalApplicationName(): 'Vaultage Community' | 'vault-OC' {
+  return existsSync(join(process.cwd(), 'src', 'main', 'applicationIdentity.ts'))
+    ? 'vault-OC'
+    : 'Vaultage Community'
+}
+
 function objectAt(value: unknown, key: PropertyKey): object {
   if (typeof value !== 'object' || value === null) throw new TypeError('E2E inspection is unavailable')
   const nested: unknown = Reflect.get(value, key)
@@ -76,7 +82,7 @@ export async function assertCommunityUIE2ECheckpoint(
   }, E2E_HEADLESS_INSPECTION_KEY)
   const run = resources.run
   expect(state.packaged).toBe(false)
-  expect(state.appName).toBe('vault-OC')
+  expect(state.appName).toBe(expectedOpenLocalApplicationName())
   expect(realpathSync(state.appPath)).toBe(realpathSync(run.appRoot))
   expect(realpathSync(state.userData)).toBe(realpathSync(run.profileDir))
   expect(state.argv.filter(argument => argument === `--user-data-dir=${run.profileDir}`)).toHaveLength(1)

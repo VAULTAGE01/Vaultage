@@ -477,13 +477,54 @@ describe('registerVaultIpc export IPC', () => {
     const result = await handlers.get('vault:copy-secret-field')?.({}, {
       secretId: 'secret-stripe',
       fieldKey: 'API Key',
-      clearAfterMs: 0,
+      confirmationPhrase: 'REVEAL SECRET',
     })
 
     expect(result).toEqual({ success: true })
+    expect(authController.confirmSecretReveal).toHaveBeenCalledWith(
+      'Copy saved secret value from Vaultage',
+      'REVEAL SECRET',
+    )
     expect(electronMock.writeText).toHaveBeenCalledWith('stripe-secret-value')
     expect(recordSecretUsage).toHaveBeenCalledWith('secret-stripe', expect.any(String))
     expect(storageMock.updateVault).not.toHaveBeenCalled()
+  })
+
+  it('blocks reveal and copy before plaintext reaches the clipboard when the per-secret policy is off', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const blockedVault = sampleVault()
+    const blockedSecret = {
+      ...blockedVault.root.children[0]!.secrets[0]!,
+      revealAllowed: false,
+    }
+    blockedVault.root.children[0]!.secrets[0] = blockedSecret
+    storageMock.readVault.mockResolvedValue(blockedVault)
+    const authController = {
+      confirmSecretReveal: vi.fn(() => ({ success: true })),
+      forgetTouchID: vi.fn(() => ({ success: true })),
+    } as unknown as AuthController
+
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController,
+      recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
+    })
+
+    await expect(handlers.get('vault:copy-secret-field')?.({}, {
+      secretId: 'secret-stripe',
+      fieldKey: 'API Key',
+    })).resolves.toMatchObject({ success: false, error: expect.stringContaining('disabled for this secret') })
+    expect(authController.confirmSecretReveal).not.toHaveBeenCalled()
+    expect(electronMock.writeText).not.toHaveBeenCalled()
   })
 
   it('clears a copied value and reports failure when its audit is not durable', async () => {
@@ -588,7 +629,12 @@ describe('registerVaultIpc export IPC', () => {
       await expect(handlers.get('vault:copy-secret-image-field')?.({}, {
         secretId: 'secret-image',
         fieldKey: '__image__',
+        confirmationPhrase: 'REVEAL SECRET',
       })).resolves.toEqual({ success: true })
+      expect(authController.confirmSecretReveal).toHaveBeenCalledWith(
+        'Copy saved secret image from Vaultage',
+        'REVEAL SECRET',
+      )
       expect(electronMock.clearClipboard).not.toHaveBeenCalled()
       await vi.advanceTimersByTimeAsync(30_000)
       expect(electronMock.clearClipboard).toHaveBeenCalledOnce()

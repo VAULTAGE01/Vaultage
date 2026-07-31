@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { EnvProject } from '../types'
 import {
   ensureProjectEnvironments,
+  getProjectEnvironment,
+  getProjectEnvironments,
   getProjectEnvironmentDisplays,
   projectLocalEnvironment,
   withLocalProjectEnvironment,
@@ -33,12 +35,21 @@ describe('project environment helpers', () => {
     }])
   })
 
-  it('renders only environments that belong to the Project', () => {
+  it('renders the fixed local, development, staging, and production demo rows', () => {
     const displays = getProjectEnvironmentDisplays(legacyProject)
 
     expect(displays.map(environment => [environment.name, environment.kind, environment.configured])).toEqual([
       ['Local', 'local', true],
+      ['Dev', 'cloud', false],
+      ['Stg', 'cloud', false],
+      ['Prod', 'cloud', false],
     ])
+    expect(getProjectEnvironment(legacyProject, 'project-1:staging')).toMatchObject({
+      name: 'Stg',
+      scope: 'staging',
+      kind: 'cloud',
+      syncRule: 'manual',
+    })
   })
 
   it('keeps legacy fields mirrored when local environment changes', () => {
@@ -82,11 +93,74 @@ describe('project environment helpers', () => {
     ])
     expect(getProjectEnvironmentDisplays(project).filter(environment => environment.configured).map(environment => environment.name)).toEqual([
       'Local',
-      'Staging',
+      'Stg',
     ])
-    expect(getProjectEnvironmentDisplays(project).find(environment => environment.name === 'Staging')).toMatchObject({
+    expect(getProjectEnvironmentDisplays(project).find(environment => environment.name === 'Stg')).toMatchObject({
       status: 'unavailable',
       detail: expect.stringContaining('cloud push/pull unavailable'),
     })
+  })
+
+  it('keeps the environment rail to exactly the four demo slots', () => {
+    const project = withProjectEnvironment(legacyProject, {
+      id: 'env-preview',
+      name: 'Preview',
+      scope: 'preview',
+      kind: 'cloud',
+      entries: [],
+    })
+
+    expect(getProjectEnvironmentDisplays(project).map(environment => environment.name)).toEqual([
+      'Local', 'Dev', 'Stg', 'Prod',
+    ])
+  })
+
+  it('preserves opaque provider target metadata on a fixed project environment', () => {
+    const project = withProjectEnvironment(legacyProject, {
+      id: 'project-1:staging',
+      name: 'Stg',
+      scope: 'staging',
+      kind: 'cloud',
+      providerId: 'provider-one',
+      entries: [],
+      providerBinding: {
+        kind: 'external-secret-target',
+        target: 'project-1-staging',
+      },
+    })
+
+    expect(getProjectEnvironments(project).find(environment => environment.id === 'project-1:staging')).toMatchObject({
+      providerId: 'provider-one',
+      providerBinding: {
+        kind: 'external-secret-target',
+        target: 'project-1-staging',
+      },
+    })
+  })
+
+  it('moves a legacy staging row onto the fixed project slot when a provider binding is saved', () => {
+    const legacyCloud = withProjectEnvironment(legacyProject, {
+      id: 'legacy-staging-id',
+      name: 'Staging',
+      scope: 'staging',
+      kind: 'cloud',
+      entries: [],
+    })
+    const migrated = withProjectEnvironment(legacyCloud, {
+      id: 'legacy-staging-id',
+      name: 'Stg',
+      scope: 'staging',
+      kind: 'cloud',
+      providerId: 'provider-one',
+      entries: [],
+      providerBinding: {
+        kind: 'external-secret-target',
+        target: 'project-1-staging',
+      },
+    })
+
+    expect(migrated.environments?.filter(environment => environment.scope === 'staging')).toEqual([
+      expect.objectContaining({ id: 'project-1:staging', providerId: 'provider-one' }),
+    ])
   })
 })

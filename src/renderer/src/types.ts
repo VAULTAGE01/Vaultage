@@ -40,6 +40,9 @@ export interface VaultSecret {
   // user has explicitly marked this secret as "ok to share with agents."
   // Touch ID is still required per request — this only governs surfacing.
   agentAvailable?: boolean
+  browserExtensionAllowed?: boolean
+  revealAllowed?: boolean
+  cliExportAllowed?: boolean
 }
 
 export interface ProviderLink {
@@ -140,6 +143,7 @@ export interface EnvProjectEnvironment {
   addToGitignore?: boolean
   manualScanFiles?: string[]
   lastSyncAt?:     string
+  providerBinding?: Record<string, unknown>
 }
 
 export interface EnvProject {

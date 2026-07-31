@@ -19,7 +19,7 @@ export interface CommercialRuntimeAccess {
   requireCapability(capability: ProCapability): Promise<void>
   acquireCapabilityLease(capability: ProCapability): Promise<CommercialCapabilityLease>
   authorizeVaultMutation(currentVault: unknown, command: Record<string, unknown>): Promise<Record<string, unknown>>
-  acquireProjectScanLease(currentVault: unknown, path: string, projectId?: string, replaceProjectId?: string): Promise<CommercialProjectScanLease>
+  acquireProjectScanLease(currentVault: unknown, path: string, projectId?: string): Promise<CommercialProjectScanLease>
   acquireProjectExportLease(currentVault: unknown, projectId: string): Promise<CommercialProjectExportLease>
   resume(): Promise<void>
   suspend(reason?: string): void

@@ -17,8 +17,8 @@ import { DEFAULT_LOCAL_FOLDERS } from '../../shared/defaultLocalFolders'
 import { providerTypeCategory, serviceCategoryLabel } from '#service-categories'
 import type { VaultMutationCommand } from '../../shared/vaultIpcContracts'
 import { toast } from 'sonner'
-
-const SECRET_REVEAL_CONFIRM_PHRASE = 'REVEAL SECRET'
+import { useTextInputDialog } from './components/TextInputDialogProvider'
+import { requestSecretRevealConfirmation } from './lib/textInputRequests'
 
 export { findFolder, findSecret, flatSecrets, orderedFolderItems } from './lib/vaultTree'
 
@@ -65,6 +65,10 @@ export interface ProviderMutationAuthorization {
   expectedRevision: number
 }
 
+export interface EnvProjectMutationAuthorization {
+  targetVerificationGrant?: string
+}
+
 export interface ImportedFolderTreeResult {
   folderId: string
   firstSecretId: string | null
@@ -103,27 +107,27 @@ function reducer(s: State, a: Action): State {
     }
     case 'TRACK_USAGE': {
       if (!s.vault) return s
-      const result = findSecret(s.vault.root, a.secretId)
-      if (!result) return s
-      const updated: VaultSecret = {
-        ...result.secret,
-        lastUsedAt: a.usedAt,
-        usageCount: (result.secret.usageCount ?? 0) + 1,
-        updatedAt: a.usedAt,
-      }
-      return {
-        ...s,
-        vault: {
-          ...s.vault,
-          root: mapFolder(s.vault.root, result.folderId, folder => ({
-            ...folder,
-            secrets: folder.secrets.map(secret => secret.id === a.secretId ? updated : secret),
-          })),
-        },
-      }
+      return { ...s, vault: trackSecretUsage(s.vault, a.secretId, a.usedAt) }
     }
     case 'SET_ERROR':     return { ...s, error: a.error }
     case 'SET_SAVING':    return { ...s, saving: a.saving }
+  }
+}
+
+export function trackSecretUsage(vault: VaultRoot, secretId: string, usedAt: string): VaultRoot {
+  const result = findSecret(vault.root, secretId)
+  if (!result) return vault
+  const updated: VaultSecret = {
+    ...result.secret,
+    lastUsedAt: usedAt,
+    usageCount: (result.secret.usageCount ?? 0) + 1,
+  }
+  return {
+    ...vault,
+    root: mapFolder(vault.root, result.folderId, folder => ({
+      ...folder,
+      secrets: folder.secrets.map(secret => secret.id === secretId ? updated : secret),
+    })),
   }
 }
 
@@ -432,10 +436,9 @@ interface Ctx {
   moveProvider: (providerId: string, groupId: string | null, targetProviderId?: string, position?: 'before' | 'after') => Promise<void>
 
   // Env projects
-  addEnvProject:    (p: Omit<EnvProject, 'id'>, replaceProjectId?: string) => Promise<EnvProject | null>
-  updateEnvProject: (p: EnvProject) => Promise<void>
+  addEnvProject:    (p: Omit<EnvProject, 'id'>) => Promise<EnvProject | null>
+  updateEnvProject: (p: EnvProject, authorization?: EnvProjectMutationAuthorization) => Promise<void>
   updateEnvProjects: (projects: EnvProject[]) => Promise<void>
-  activateEnvProject: (projectId: string, replaceProjectId?: string) => Promise<void>
   deleteEnvProject: (id: string) => Promise<void>
 
   // Preferences
@@ -451,6 +454,7 @@ type AgentProjectSecretDraft = {
 }
 
 export function VaultProvider({ children }: { children: React.ReactNode }) {
+  const requestTextInput = useTextInputDialog()
   const [state, dispatch] = useReducer(reducer, {
     screen: 'checking', vault: null,
     selectedFolderId: null, selectedSecretId: null,
@@ -850,11 +854,21 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   ) => {
     const sessionEpoch = sessionGuardRef.current.epoch
     if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
+    const found = findSecret(state.vault.root, secretId)
+    const candidates = found?.secret.fields.filter(field => (
+      options?.fieldId ? field.id === options.fieldId : field.key === fieldKey
+    )) ?? []
+    const requiresConfirmation = candidates.length !== 1 || candidates[0]?.sensitive === true
+    const confirmationPhrase = requiresConfirmation
+      ? await requestSecretRevealConfirmation(window.vault.platform, requestTextInput)
+      : undefined
+    if (confirmationPhrase === null || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     const usedAt = new Date().toISOString()
     const res = await window.vault.copySecretField({
       secretId,
       fieldKey,
       fieldId: options?.fieldId,
+      confirmationPhrase,
     })
     if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     if (!res.success) {
@@ -864,13 +878,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'TRACK_USAGE', secretId, usedAt })
     if (typeof res.revision === 'number') dispatch({ type: 'SET_REVISION', revision: res.revision })
     return true
-  }, [state.vault])
+  }, [requestTextInput, state.vault])
 
   const copySecretImageField = useCallback(async (secretId: string, fieldKey: string, fieldId?: string) => {
     const sessionEpoch = sessionGuardRef.current.epoch
     if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
+    const confirmationPhrase = await requestSecretRevealConfirmation(window.vault.platform, requestTextInput)
+    if (confirmationPhrase === null || !sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     const usedAt = new Date().toISOString()
-    const res = await window.vault.copySecretImageField({ secretId, fieldKey, fieldId })
+    const res = await window.vault.copySecretImageField({ secretId, fieldKey, fieldId, confirmationPhrase })
     if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return false
     if (!res.success) {
       console.error('[vault] Failed to copy secret image field:', res.error)
@@ -879,13 +895,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'TRACK_USAGE', secretId, usedAt })
     if (typeof res.revision === 'number') dispatch({ type: 'SET_REVISION', revision: res.revision })
     return true
-  }, [state.vault])
+  }, [requestTextInput, state.vault])
 
   const revealSecretField = useCallback(async (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => {
     const sessionEpoch = sessionGuardRef.current.epoch
     if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const usedAt = new Date().toISOString()
-    const confirmationPhrase = options?.pin ? undefined : secretRevealConfirmationPhrase()
+    const confirmationPhrase = options?.pin
+      ? undefined
+      : await requestSecretRevealConfirmation(window.vault.platform, requestTextInput)
     if (confirmationPhrase === null) return null
     if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const res = await window.vault.revealSecretField({
@@ -903,13 +921,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'TRACK_USAGE', secretId, usedAt })
     if (typeof res.revision === 'number') dispatch({ type: 'SET_REVISION', revision: res.revision })
     return res.value
-  }, [state.vault])
+  }, [requestTextInput, state.vault])
 
   const revealSecretImageField = useCallback(async (secretId: string, fieldKey: string, options?: { pin?: string; fieldId?: string }) => {
     const sessionEpoch = sessionGuardRef.current.epoch
     if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const usedAt = new Date().toISOString()
-    const confirmationPhrase = options?.pin ? undefined : secretRevealConfirmationPhrase()
+    const confirmationPhrase = options?.pin
+      ? undefined
+      : await requestSecretRevealConfirmation(window.vault.platform, requestTextInput)
     if (confirmationPhrase === null) return null
     if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const res = await window.vault.revealSecretImageField({
@@ -927,13 +947,15 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'TRACK_USAGE', secretId, usedAt })
     if (typeof res.revision === 'number') dispatch({ type: 'SET_REVISION', revision: res.revision })
     return res.value
-  }, [state.vault])
+  }, [requestTextInput, state.vault])
 
   const revealSecretFields = useCallback(async (secretId: string, options?: { pin?: string }) => {
     const sessionEpoch = sessionGuardRef.current.epoch
     if (!state.vault || !sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const usedAt = new Date().toISOString()
-    const confirmationPhrase = options?.pin ? undefined : secretRevealConfirmationPhrase()
+    const confirmationPhrase = options?.pin
+      ? undefined
+      : await requestSecretRevealConfirmation(window.vault.platform, requestTextInput)
     if (confirmationPhrase === null) return null
     if (!sessionGuardRef.current.isCurrent(sessionEpoch)) return null
     const res = await window.vault.revealSecretFields({ secretId, confirmationPhrase, pin: options?.pin })
@@ -945,7 +967,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'TRACK_USAGE', secretId, usedAt })
     if (typeof res.revision === 'number') dispatch({ type: 'SET_REVISION', revision: res.revision })
     return res.fields
-  }, [state.vault])
+  }, [requestTextInput, state.vault])
 
   const setRevealPin = useCallback(async (pin: string, masterPassword: string) => {
     const sessionEpoch = sessionGuardRef.current.epoch
@@ -1063,32 +1085,30 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
   // ── Env projects ─────────────────────────────────────────────────────────────
 
-  const addEnvProject = useCallback(async (p: Omit<EnvProject, 'id'>, replaceProjectId?: string) => {
+  const addEnvProject = useCallback(async (p: Omit<EnvProject, 'id'>) => {
     const project = ensureProjectEnvironments({ ...p, id: crypto.randomUUID() })
-    await runVaultCommand({
-      type: 'env-project.create', project,
-      ...(replaceProjectId ? { replaceProjectId } : {}),
-    }, () => undefined)
+    await runVaultCommand({ type: 'env-project.create', project }, () => undefined)
     return project
   }, [runVaultCommand])
 
-  const updateEnvProject = useCallback(async (p: EnvProject) => {
+  const updateEnvProject = useCallback(async (
+    p: EnvProject,
+    authorization?: EnvProjectMutationAuthorization,
+  ) => {
     const project = ensureProjectEnvironments(p)
-    await runVaultCommand({ type: 'env-project.update', project }, () => undefined)
+    await runVaultCommand({
+      type: 'env-project.update',
+      project,
+      ...(authorization?.targetVerificationGrant
+        ? { targetVerificationGrant: authorization.targetVerificationGrant }
+        : {}),
+    }, () => undefined)
   }, [runVaultCommand])
 
   const updateEnvProjects = useCallback(async (projects: EnvProject[]) => {
     await runVaultCommand({
       type: 'env-project.update-many',
       projects: projects.map(ensureProjectEnvironments),
-    }, () => undefined)
-  }, [runVaultCommand])
-
-  const activateEnvProject = useCallback(async (projectId: string, replaceProjectId?: string) => {
-    await runVaultCommand({
-      type: 'env-project.activate',
-      projectId,
-      ...(replaceProjectId ? { replaceProjectId } : {}),
     }, () => undefined)
   }, [runVaultCommand])
 
@@ -1111,7 +1131,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setRevealPin, clearRevealPin,
     addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
     addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
-    addEnvProject, updateEnvProject, updateEnvProjects, activateEnvProject, deleteEnvProject,
+    addEnvProject, updateEnvProject, updateEnvProjects, deleteEnvProject,
     setPreferences,
   }), [
     state,
@@ -1123,7 +1143,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setRevealPin, clearRevealPin,
     addProvider, updateProvider, updateProviderAndSecret, deleteProvider,
     addProviderGroup, renameProviderGroup, deleteProviderGroup, moveProvider,
-    addEnvProject, updateEnvProject, updateEnvProjects, activateEnvProject, deleteEnvProject,
+    addEnvProject, updateEnvProject, updateEnvProjects, deleteEnvProject,
     setPreferences,
   ])
 
@@ -1138,11 +1158,4 @@ export function useVault(): Ctx {
   const ctx = useContext(VaultCtx)
   if (!ctx) throw new Error('useVault must be inside VaultProvider')
   return ctx
-}
-
-function secretRevealConfirmationPhrase(): string | undefined | null {
-  if (window.vault.platform === 'darwin') return undefined
-  const phrase = window.prompt(`Type ${SECRET_REVEAL_CONFIRM_PHRASE} to reveal this saved value.`)
-  if (phrase === null) return null
-  return phrase
 }

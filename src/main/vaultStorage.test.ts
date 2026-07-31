@@ -48,10 +48,7 @@ describe('vaultStorage transactional state', () => {
     )
     await expect(readVault(VAULT_KEY)).resolves.toMatchObject({ marker: 'original' })
 
-    const manifest = JSON.parse(await fs.readFile(AUTH_STATE_MANIFEST_FILE, 'utf8')) as {
-      vaultFile: string
-      credentialsFile: string
-    }
+    const manifest = await readAuthStateManifest()
     expect(manifest.vaultFile).toMatch(/^vault\.[a-f0-9-]+\.enc$/)
     expect(manifest.credentialsFile).toMatch(/^credentials\.[a-f0-9-]+\.json$/)
     await expect(fs.access(VAULT_FILE)).rejects.toMatchObject({ code: 'ENOENT' })
@@ -84,16 +81,18 @@ describe('vaultStorage transactional state', () => {
     ])
     expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1)
     expect(results.filter(result => result.status === 'rejected')).toHaveLength(1)
-    expect(['first', 'second']).toContain((await readVault(VAULT_KEY) as { marker: string }).marker)
+    expect(['first', 'second']).toContain(recordField(await readVault(VAULT_KEY), 'marker'))
   })
 
   it('rejects an in-flight vault mutation after lock and preserves the prior ciphertext', async () => {
     await createVaultState(initialState({ revision: 1 }))
     const session = new VaultSessionKeyring()
-    const installing = session.beginOperation()!
+    const installing = session.beginOperation()
+    if (!installing) throw new TypeError('Expected an unlocked session operation')
     session.installKey(VAULT_KEY, installing.epoch)
     installing.release()
-    const currentKey = session.currentKey()!
+    const currentKey = session.currentKey()
+    if (!currentKey) throw new TypeError('Expected an installed session key')
     const updaterEntered = deferred<void>()
     const continueUpdater = deferred<void>()
 
@@ -114,10 +113,12 @@ describe('vaultStorage transactional state', () => {
   it('does not report failure when the session changes immediately after rename', async () => {
     await createVaultState(initialState({ revision: 1 }))
     const session = new VaultSessionKeyring()
-    const installing = session.beginOperation()!
+    const installing = session.beginOperation()
+    if (!installing) throw new TypeError('Expected an unlocked session operation')
     session.installKey(VAULT_KEY, installing.epoch)
     installing.release()
-    const currentKey = session.currentKey()!
+    const currentKey = session.currentKey()
+    if (!currentKey) throw new TypeError('Expected an installed session key')
     const originalRename = fs.rename.bind(fs)
     let locking: Promise<boolean> | null = null
     const rename = vi.spyOn(fs, 'rename').mockImplementation(async (source, destination) => {
@@ -209,9 +210,7 @@ describe('vaultStorage transactional state', () => {
 
   it('rejects a structurally corrupt vault after authenticated decryption', async () => {
     await createVaultState(initialState({ revision: 1 }))
-    const manifest = JSON.parse(await fs.readFile(AUTH_STATE_MANIFEST_FILE, 'utf8')) as {
-      vaultFile: string
-    }
+    const manifest = await readAuthStateManifest()
     const invalid = vaultData({
       revision: 2,
       root: {
@@ -228,6 +227,44 @@ describe('vaultStorage transactional state', () => {
     )
 
     await expect(readVault(VAULT_KEY)).rejects.toThrow('references an item outside its folder')
+  })
+
+  it('upgrades authenticated legacy image fields to the sensitive shape before validation', async () => {
+    await createVaultState(initialState({ revision: 1 }))
+    const manifest = await readAuthStateManifest()
+    const legacy = vaultData({
+      revision: 1,
+      preferences: { localDashboardPinnedOrder: ['secret:removed-secret'] },
+      root: {
+        id: 'root',
+        name: 'Vault',
+        children: [],
+        secrets: [{
+          id: 'legacy-image',
+          name: 'Legacy image',
+          type: 'image',
+          fields: [{ key: '__image__', value: 'data:image/png;base64,AAAA', sensitive: false }],
+          notes: '',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+        }],
+        itemOrder: [{ kind: 'secret', id: 'legacy-image' }],
+      },
+    })
+    await fs.writeFile(
+      join(VAULT_DIR, manifest.vaultFile),
+      seal(Buffer.from(JSON.stringify(legacy), 'utf8'), VAULT_KEY),
+    )
+
+    await expect(readVault(VAULT_KEY)).resolves.toMatchObject({
+      preferences: { localDashboardPinnedOrder: [] },
+      root: {
+        secrets: [{
+          id: 'legacy-image',
+          fields: [{ key: '__image__', sensitive: true }],
+        }],
+      },
+    })
   })
 })
 
@@ -264,6 +301,26 @@ function paramsRaw(saltByte: string): string {
       salt: saltByte.repeat(32),
     },
   })
+}
+
+function recordField(value: unknown, key: string): unknown {
+  return value !== null && typeof value === 'object' ? Reflect.get(value, key) : undefined
+}
+
+async function readAuthStateManifest(): Promise<{
+  readonly vaultFile: string
+  readonly credentialsFile: string
+}> {
+  const parsed: unknown = JSON.parse(await fs.readFile(AUTH_STATE_MANIFEST_FILE, 'utf8'))
+  if (parsed === null || typeof parsed !== 'object') {
+    throw new TypeError('Expected the auth-state test fixture to contain an object')
+  }
+  const vaultFile = Reflect.get(parsed, 'vaultFile')
+  const credentialsFile = Reflect.get(parsed, 'credentialsFile')
+  if (typeof vaultFile !== 'string' || typeof credentialsFile !== 'string') {
+    throw new TypeError('Expected the auth-state test fixture to name both active files')
+  }
+  return { vaultFile, credentialsFile }
 }
 
 function deferred<T>() {

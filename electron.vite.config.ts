@@ -1,6 +1,8 @@
 import { resolve } from 'path'
 import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
+import { resolveScreenshotReviewBuild } from './src/main/contentProtectionPolicy'
+import { resolveUi2026BuildFlags } from './src/main/ui2026BuildFlags'
 
 // electron-vite 5's isolated-entry reporter assumes a TTY even in CI. Keep its
 // sandbox-safe preload bundling usable when stdout is a pipe.
@@ -10,8 +12,19 @@ if (typeof process.stdout.moveCursor !== 'function') process.stdout.moveCursor =
 
 const openCoreBuild = process.env['VAULTAGE_OPEN_CORE'] === '1'
 const disableReactRefresh = process.env['VAULTAGE_DISABLE_REACT_REFRESH'] === '1'
+const ui2026Flags = resolveUi2026BuildFlags(process.env)
+const ui2026Showcase = !openCoreBuild
+  && process.env['VAULTAGE_UI2026_SHOWCASE'] === '1'
+  && process.env['NODE_ENV'] !== 'production'
 let productionReleaseBuild = false
+let buildOutputRoot = 'out'
+let mainBuildInput: Record<string, string> = { index: resolve('src/main/index.ts') }
 
+
+const screenshotReviewBuild = resolveScreenshotReviewBuild({
+  requested: process.env['VAULTAGE_SCREENSHOT_REVIEW_BUILD'] === '1',
+  productionReleaseBuild,
+})
 
 function rendererChunk(id: string): string | undefined {
   if (!id.includes('/node_modules/')) return undefined
@@ -24,10 +37,25 @@ function rendererChunk(id: string): string | undefined {
   return 'vendor-ui'
 }
 
+export function resolveRendererCompositionAliases(openCore: boolean): Record<string, string> {
+  return {
+    '#main-layout': openCore
+      ? resolve('src/renderer/src/components/MainLayout.open.tsx')
+      : resolve('src/renderer/src/components/MainLayout.tsx'),
+    '#mode-context': openCore
+      ? resolve('src/renderer/src/modeContext.open.tsx')
+      : resolve('src/renderer/src/modeContext.tsx'),
+    '#sidebar': openCore
+      ? resolve('src/renderer/src/components/Sidebar.open.tsx')
+      : resolve('src/renderer/src/components/Sidebar.tsx'),
+  }
+}
+
 export default defineConfig({
   main: {
     define: {
       __VAULTAGE_OPEN_CORE__: JSON.stringify(openCoreBuild),
+      __VAULTAGE_SCREENSHOT_REVIEW_BUILD__: JSON.stringify(screenshotReviewBuild),
     },
     resolve: {
       alias: {
@@ -69,20 +97,17 @@ export default defineConfig({
       },
     },
     build: {
+      outDir: resolve(buildOutputRoot, 'main'),
       minify: 'esbuild',
       rollupOptions: {
-        input: openCoreBuild
-          ? { index: resolve('src/main/index.ts') }
-          : {
-              index: resolve('src/main/index.ts'),
-              providerWorker: resolve('src/main/providerWorker.ts'),
-            },
+        input: mainBuildInput,
       },
     },
     plugins: [externalizeDepsPlugin()]
   },
   preload: {
     build: {
+      outDir: resolve(buildOutputRoot, 'preload'),
       // Sandboxed preloads cannot require local shared chunks. Build each
       // bridge as a self-contained file so multiple preload entries remain
       // compatible with Electron's restricted sandbox loader.
@@ -104,6 +129,8 @@ export default defineConfig({
   renderer: {
     define: {
       __VAULTAGE_OPEN_CORE__: JSON.stringify(openCoreBuild),
+      __VAULTAGE_UI2026_FLAGS__: JSON.stringify(ui2026Flags),
+      __VAULTAGE_UI2026_SHOWCASE__: JSON.stringify(ui2026Showcase),
     },
     esbuild: {
       jsx: 'automatic',
@@ -117,6 +144,7 @@ export default defineConfig({
       },
     },
     build: {
+      outDir: resolve(buildOutputRoot, 'renderer'),
       minify: 'esbuild',
       rollupOptions: {
         output: {
@@ -128,6 +156,7 @@ export default defineConfig({
       alias: {
         '@renderer': resolve('src/renderer/src'),
         '@':         resolve('src/renderer/src'),
+        ...resolveRendererCompositionAliases(openCoreBuild),
         '#add-secret-modal': openCoreBuild
           ? resolve('src/renderer/src/components/AddSecretModal.open.tsx')
           : resolve('src/renderer/src/components/AddSecretModal.tsx'),
@@ -140,15 +169,6 @@ export default defineConfig({
         '#integrations-view': openCoreBuild
           ? resolve('src/renderer/src/components/IntegrationsView.disabled.tsx')
           : resolve('src/renderer/src/components/IntegrationsView.tsx'),
-        '#main-layout': openCoreBuild
-          ? resolve('src/renderer/src/components/MainLayout.open.tsx')
-          : resolve('src/renderer/src/components/MainLayout.tsx'),
-        '#mode-context': openCoreBuild
-          ? resolve('src/renderer/src/modeContext.open.tsx')
-          : resolve('src/renderer/src/modeContext.tsx'),
-        '#mode-switcher': openCoreBuild
-          ? resolve('src/renderer/src/components/ModeSwitcher.open.tsx')
-          : resolve('src/renderer/src/components/ModeSwitcher.tsx'),
         '#projects-view': openCoreBuild
           ? resolve('src/renderer/src/components/ProjectsView.open.tsx')
           : resolve('src/renderer/src/components/AgentView.tsx'),
@@ -167,15 +187,9 @@ export default defineConfig({
         '#service-category-icons': openCoreBuild
           ? resolve('src/renderer/src/components/serviceCategoryIcons.disabled.tsx')
           : resolve('src/renderer/src/components/serviceCategoryIcons.tsx'),
-        '#sidebar': openCoreBuild
-          ? resolve('src/renderer/src/components/Sidebar.open.tsx')
-          : resolve('src/renderer/src/components/Sidebar.tsx'),
         '#commercial-readiness': openCoreBuild
           ? resolve('src/renderer/src/components/CommercialReadiness.disabled.tsx')
           : resolve('src/renderer/src/components/CommercialReadiness.tsx'),
-        '#commercial-project-activation': openCoreBuild
-          ? resolve('src/renderer/src/components/CommercialProjectActivation.disabled.tsx')
-          : resolve('src/renderer/src/components/CommercialProjectActivation.tsx'),
         '#commercial-capabilities': openCoreBuild
           ? resolve('src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts')
           : resolve('src/renderer/src/lib/CommercialFeatureCapabilities.ts'),

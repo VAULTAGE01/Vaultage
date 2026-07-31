@@ -14,6 +14,9 @@ for (const budget of budgets) {
   if (matches.length === 0) fail(`no ${budget.suffix} bundles found under ${budget.dir}`)
   let total = 0
   for (const file of matches) {
+    if (file.endsWith('/agentUserPresenceBenchmark.js')) {
+      fail('shipping output must not contain the native user-presence QA benchmark entry')
+    }
     const bytes = (await stat(file)).size
     total += bytes
     if (bytes > budget.perFile) {

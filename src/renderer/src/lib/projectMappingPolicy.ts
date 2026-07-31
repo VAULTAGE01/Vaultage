@@ -11,18 +11,15 @@ export interface SecretProjectMappingDraft {
 
 /**
  * Builds the smallest main-authorized batch for secret-to-Project mapping
- * changes. Inactive closed-Free Projects are deliberately omitted rather than
- * copied into a mutation that main must reject.
+ * changes. Free Projects are unlimited, so every changed Project is eligible.
  */
-export function buildActiveProjectMappingUpdates(
+export function buildProjectMappingUpdates(
   projects: readonly EnvProject[],
   drafts: readonly SecretProjectMappingDraft[],
-  activeProjectIds: ReadonlySet<string>,
   secretId: string,
 ): EnvProject[] {
   const updates: EnvProject[] = []
   for (const project of projects) {
-    if (!activeProjectIds.has(project.id)) continue
     const draft = drafts.find(item => item.projectId === project.id)
     if (!draft) continue
     const localEnvironment = projectLocalEnvironment(project)

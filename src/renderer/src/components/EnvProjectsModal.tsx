@@ -4,7 +4,6 @@ import { createPortal } from 'react-dom'
 import { CheckCircle2, Cloud, Folder, Laptop, Plus, RefreshCw, Search, Sparkles, X } from 'lucide-react'
 import { useVault } from '../vaultContext'
 import type { EnvEntry, EnvProject, Provider, VaultFolder, VaultSecret } from '../types'
-import CommercialProjectActivation, { useCommercialProjectCreationPolicy } from '#commercial-project-activation'
 import type { ProjectDiscoverResult, ProjectScanCandidate, ProjectScanEnvKey, ProjectScanResult } from '../../../shared/projectScan'
 import { Button } from '@/components/ui/button'
 import { EnvChip } from '@/components/ui/env-chip'
@@ -607,7 +606,7 @@ interface Props {
 }
 
 export default function EnvProjectsModal({ onClose, initialProjectId = null, startNew = false }: Props) {
-  const { state, addEnvProject, updateEnvProject, activateEnvProject, deleteEnvProject, setPreferences } = useVault()
+  const { state, addEnvProject, updateEnvProject, deleteEnvProject, setPreferences } = useVault()
   const projects   = state.vault?.envProjects ?? []
   const providers  = state.vault?.providers ?? []
   const allSecrets = state.vault ? flatSecrets(state.vault.root) : []
@@ -641,20 +640,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   const [scanning,         setScanning]         = useState(false)
   const [scanSummary,      setScanSummary]      = useState<ProjectScanResult | null>(null)
   const [createError,      setCreateError]      = useState<string | null>(null)
-  const [createReplacementProjectId, setCreateReplacementProjectId] = useState('')
-  const creationPolicy = useCommercialProjectCreationPolicy(
-    projects,
-    state.vault?.preferences?.activeEnvProjectIds ?? [],
-    createReplacementProjectId,
-  )
-  const selectedProjectEditable = !baseProject || creationPolicy.activeProjectIds.has(baseProject.id)
-
-  const requireEditableProject = (action: string): boolean => {
-    if (selectedProjectEditable) return true
-    setCreateError(`Make this Project active before ${action}. Saved data remains unchanged.`)
-    return false
-  }
-
   useEffect(() => {
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -673,7 +658,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
     setConfirmExport(false)
     setConfirmText('')
     setCreateError(null)
-    setCreateReplacementProjectId('')
   }
 
   const startCreating = () => {
@@ -741,17 +725,13 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
       setCreateError('Attach a local folder first.')
       return
     }
-    if (!creationPolicy.canCreate) {
-      setCreateError(creationPolicy.blockedMessage ?? 'Choose an active Project slot to replace.')
-      return
-    }
     try {
       const created = await addEnvProject({
         name: localName.trim(),
         path: localPath,
         entries: localEntries,
         addToGitignore: localGitignore,
-      }, createReplacementProjectId || undefined)
+      })
       setShowNewForm(false)
       if (created) selectProject(created)
     } catch (error) {
@@ -760,7 +740,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   }
 
   const handlePickFolder = async () => {
-    if (!requireEditableProject('changing its local folder')) return
     const path = await window.vault.pickFolder({
       purpose: 'project-local-path',
       ...(!isCreating && baseProject ? { projectId: baseProject.id } : {}),
@@ -769,18 +748,12 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   }
 
   const scanSelectedFolder = async (path: string) => {
-    if (isCreating && !creationPolicy.canCreate) {
-      setCreateError(creationPolicy.blockedMessage ?? 'Choose an active Project slot to replace before scanning.')
-      return
-    }
-    if (!isCreating && !requireEditableProject('scanning it')) return
     setScanning(true)
     setCreateError(null)
     try {
       const res = await window.vault.scanProject({
         path,
         ...(!isCreating && baseProject ? { projectId: baseProject.id } : {}),
-        ...(isCreating && createReplacementProjectId ? { replaceProjectId: createReplacementProjectId } : {}),
       })
       if (!res.success || !res.result) throw new Error(res.error ?? 'Project scan failed')
       setScanSummary(res.result)
@@ -796,10 +769,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   }
 
   const handlePickParentFolder = async () => {
-    if (!creationPolicy.canCreate) {
-      setCreateError(creationPolicy.blockedMessage ?? 'Choose an active Project slot to replace before scanning.')
-      return
-    }
     const path = await window.vault.pickFolder({ purpose: 'scan-parent' })
     if (!path) return
     setCreateFlow('scan-parent')
@@ -813,7 +782,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
     try {
       const res = await window.vault.discoverProjects({
         parentPath: path,
-        ...(createReplacementProjectId ? { replaceProjectId: createReplacementProjectId } : {}),
       })
       if (!res.success || !res.result) throw new Error(res.error ?? 'Project discovery failed')
       setDiscovery(res.result)
@@ -844,7 +812,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   const handleSave = async () => {
     if (!baseProject) return
-    if (!requireEditableProject('saving changes')) return
     setSaving(true)
     try {
       await updateEnvProject(withLocalProjectEnvironment({
@@ -862,7 +829,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   const handleExport = async () => {
     if (!baseProject || !localPath) return
-    if (!requireEditableProject('writing an .env file')) return
     if (!confirmExport) {
       setConfirmExport(true)
       setConfirmText('')
@@ -940,17 +906,14 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
   }
 
   const addEntry = () => {
-    if (!requireEditableProject('changing mappings')) return
     setLocalEntries(prev => [...prev, { envKey: '', secretId: '', fieldKey: '' }])
   }
 
   const updateEntry = (i: number, e: EnvEntry) => {
-    if (!requireEditableProject('changing mappings')) return
     setLocalEntries(prev => prev.map((x, j) => j === i ? e : x))
   }
 
   const removeEntry = (i: number) => {
-    if (!requireEditableProject('changing mappings')) return
     setLocalEntries(prev => prev.filter((_, j) => j !== i))
   }
 
@@ -984,7 +947,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
   const exportableEntryCount = localEntries.filter(e => e.envKey && e.secretId && e.fieldKey).length
   const canExport =
-    selectedProjectEditable &&
     !exporting &&
     Boolean(localPath) &&
     exportableEntryCount > 0 &&
@@ -1038,6 +1000,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
               <X className="h-4 w-4" />
             </button>
           </div>
+
 
           <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)] overflow-hidden">
             <aside className="flex min-h-0 flex-col border-r border-border">
@@ -1274,16 +1237,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                       <span className={cn('min-w-0 flex-1 truncate text-xs font-medium', p.id === selectedId ? 'text-accent' : 'text-text')}>
                         {p.name}
                       </span>
-                      {creationPolicy.isLimited && (
-                        <span className={cn(
-                          'rounded-full border px-1.5 py-0.5 text-xs font-semibold',
-                          creationPolicy.activeProjectIds.has(p.id)
-                            ? 'border-emerald-400/25 bg-emerald-400/10 text-emerald-300'
-                            : 'border-warning/30 bg-warning/10 text-warning',
-                        )}>
-                          {creationPolicy.activeProjectIds.has(p.id) ? 'Active' : 'Read-only'}
-                        </span>
-                      )}
                     </span>
                     <p className="mt-0.5 truncate text-[10px] text-muted">
                       {projectPrimaryLocalPath(p) ? projectPrimaryLocalPath(p).split('/').slice(-2).join('/') : 'No local folder'}
@@ -1339,18 +1292,6 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
 
           {/* Right: project detail */}
           <div className="flex-1 flex flex-col overflow-hidden">
-            <CommercialProjectActivation
-              projects={projects}
-              activeProjectIds={state.vault?.preferences?.activeEnvProjectIds ?? []}
-              selectedProjectId={baseProject?.id ?? null}
-              creating={isCreating}
-              onActivate={activateEnvProject}
-              creationReplacementProjectId={createReplacementProjectId}
-              onCreationReplacementChange={projectId => {
-                setCreateReplacementProjectId(projectId)
-                setCreateError(null)
-              }}
-            />
             {isCreating ? (
               <>
                 <div className="border-b border-border px-6 py-4 flex-shrink-0">
@@ -1481,7 +1422,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                   <Button variant="ghost" onClick={cancelCreating}>
                     Cancel
                   </Button>
-                  <Button onClick={handleCreate} disabled={!creationPolicy.canCreate || !localName.trim() || !localPath || scanning || discovering}>
+                  <Button onClick={handleCreate} disabled={!localName.trim() || !localPath || scanning || discovering}>
                     Create Project
                   </Button>
                 </div>
@@ -1502,7 +1443,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
               <>
                 {/* Project toolbar */}
                 <div className="flex items-center gap-2 px-5 py-3 border-b border-border flex-shrink-0">
-                  <input value={localName} onChange={e => setLocalName(e.target.value)} disabled={!selectedProjectEditable}
+                  <input value={localName} onChange={e => setLocalName(e.target.value)}
                     className="flex-1 bg-transparent text-sm font-medium text-text outline-none placeholder-muted"
                     placeholder="Project name" />
                   <Button
@@ -1516,11 +1457,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                   </Button>
                 </div>
 
-                <fieldset
-                  disabled={!selectedProjectEditable}
-                  aria-label={selectedProjectEditable ? 'Editable Project settings' : 'Read-only Project settings'}
-                  className="contents"
-                >
+                <fieldset className="contents">
                 {/* Config */}
                 <div className="px-5 py-3 border-b border-border flex-shrink-0 space-y-3">
                   <ProjectEnvironmentRail project={projectPreview} providers={providers} />
@@ -1582,7 +1519,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                         <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
                       </svg>
                       <p className="text-[10px] text-danger">
-                        This writes {exportableEntryCount} secret{exportableEntryCount === 1 ? '' : 's'} to plaintext `.env`. Type {PLAINTEXT_CONFIRM_PHRASE}; Touch ID is required on supported Macs before the file is written.
+                        This writes {exportableEntryCount} secret{exportableEntryCount === 1 ? '' : 's'} to a plaintext .env file. Type {PLAINTEXT_CONFIRM_PHRASE}; Touch ID is required on supported Macs before the file is written.
                       </p>
                     </div>
                     <input

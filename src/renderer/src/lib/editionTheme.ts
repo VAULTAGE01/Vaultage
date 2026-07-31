@@ -17,13 +17,9 @@ interface ClosedAuthBackdropContract {
   noiseClassName: string
 }
 
-interface OpenShellBackgroundContract {
-  patternClassName: string
-  patternImages: readonly string[]
-}
-
-interface ClosedShellBackgroundContract {
-  patternClassName: string
+export interface ShellBackgroundContract {
+  readonly patternClassName: string
+  readonly patternImages?: readonly string[]
 }
 
 const AUTH_BACKDROP_OVERLAY =
@@ -57,8 +53,8 @@ export const OPEN_SHELL_BACKGROUND_CONTRACT = {
     'radial-gradient(circle at 24% 18%, rgba(255,255,255,0.045), transparent 22%)',
     'radial-gradient(circle at 82% 12%, rgba(210,220,214,0.055), transparent 24%)',
   ],
-} as const satisfies OpenShellBackgroundContract
+} as const satisfies ShellBackgroundContract
 
 export const CLOSED_SHELL_BACKGROUND_CONTRACT = {
   patternClassName: 'liquid-noise absolute inset-0 pointer-events-none opacity-35',
-} as const satisfies ClosedShellBackgroundContract
+} as const satisfies ShellBackgroundContract

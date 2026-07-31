@@ -34,6 +34,10 @@ import {
   readFileAsDataUrl,
   selectImagePasteFile,
 } from '../lib/imageIngestSecurity'
+import {
+  createDefaultSecretAccessPolicy,
+  readSecretAccessPolicy,
+} from '../../../shared/secretAccessPolicy'
 
 export {
   authoredRevisionForSecretUpdate,
@@ -41,6 +45,20 @@ export {
   secretFormSaveError,
   type SecretFormAuthorship,
 } from '../lib/secretFormAuthorship'
+
+export function initialSecretAccessPolicy(existing?: VaultSecret) {
+  return existing ? readSecretAccessPolicy(existing) : createDefaultSecretAccessPolicy()
+}
+
+export function fieldsAfterSecretTypeChange(
+  fields: SecretField[],
+  currentType: SecretType,
+  nextType: SecretType,
+  isEdit: boolean,
+): SecretField[] {
+  if (isEdit && currentType !== 'image' && nextType !== 'image') return fields
+  return SECRET_TEMPLATES[nextType].map(field => ({ ...field }))
+}
 
 const TYPES: SecretType[] = ['password', 'apiKey', 'sshKey', 'secureNote', 'custom', 'image']
 
@@ -131,9 +149,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
   const changeType = (next: SecretType) => {
     imageReadGateRef.current.invalidate()
     setType(next)
-    if (!isEdit || type === 'image' || next === 'image') {
-      setFields(SECRET_TEMPLATES[next].map(field => ({ ...field })))
-    }
+    setFields(previous => fieldsAfterSecretTypeChange(previous, type, next, isEdit))
   }
 
   const updateField = (index: number, patch: Partial<SecretField>) => {

@@ -2,63 +2,9 @@ import { createHash, createHmac, randomUUID, timingSafeEqual } from 'crypto'
 import { constants as fsConstants, promises as fs } from 'fs'
 import { basename, dirname, join } from 'path'
 import { atomicWritePrivateFile, ensurePrivateDir } from './fileIO'
+import type { AuditEventType } from './auditEventTypes'
 
-export type AuditEventType =
-  | 'vault.setup'
-  | 'vault.unlock'
-  | 'vault.lock'
-  | 'mode.change'
-  | 'agent_api.enabled'
-  | 'agent_api.disabled'
-  | 'agent.instructions.copied'
-  | 'agent.client.created'
-  | 'agent.client.revoked'
-  | 'agent.auto_approval.created'
-  | 'agent.auto_approval.revoked'
-  | 'agent.request.auto_approved'
-  | 'agent.request.received'
-  | 'agent.request.approved'
-  | 'agent.request.denied'
-  | 'agent.request.expired'
-  | 'agent.request.cancelled'
-  | 'agent.deposit.compensated'
-  | 'agent.deposit.orphan_warning'
-  | 'extension.save_candidate.received'
-  | 'extension.save_candidate.saved'
-  | 'extension.save_candidate.denied'
-  | 'extension.save_candidate.expired'
-  | 'extension.save_candidate.cancelled'
-  | 'extension.handoff.received'
-  | 'extension.bridge.enabled'
-  | 'extension.bridge.disabled'
-  | 'vault.secret.copied'
-  | 'vault.secret.revealed'
-  | 'vault.plaintext_release.authorized'
-  | 'vault.secret.created'
-  | 'vault.secret.updated'
-  | 'vault.secret.deleted'
-  | 'vault.folder.created'
-  | 'vault.folder.updated'
-  | 'vault.folder.deleted'
-  | 'vault.env_project.created'
-  | 'vault.env_project.updated'
-  | 'vault.env_project.deleted'
-  | 'vault.provider_config.created'
-  | 'vault.provider_config.updated'
-  | 'vault.provider_config.deleted'
-  | 'vault.provider_group.created'
-  | 'vault.provider_group.updated'
-  | 'vault.provider_group.deleted'
-  | 'vault.preferences.updated'
-  | 'vault.reveal_pin.changed'
-  | 'vault.backup.created'
-  | 'vault.backup.restored'
-  | 'env.exported'
-  | 'vault.exported_json'
-  | 'vault.exported_plaintext'
-  | 'vault.exported_encrypted'
-  | 'audit.exported'
-  | 'provider.action'
+export type { AuditEventType } from './auditEventTypes'
 
 export interface AuditEvent {
   id: string
@@ -472,9 +418,11 @@ async function migrateLegacyAuditLog(filePath: string, macKey: AuditMacKey): Pro
     raw = raw.subarray(0, parsed.validEnd)
     parsed = parseAuditSegment(raw)
   }
-  const verification = verifyAuditChain(parsed.events, { macKey, requireMac: true })
-  if (!verification.ok) {
-    throw integrityError(verification.index, `legacy audit migration failed: ${verification.reason}`)
+  const migratedEvents = verifyAndRekeyLegacyAuditEvents(parsed.events, macKey)
+  if (migratedEvents !== parsed.events) {
+    raw = encodeAuditEvents(migratedEvents)
+    await atomicWritePrivateFile(filePath, raw)
+    parsed = parseAuditSegment(raw)
   }
   if (parsed.events.length > 0 && !parsed.endsWithNewline) {
     await appendPrivateLine(filePath, Buffer.from('\n'))
@@ -495,6 +443,57 @@ async function migrateLegacyAuditLog(filePath: string, macKey: AuditMacKey): Pro
   }, macKey)
   await ensureAnchorRequiredMarker(filePath, anchor.generation)
   return { events: parsed.events, anchor }
+}
+
+function verifyAndRekeyLegacyAuditEvents(
+  events: AuditEvent[],
+  macKey: AuditMacKey,
+): AuditEvent[] {
+  const firstKeyedIndex = events.findIndex(event => event.hashScheme === 'hmac-sha256')
+  if (firstKeyedIndex < 0 && events.length > 0) {
+    throw integrityError(0, 'legacy audit migration failed: event MAC missing')
+  }
+  const verification = verifyAuditChain(events, { macKey })
+  if (!verification.ok) {
+    throw integrityError(verification.index, `legacy audit migration failed: ${verification.reason}`)
+  }
+  for (let index = firstKeyedIndex; index >= 0 && index < events.length; index += 1) {
+    if (events[index].hashScheme !== 'hmac-sha256') {
+      throw integrityError(index, 'legacy audit migration failed: event MAC missing after keyed history began')
+    }
+  }
+  if (firstKeyedIndex <= 0) return events
+
+  let previousHash: string | null = null
+  return events.map(event => {
+    const migratedWithoutHash = {
+      id: event.id,
+      timestamp: event.timestamp,
+      type: event.type,
+      details: event.details,
+      previousHash,
+      hashScheme: 'hmac-sha256' as const,
+    }
+    const migrated = {
+      ...migratedWithoutHash,
+      hash: hashAuditRecord(migratedWithoutHash, macKey),
+    }
+    previousHash = migrated.hash
+    return migrated
+  })
+}
+
+function encodeAuditEvents(events: AuditEvent[]): Buffer {
+  const lines = events.map(event => {
+    const line = Buffer.from(`${JSON.stringify(event)}\n`, 'utf8')
+    if (line.byteLength > MAX_AUDIT_EVENT_BYTES) {
+      throw new Error(`Audit event exceeds ${MAX_AUDIT_EVENT_BYTES} bytes after migration`)
+    }
+    return line
+  })
+  const encoded = Buffer.concat(lines)
+  if (encoded.byteLength > MAX_LEGACY_AUDIT_BYTES) throw new Error('Migrated audit log is too large')
+  return encoded
 }
 
 async function applyRotationPolicy(
@@ -619,17 +618,40 @@ function parseAnchorRecord(raw: Buffer, filePath: string): AuditAnchorRecord {
     throw new Error('Audit anchor is not valid JSON')
   }
   if (!isRecord(candidate)) throw new Error('Audit anchor must be an object')
-  const value = candidate as unknown as AuditAnchorRecord
-  if (value.format !== AUDIT_ANCHOR_FORMAT || value.hashScheme !== 'hmac-sha256'
-    || !isUuid(value.generation) || !isHashOrNull(value.retainedStartPreviousHash)
-    || !isHashOrNull(value.tailHash) || !isHash(value.mac)
-    || !Number.isSafeInteger(value.totalEventCount) || value.totalEventCount < 0
-    || !isValidSegmentBytes(value.maxSegmentBytes)
-    || !isValidArchiveCount(value.maxArchiveSegments)
-    || !Array.isArray(value.archives)
-    || value.archives.length > value.maxArchiveSegments
-    || !isSegment(value.active)) {
+  const archives = candidate.archives
+  if (candidate.format !== AUDIT_ANCHOR_FORMAT || candidate.hashScheme !== 'hmac-sha256'
+    || !isUuid(candidate.generation) || !isHashOrNull(candidate.retainedStartPreviousHash)
+    || !isHashOrNull(candidate.tailHash) || !isHash(candidate.mac)
+    || !isNonNegativeSafeInteger(candidate.totalEventCount)
+    || !isValidSegmentBytes(candidate.maxSegmentBytes)
+    || !isValidArchiveCount(candidate.maxArchiveSegments)
+    || !Array.isArray(archives)
+    || archives.length > candidate.maxArchiveSegments
+    || !archives.every(isSegment)
+    || !isSegment(candidate.active)) {
     throw new Error('Audit anchor has an invalid schema')
+  }
+  const pendingRotationValue = candidate.pendingRotation
+  let pendingRotation: PendingAuditRotation | undefined
+  if (pendingRotationValue !== undefined) {
+    if (!isRecord(pendingRotationValue) || !isSegment(pendingRotationValue.archive)) {
+      throw new Error('Audit anchor pending rotation is invalid')
+    }
+    pendingRotation = { archive: pendingRotationValue.archive }
+  }
+  const value: AuditAnchorRecord = {
+    format: candidate.format,
+    generation: candidate.generation,
+    maxSegmentBytes: candidate.maxSegmentBytes,
+    maxArchiveSegments: candidate.maxArchiveSegments,
+    retainedStartPreviousHash: candidate.retainedStartPreviousHash,
+    totalEventCount: candidate.totalEventCount,
+    archives,
+    active: candidate.active,
+    tailHash: candidate.tailHash,
+    ...(pendingRotation === undefined ? {} : { pendingRotation }),
+    hashScheme: candidate.hashScheme,
+    mac: candidate.mac,
   }
   const activeName = basename(filePath)
   if (value.active.file !== activeName) throw new Error('Audit anchor active filename is invalid')
@@ -638,11 +660,9 @@ function parseAnchorRecord(raw: Buffer, filePath: string): AuditAnchorRecord {
       throw new Error('Audit anchor archive metadata is invalid')
     }
   }
-  if (value.pendingRotation !== undefined) {
-    if (!isRecord(value.pendingRotation) || !isSegment(value.pendingRotation.archive)
-      || value.pendingRotation.archive.file !== archiveFileName(filePath, value.pendingRotation.archive.lastHash)) {
-      throw new Error('Audit anchor pending rotation is invalid')
-    }
+  if (value.pendingRotation !== undefined
+    && value.pendingRotation.archive.file !== archiveFileName(filePath, value.pendingRotation.archive.lastHash)) {
+    throw new Error('Audit anchor pending rotation is invalid')
   }
 
   const retainedCount = value.archives.reduce((sum, segment) => sum + segment.eventCount, 0)
@@ -662,11 +682,13 @@ async function writeAnchor(
   payloadOrRecord: AuditAnchorPayload | AuditAnchorRecord,
   macKey: AuditMacKey,
 ): Promise<AuditAnchorRecord> {
-  const {
-    mac: _mac,
-    hashScheme: _hashScheme,
-    ...payload
-  } = payloadOrRecord as AuditAnchorRecord
+  let payload: AuditAnchorPayload
+  if ('mac' in payloadOrRecord) {
+    const { mac: _mac, hashScheme: _hashScheme, ...recordPayload } = payloadOrRecord
+    payload = recordPayload
+  } else {
+    payload = payloadOrRecord
+  }
   const record: AuditAnchorRecord = {
     ...payload,
     hashScheme: 'hmac-sha256',
@@ -1037,6 +1059,10 @@ function isValidArchiveCount(value: unknown): value is number {
     && (value as number) <= MAX_ARCHIVE_SEGMENTS
 }
 
+function isNonNegativeSafeInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
 function isHash(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value)
 }
@@ -1066,7 +1092,8 @@ function integrityError(index: number, reason: string): Error {
 function stableJson(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value)
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
-  const entries = Object.entries(value as Record<string, unknown>)
+  if (!isRecord(value)) throw new TypeError('Stable JSON objects must be plain records')
+  const entries = Object.entries(value)
     .filter(([, entryValue]) => entryValue !== undefined)
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([key, entryValue]) => `${JSON.stringify(key)}:${stableJson(entryValue)}`)
@@ -1078,7 +1105,7 @@ async function pathExists(path: string): Promise<boolean> {
     await fs.lstat(path)
     return true
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
+    if (isRecord(err) && err.code === 'ENOENT') return false
     throw err
   }
 }
@@ -1093,8 +1120,10 @@ async function fsyncDirectory(path: string): Promise<void> {
   try {
     handle = await fs.open(path, 'r')
     await handle.sync()
-  } catch {
-    // Directory sync support varies by filesystem; file fsync remains mandatory.
+  } catch (error) {
+    if (!isRecord(error) || !['EINVAL', 'ENOTSUP', 'EISDIR', 'EBADF'].includes(String(error.code))) {
+      throw error
+    }
   } finally {
     if (handle) await handle.close().catch(() => undefined)
   }

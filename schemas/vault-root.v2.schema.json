@@ -127,7 +127,10 @@
         "lastUsedAt": { "$ref": "#/$defs/isoDateTime" },
         "usageCount": { "type": "integer", "minimum": 0 },
         "providerLink": { "$ref": "#/$defs/providerLink" },
-        "agentAvailable": { "type": "boolean" }
+        "agentAvailable": { "type": "boolean" },
+        "browserExtensionAllowed": { "type": "boolean" },
+        "revealAllowed": { "type": "boolean" },
+        "cliExportAllowed": { "type": "boolean" }
       },
       "allOf": [
         {

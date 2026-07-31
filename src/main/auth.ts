@@ -224,6 +224,7 @@ export class AuthController {
     } catch (err) {
       if (err instanceof VaultSessionChangedError) return sessionChangedResult()
       if (err instanceof VaultValidationError) {
+        console.warn(`[vault-auth] Vault validation failed at ${err.path} (${err.code})`)
         return {
           success: false,
           error: 'Vault data failed integrity validation. Restore a known-good backup before continuing.',
@@ -276,6 +277,7 @@ export class AuthController {
     } catch (err) {
       if (err instanceof VaultSessionChangedError) return sessionChangedResult()
       if (err instanceof VaultValidationError) {
+        console.warn(`[vault-auth] Vault validation failed at ${err.path} (${err.code})`)
         return {
           success: false,
           error: 'Vault data failed integrity validation. Restore a known-good backup before continuing.',
@@ -434,7 +436,7 @@ export class AuthController {
       try {
         restoredVaultKey = this.crypto.open(snapshot.wrappedKey, backupWrappingKey)
         restoredVaultPlaintext = this.crypto.open(snapshot.vaultBlob, restoredVaultKey)
-        const restoredVault = JSON.parse(restoredVaultPlaintext.toString('utf8')) as unknown
+        const restoredVault: unknown = JSON.parse(restoredVaultPlaintext.toString('utf8'))
         validateVaultRoot(restoredVault, { boundary: 'persisted' })
       } catch {
         return { success: false, wrongPassword: true, error: 'Backup password is incorrect or the backup is damaged' }

@@ -40,7 +40,6 @@ export const VAULT_MUTATION_TYPES = [
   'env-project.create',
   'env-project.update',
   'env-project.update-many',
-  'env-project.activate',
   'env-project.delete',
   'preferences.patch',
 ] as const
@@ -53,8 +52,13 @@ export type VaultMutationPayload = {
 }
 export type VaultSecretIdPayload = { secretId: string }
 export type VaultSecretFieldPayload = { secretId: string; fieldKey: string; fieldId?: string }
-export type VaultCopySecretFieldPayload = VaultSecretFieldPayload
-export type VaultCopySecretImageFieldPayload = VaultSecretFieldPayload
+export type VaultCopySecretFieldPayload = VaultSecretFieldPayload & {
+  confirmationPhrase?: string
+  pin?: string
+}
+export type VaultCopySecretImageFieldPayload = VaultSecretFieldPayload & {
+  confirmationPhrase?: string
+}
 export type VaultSaveSecretImageFieldPayload = VaultSecretFieldPayload & { plaintextConfirmation?: string }
 export type VaultRevealSecretFieldPayload = VaultSecretFieldPayload & {
   confirmationPhrase?: string
@@ -409,25 +413,22 @@ function validateVaultMutationCommand(command: Record<string, unknown>, type: Va
       return
     }
     case 'env-project.create':
-      requireExactKeys(command, ['type', 'project'], ['replaceProjectId'], type)
+      requireExactKeys(command, ['type', 'project'], ['targetVerificationGrant'], type)
       validateEnvProject(command.project, 'environment project')
-      optionalBoundedId(command.replaceProjectId, 'replacement environment project id')
+      validateOptionalVerificationGrant(command.targetVerificationGrant)
       return
     case 'env-project.update':
-      requireExactKeys(command, ['type', 'project'], [], type)
+      requireExactKeys(command, ['type', 'project'], ['targetVerificationGrant'], type)
       validateEnvProject(command.project, 'environment project')
+      validateOptionalVerificationGrant(command.targetVerificationGrant)
       return
     case 'env-project.update-many': {
-      requireExactKeys(command, ['type', 'projects'], [], type)
+      requireExactKeys(command, ['type', 'projects'], ['targetVerificationGrant'], type)
       const projects = boundedArray(command.projects, 'environment projects', VAULT_VALIDATION_LIMITS.maxProjects)
       projects.forEach((project, index) => validateEnvProject(project, `environment projects[${index}]`))
+      validateOptionalVerificationGrant(command.targetVerificationGrant)
       return
     }
-    case 'env-project.activate':
-      requireExactKeys(command, ['type', 'projectId'], ['replaceProjectId'], type)
-      boundedId(command.projectId, 'environment project id')
-      optionalBoundedId(command.replaceProjectId, 'replacement environment project id')
-      return
     case 'env-project.delete':
       requireExactKeys(command, ['type', 'projectId'], [], type)
       boundedId(command.projectId, 'environment project id')
@@ -498,6 +499,7 @@ function validateSecret(value: unknown, label: string): void {
   const secret = requireRecord(value, label)
   requireExactKeys(secret, ['id', 'name', 'type', 'fields', 'notes', 'createdAt', 'updatedAt'], [
     'description', 'scope', 'tags', 'expiresAt', 'usedIn', 'lastUsedAt', 'usageCount', 'providerLink', 'agentAvailable',
+    'browserExtensionAllowed', 'revealAllowed', 'cliExportAllowed',
   ], label)
   boundedId(secret.id, `${label} id`)
   boundedText(secret.name, `${label} name`, VAULT_VALIDATION_LIMITS.maxNameChars)
@@ -515,6 +517,9 @@ function validateSecret(value: unknown, label: string): void {
   optionalBoundedText(secret.lastUsedAt, `${label} last used at`, 128)
   if (secret.usageCount !== undefined) boundedInteger(secret.usageCount, `${label} usage count`, 0)
   if (secret.agentAvailable !== undefined) boundedBoolean(secret.agentAvailable, `${label} agent availability`)
+  if (secret.browserExtensionAllowed !== undefined) boundedBoolean(secret.browserExtensionAllowed, `${label} browser extension availability`)
+  if (secret.revealAllowed !== undefined) boundedBoolean(secret.revealAllowed, `${label} reveal availability`)
+  if (secret.cliExportAllowed !== undefined) boundedBoolean(secret.cliExportAllowed, `${label} CLI export availability`)
   if (secret.providerLink !== undefined) validateProviderLink(secret.providerLink, `${label} provider link`)
 }
 
@@ -587,7 +592,7 @@ function validateEnvProject(value: unknown, label: string): void {
   requireExactKeys(project, ['id', 'name', 'path', 'entries', 'addToGitignore'], [
     'manualScanFiles', 'lastExportAt', 'environments',
   ], label)
-  boundedId(project.id, `${label} id`)
+  const projectId = boundedId(project.id, `${label} id`)
   boundedText(project.name, `${label} name`, VAULT_VALIDATION_LIMITS.maxNameChars)
   boundedText(project.path, `${label} path`, 32_768, true)
   validateEnvEntryArray(project.entries, `${label} entries`)
@@ -600,27 +605,47 @@ function validateEnvProject(value: unknown, label: string): void {
       `${label} environments`,
       VAULT_VALIDATION_LIMITS.maxEnvironmentsPerProject,
     )
-    environments.forEach((environment, index) => validateEnvironment(environment, `${label} environments[${index}]`))
+    environments.forEach((environment, index) => validateEnvironment(
+      environment,
+      `${label} environments[${index}]`,
+      projectId,
+    ))
   }
 }
 
-function validateEnvironment(value: unknown, label: string): void {
+function validateEnvironment(value: unknown, label: string, projectId: string): void {
   const environment = requireRecord(value, label)
   requireExactKeys(environment, ['id', 'name', 'scope', 'kind', 'entries'], [
-    'path', 'providerId', 'providerEnvName', 'syncRule', 'addToGitignore', 'manualScanFiles', 'lastSyncAt',
+    'path', 'providerId', 'providerEnvName', 'syncRule', 'addToGitignore', 'manualScanFiles', 'lastSyncAt', 'providerBinding',
   ], label)
-  boundedId(environment.id, `${label} id`)
+  const environmentId = boundedId(environment.id, `${label} id`)
   boundedText(environment.name, `${label} name`, VAULT_VALIDATION_LIMITS.maxNameChars)
-  boundedText(environment.scope, `${label} scope`, 256, true)
+  const scope = boundedText(environment.scope, `${label} scope`, 256, true)
   boundedEnum(environment.kind, ['local', 'cloud'], `${label} kind`)
   validateEnvEntryArray(environment.entries, `${label} entries`)
   optionalBoundedText(environment.path, `${label} path`, 32_768, true)
   optionalBoundedId(environment.providerId, `${label} provider id`)
   optionalBoundedText(environment.providerEnvName, `${label} provider environment name`, 1_024, true)
   if (environment.syncRule !== undefined) boundedEnum(environment.syncRule, ['manual', 'push', 'pull'], `${label} sync rule`)
+  if (environment.providerBinding !== undefined) {
+    if (environment.kind !== 'cloud') throw new Error(`${label} provider binding requires a cloud environment`)
+    if (environment.providerId === undefined) throw new Error(`${label} provider binding requires a provider`)
+    if (environment.syncRule !== undefined && environment.syncRule !== 'manual') {
+      throw new Error(`${label} provider binding requires manual sync`)
+    }
+    if (!isFixedProviderEnvironment(projectId, environmentId, scope)) {
+      throw new Error(`${label} provider binding must use the fixed project environment id and scope`)
+    }
+    requireRecord(environment.providerBinding, `${label} provider binding`)
+  }
   if (environment.addToGitignore !== undefined) boundedBoolean(environment.addToGitignore, `${label} add-to-gitignore flag`)
   optionalStringList(environment.manualScanFiles, `${label} manual scan files`, 1_000, 32_768)
   optionalBoundedText(environment.lastSyncAt, `${label} last sync at`, 128)
+}
+
+function isFixedProviderEnvironment(projectId: string, environmentId: string, scope: string): boolean {
+  return ['development', 'staging', 'production'].includes(scope)
+    && environmentId === `${projectId}:${scope}`
 }
 
 function validateEnvEntryArray(value: unknown, label: string): void {
@@ -807,21 +832,37 @@ function validateSecretIdPayload(payload: unknown): VaultSecretIdPayload {
   return { secretId: requireString(record.secretId, 'secret id') }
 }
 
-function validateSecretFieldPayload(payload: unknown): VaultSecretFieldPayload {
-  const record = requireRecord(payload, 'secret field payload')
+function validateCopySecretFieldPayload(payload: unknown): VaultCopySecretFieldPayload {
+  const record = requireRecord(payload, 'copy secret field payload')
+  requireExactKeys(
+    record,
+    ['secretId', 'fieldKey'],
+    ['fieldId', 'confirmationPhrase', 'pin'],
+    'copy secret field payload',
+  )
   return {
     secretId: requireString(record.secretId, 'secret id'),
     fieldKey: requireString(record.fieldKey, 'field key'),
     fieldId: optionalBoundedId(record.fieldId, 'secret field id'),
+    confirmationPhrase: optionalString(record.confirmationPhrase, 'confirmation phrase'),
+    pin: optionalString(record.pin, 'reveal PIN'),
   }
 }
 
-function validateCopySecretFieldPayload(payload: unknown): VaultCopySecretFieldPayload {
-  return validateSecretFieldPayload(payload)
-}
-
 function validateCopySecretImageFieldPayload(payload: unknown): VaultCopySecretImageFieldPayload {
-  return validateCopySecretFieldPayload(payload)
+  const record = requireRecord(payload, 'copy secret image field payload')
+  requireExactKeys(
+    record,
+    ['secretId', 'fieldKey'],
+    ['fieldId', 'confirmationPhrase'],
+    'copy secret image field payload',
+  )
+  return {
+    secretId: requireString(record.secretId, 'secret id'),
+    fieldKey: requireString(record.fieldKey, 'secret field key'),
+    fieldId: optionalBoundedId(record.fieldId, 'secret field id'),
+    confirmationPhrase: optionalString(record.confirmationPhrase, 'confirmation phrase'),
+  }
 }
 
 function validateSaveSecretImageFieldPayload(payload: unknown): VaultSaveSecretImageFieldPayload {

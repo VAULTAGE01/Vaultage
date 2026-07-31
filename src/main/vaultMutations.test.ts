@@ -47,7 +47,6 @@ describe('trackSecretUsageInVault', () => {
             name: 'B',
             usageCount: 1,
             lastUsedAt: '2026-05-29T12:00:00.000Z',
-            updatedAt: '2026-05-29T12:00:00.000Z',
           }],
           children: [],
         }],
@@ -179,14 +178,14 @@ describe('trackSecretUsageInVault', () => {
         children: [],
       },
     }, [
-      { secretId: 'secret-1', count: 20, lastUsedAt: '2026-05-29T12:00:00.000Z' },
+      { secretId: 'secret-1', count: 20, lastUsedAt: '2026-05-31T12:00:00.000Z' },
       { secretId: 'deleted', count: 2, lastUsedAt: '2026-05-29T13:00:00.000Z' },
     ])
 
     expect(result).toMatchObject({ appliedCount: 20, missingSecretIds: ['deleted'] })
     expect((result.vault as any).root.secrets[0]).toMatchObject({
       usageCount: 24,
-      lastUsedAt: '2026-05-29T12:00:00.000Z',
+      lastUsedAt: '2026-05-31T12:00:00.000Z',
       updatedAt: '2026-05-30T00:00:00.000Z',
     })
   })

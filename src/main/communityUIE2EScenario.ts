@@ -19,12 +19,24 @@ import {
   assertExactProjectMapping,
   createProjectMapping,
 } from './communityUIE2EProjectMapping'
+import { verifyCommunitySidebarSecretDragDrop } from './communityUIE2ESidebarDragDrop'
+import { verifyCommunityVaultControls } from './communityUIE2EVaultControls'
+import { verifyCommunitySecretContext } from './communityUIE2ESecretContext'
+import { verifyCommunityProjectPin } from './communityUIE2EProjectPin'
 
-const SCENARIO_NAMES = ['setup', 'persistence', 'project-mapping'] as const
+const SCENARIO_NAMES = [
+  'setup',
+  'sidebar-drag-drop',
+  'secret-context',
+  'vault-controls',
+  'persistence',
+  'project-mapping',
+] as const
 type ScenarioName = (typeof SCENARIO_NAMES)[number]
 
 const SYNTHETIC_PASSWORD = 'local-e2e-master-password-2026!'
 const SYNTHETIC_REVEAL_PIN = '246810'
+const SYNTHETIC_FOLDER_NAME = 'Synthetic Local Folder'
 const SYNTHETIC_SECRET_TITLE = 'Synthetic Local API Key'
 const SYNTHETIC_SECRET_VALUE = 'synthetic-local-value-never-valid'
 const SYNTHETIC_FIELD_KEY = 'E2E_API_KEY'
@@ -39,6 +51,7 @@ const PLAINTEXT_POLICY = {
     SYNTHETIC_PASSWORD,
     SYNTHETIC_SECRET_VALUE,
     SYNTHETIC_REVEAL_PIN,
+    SYNTHETIC_FOLDER_NAME,
     SYNTHETIC_SECRET_TITLE,
     SYNTHETIC_PROJECT_NAME,
   ],
@@ -93,6 +106,11 @@ async function dismissResearchPrompt(page: Page): Promise<void> {
   if (await skip.isVisible().catch(() => false)) await skip.click()
 }
 
+async function captureEvidence(page: Page, environmentVariable: string): Promise<void> {
+  const evidencePath = process.env[environmentVariable]
+  if (evidencePath) await page.screenshot({ path: evidencePath, animations: 'disabled' })
+}
+
 async function unlockWithPassword(page: Page): Promise<void> {
   const passwordMode = page.getByRole('button', { name: 'Use master password instead' })
   await passwordMode.waitFor({ state: 'visible', timeout: 15_000 })
@@ -110,6 +128,7 @@ async function createFirstSecret(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Create Vault', exact: true }).click()
   await page.getByText('My Vault', { exact: true }).first().waitFor({ state: 'visible', timeout: 25_000 })
   await dismissResearchPrompt(page)
+  await createFolderThroughDialog(page)
   await page.getByRole('button', { name: 'Secret', exact: true }).click()
   const dialog = page.getByRole('dialog')
   await dialog.getByPlaceholder('e.g. GitHub token').fill(SYNTHETIC_SECRET_TITLE)
@@ -121,7 +140,30 @@ async function createFirstSecret(page: Page): Promise<void> {
   await page.getByText(SYNTHETIC_SECRET_TITLE, { exact: true }).first().waitFor({ state: 'visible', timeout: 15_000 })
 }
 
-async function revealPersistedValue(page: Page): Promise<string> {
+async function createFolderThroughDialog(page: Page): Promise<void> {
+  await page.getByTitle('New folder').click()
+  const dialog = page.getByRole('dialog', { name: 'New folder' })
+  await dialog.waitFor({ state: 'visible', timeout: 10_000 })
+  const create = dialog.getByRole('button', { name: 'Create folder', exact: true })
+  const folderName = dialog.getByLabel('Folder name', { exact: true })
+  expect(await create.isDisabled()).toBe(true)
+  await folderName.fill(`  ${SYNTHETIC_FOLDER_NAME}  `)
+  expect(await create.isEnabled()).toBe(true)
+  expect(await folderName.evaluate(element => getComputedStyle(element).backgroundColor))
+    .toBe('rgb(7, 16, 12)')
+  const evidencePath = process.env['VAULTAGE_COMMUNITY_E2E_DIALOG_EVIDENCE']
+  if (evidencePath) await page.screenshot({ path: evidencePath, animations: 'disabled' })
+  await create.click()
+  await page.getByText(SYNTHETIC_FOLDER_NAME, { exact: true }).waitFor({ state: 'visible', timeout: 10_000 })
+}
+
+type PersistedReveal = {
+  readonly fieldId?: string
+  readonly secretId: string
+  readonly value: string
+}
+
+async function revealPersistedValue(page: Page): Promise<PersistedReveal> {
   await page.getByText(SYNTHETIC_SECRET_TITLE, { exact: true }).first().click()
   await page.getByText(SYNTHETIC_FIELD_KEY, { exact: true }).first().waitFor({ state: 'visible' })
   const pinButton = page.locator('main button[aria-pressed]').first()
@@ -179,7 +221,12 @@ async function revealPersistedValue(page: Page): Promise<string> {
     }
     const value: unknown = Reflect.get(reveal, 'value')
     if (typeof value !== 'string') throw new TypeError('Persisted secret reveal returned no value')
-    return value
+    const secretId = Reflect.get(secret, 'id')
+    return {
+      ...(typeof fieldId === 'string' ? { fieldId } : {}),
+      secretId,
+      value,
+    }
   }, {
     fieldKey: SYNTHETIC_FIELD_KEY,
     password: SYNTHETIC_PASSWORD,
@@ -188,10 +235,32 @@ async function revealPersistedValue(page: Page): Promise<string> {
   })
 }
 
-async function copyPersistedValue(page: Page, application: ElectronApplication): Promise<string> {
-  const row = page.getByText(SYNTHETIC_FIELD_KEY, { exact: true }).first().locator('xpath=ancestor::div[contains(@class,"rounded-xl")][1]')
-  await row.getByRole('button', { name: 'Copy', exact: true }).click()
-  await row.getByRole('button', { name: 'Copied', exact: true }).waitFor({ state: 'visible' })
+async function copyPersistedValue(
+  page: Page,
+  application: ElectronApplication,
+  persisted: PersistedReveal,
+): Promise<string> {
+  const copied = await page.evaluate(async input => {
+    const api: unknown = Reflect.get(window, 'vault')
+    if (typeof api !== 'object' || api === null) throw new TypeError('Community preload API is unavailable')
+    const method: unknown = Reflect.get(api, 'copySecretField')
+    if (typeof method !== 'function') throw new TypeError('Community copy IPC is unavailable')
+    return await Reflect.apply(method, api, [{
+      secretId: input.secretId,
+      fieldKey: input.fieldKey,
+      ...(input.fieldId ? { fieldId: input.fieldId } : {}),
+      pin: input.pin,
+    }])
+  }, {
+    fieldId: persisted.fieldId,
+    fieldKey: SYNTHETIC_FIELD_KEY,
+    pin: SYNTHETIC_REVEAL_PIN,
+    secretId: persisted.secretId,
+  })
+  if (typeof copied !== 'object' || copied === null || Reflect.get(copied, 'success') !== true) {
+    const reason = typeof copied === 'object' && copied !== null ? Reflect.get(copied, 'error') : undefined
+    throw new Error(`Persisted secret copy failed: ${String(reason ?? 'invalid response')}`)
+  }
   return await readAndClearE2EClipboard(application)
 }
 
@@ -215,7 +284,20 @@ export async function runCommunityUIE2EHappyPath(rawScenarios: string | undefine
     checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'setup-before-mutation'))
     await createFirstSecret(page)
     const setupMilliseconds = Date.now() - started
+    await captureEvidence(page, 'VAULTAGE_COMMUNITY_E2E_VAULT_EVIDENCE')
     checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'setup-complete'))
+    if (selected.has('sidebar-drag-drop')) {
+      await verifyCommunitySidebarSecretDragDrop(page)
+      checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'sidebar-drag-drop-complete'))
+    }
+    if (selected.has('secret-context')) {
+      await verifyCommunitySecretContext(page)
+      checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'secret-context-complete'))
+    }
+    if (selected.has('vault-controls')) {
+      await verifyCommunityVaultControls(page)
+      checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'vault-controls-complete'))
+    }
 
     if (selected.has('persistence') || selected.has('project-mapping')) {
       application = await closeCommunityUIE2E(application)
@@ -225,8 +307,9 @@ export async function runCommunityUIE2EHappyPath(rawScenarios: string | undefine
       await unlockWithPassword(page)
     }
     if (selected.has('persistence') && application) {
-      assertExactSyntheticValue(await revealPersistedValue(page), 'reveal')
-      assertExactSyntheticValue(await copyPersistedValue(page, application), 'copy')
+      const revealed = await revealPersistedValue(page)
+      assertExactSyntheticValue(revealed.value, 'reveal')
+      assertExactSyntheticValue(await copyPersistedValue(page, application, revealed), 'copy')
       checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'persistence-reveal-copy'))
     }
     if (selected.has('persistence') && selected.has('project-mapping') && application) {
@@ -237,6 +320,9 @@ export async function runCommunityUIE2EHappyPath(rawScenarios: string | undefine
       await unlockWithPassword(page)
     }
     if (selected.has('project-mapping') && application) {
+      await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
+      await page.getByText('Local Project Mappings', { exact: true }).waitFor({ state: 'visible' })
+      await captureEvidence(page, 'VAULTAGE_COMMUNITY_E2E_PROJECTS_DASHBOARD_EVIDENCE')
       await installProjectFolderDialog(application, resources.run.projectDir)
       await createProjectMapping(page, PROJECT_MAPPING_FIXTURE)
       checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'project-mapping-created'))
@@ -247,6 +333,8 @@ export async function runCommunityUIE2EHappyPath(rawScenarios: string | undefine
       await unlockWithPassword(page)
       await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
       await assertExactProjectMapping(page, PROJECT_MAPPING_FIXTURE)
+      await verifyCommunityProjectPin(page)
+      await captureEvidence(page, 'VAULTAGE_COMMUNITY_E2E_PROJECTS_EVIDENCE')
       checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'mapping-restart-ready'))
     }
     application = await closeCommunityUIE2E(application)

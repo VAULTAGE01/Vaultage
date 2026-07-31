@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 declare const __VAULTAGE_OPEN_CORE__: boolean
+declare const __VAULTAGE_UI2026_FLAGS__: unknown
+declare const __VAULTAGE_UI2026_SHOWCASE__: boolean
 
 type AuditIpcApi = import('../../shared/auditIpcContracts').AuditIpcApi
 type AuthIpcApi = import('../../shared/authIpcContracts').AuthIpcApi

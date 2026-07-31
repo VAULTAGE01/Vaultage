@@ -10,6 +10,9 @@ const openCoreBuild = process.env['VAULTAGE_OPEN_CORE'] === '1'
   || !existsSync(fileURLToPath(fullAddSecretModal))
 
 export default defineConfig({
+  define: {
+    __VAULTAGE_OPEN_CORE__: JSON.stringify(openCoreBuild),
+  },
   esbuild: {
     jsx: 'automatic',
   },
@@ -22,6 +25,12 @@ export default defineConfig({
           : fullAddSecretModal,
         import.meta.url,
       )),
+      '#add-provider-modal': fileURLToPath(new URL(
+        openCoreBuild
+          ? './src/renderer/src/components/AddProviderModal.disabled.tsx'
+          : './src/renderer/src/components/AddProviderModal.tsx',
+        import.meta.url,
+      )),
       '#commercial-readiness': fileURLToPath(new URL(
         openCoreBuild
           ? './src/renderer/src/components/CommercialReadiness.disabled.tsx'
@@ -32,6 +41,12 @@ export default defineConfig({
         openCoreBuild
           ? './src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts'
           : './src/renderer/src/lib/CommercialFeatureCapabilities.ts',
+        import.meta.url,
+      )),
+      '#commercial-account': fileURLToPath(new URL(
+        openCoreBuild
+          ? './src/renderer/src/commercialAccountContext.disabled.tsx'
+          : './src/renderer/src/commercialAccountContext.tsx',
         import.meta.url,
       )),
     },

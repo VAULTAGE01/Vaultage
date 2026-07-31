@@ -110,8 +110,6 @@ export function applyVaultMutationCommand(
       return updateEnvProject(vault, command)
     case 'env-project.update-many':
       return updateEnvProjects(vault, command)
-    case 'env-project.activate':
-      return activateEnvProject(vault, command)
     case 'env-project.delete':
       return deleteEnvProject(vault, command)
     case 'preferences.patch':
@@ -577,15 +575,9 @@ function createEnvProject(vault: VaultState, command: Entity): VaultCommandMutat
     secretFieldCatalog(vault.root),
   )
   assertUniqueEntityId(vault, id(project.id, 'environment project id'))
-  const authorized = Array.isArray(command.activeProjectIds)
-    ? command.activeProjectIds.map(value => id(value, 'authorized active environment project id'))
-    : null
   return { vault: {
     ...vault,
     envProjects: [...vault.envProjects, project],
-    ...(authorized ? {
-      preferences: { ...(vault.preferences ?? {}), activeEnvProjectIds: authorized },
-    } : {}),
   } }
 }
 
@@ -624,29 +616,6 @@ function updateEnvProjects(vault: VaultState, command: Entity): VaultCommandMuta
     vault: {
       ...vault,
       envProjects: vault.envProjects.map(project => byId.get(String(project.id)) ?? project),
-    },
-  }
-}
-
-function activateEnvProject(vault: VaultState, command: Entity): VaultCommandMutationResult {
-  const projectId = id(command.projectId, 'environment project id')
-  const replaceProjectId = command.replaceProjectId === undefined
-    ? undefined
-    : id(command.replaceProjectId, 'replacement environment project id')
-  if (!vault.envProjects.some(project => project.id === projectId)) {
-    throw new Error('Environment project no longer exists')
-  }
-  const authorized = Array.isArray(command.activeProjectIds)
-    ? command.activeProjectIds.map(value => id(value, 'authorized active environment project id'))
-    : null
-  const current = authorized ?? activeEnvProjectIds(vault.preferences)
-  const next = authorized
-    ? current
-    : [...current.filter(activeId => activeId !== replaceProjectId && activeId !== projectId), projectId]
-  return {
-    vault: {
-      ...vault,
-      preferences: { ...(vault.preferences ?? {}), activeEnvProjectIds: next },
     },
   }
 }
@@ -810,7 +779,12 @@ function removeProviderReferences(vault: VaultState, providerId: string): VaultS
       ...project,
       environments: project.environments === undefined ? undefined : entities(project.environments, 'project environments').map(environment => {
         if (environment.providerId !== providerId) return environment
-        const { providerId: _providerId, providerEnvName: _providerEnvName, ...rest } = environment
+        const {
+          providerId: _providerId,
+          providerEnvName: _providerEnvName,
+          providerBinding: _providerBinding,
+          ...rest
+        } = environment
         return { ...rest, syncRule: 'manual' }
       }),
     })),

@@ -646,8 +646,9 @@ async function decodeVaultBlob(
     if (options.backup && (options.recordBlobs?.size || options.attachmentBlobs?.size)) {
       throw new Error('Legacy backup contains unexpected content-addressed blobs')
     }
-    validateVaultRoot(parsed, { boundary: 'persisted' })
-    persistedVault = parsed
+    const upgraded = upgradeAuthenticatedLegacyVault(parsed)
+    validateVaultRoot(upgraded, { boundary: 'persisted' })
+    persistedVault = upgraded
   } else {
     const decoded = options.recordBlobs
       ? await decodeVaultRecordStoreFromBlobs(parsed, vaultKey, options.recordBlobs)
@@ -688,6 +689,90 @@ async function decodeVaultBlob(
     vaultBlob: Buffer.from(blob),
     legacy,
   }
+}
+
+/**
+ * Repairs shapes written by historical Vaultage builds only after the legacy
+ * document has passed authenticated decryption. Imports and current record
+ * manifests continue through the strict validator without this compatibility
+ * path.
+ */
+function upgradeAuthenticatedLegacyVault(value: unknown): unknown {
+  const vault = mutableRecord(value)
+  const root = mutableRecord(vault?.root)
+  if (!root) return value
+
+  const secretIds = new Set<string>()
+  const providerIds = collectEntityIds(vault?.providers)
+  const projectIds = collectEntityIds(vault?.envProjects)
+  const pending: Record<string, unknown>[] = [root]
+  let visited = 0
+  while (pending.length > 0 && visited <= VAULT_VALIDATION_LIMITS.maxFolders) {
+    const folder = pending.pop()
+    if (!folder) break
+    visited += 1
+
+    if (Array.isArray(folder.children)) {
+      for (const child of folder.children) {
+        const record = mutableRecord(child)
+        if (record) pending.push(record)
+      }
+    }
+    if (!Array.isArray(folder.secrets)) continue
+    for (const secretValue of folder.secrets) {
+      const secret = mutableRecord(secretValue)
+      if (typeof secret?.id === 'string') secretIds.add(secret.id)
+      if (secret?.type !== 'image' || !Array.isArray(secret.fields)) continue
+      for (const fieldValue of secret.fields) {
+        const field = mutableRecord(fieldValue)
+        if (field?.key === '__image__' && field.sensitive === false) {
+          field.sensitive = true
+        }
+      }
+    }
+  }
+  const preferences = mutableRecord(vault?.preferences)
+  if (preferences && Array.isArray(preferences.localDashboardPinnedOrder)) {
+    preferences.localDashboardPinnedOrder = preferences.localDashboardPinnedOrder.filter(pin => (
+      legacyDashboardPinExists(pin, secretIds, projectIds, providerIds)
+    ))
+  }
+  return value
+}
+
+function collectEntityIds(value: unknown): Set<string> {
+  const ids = new Set<string>()
+  if (!Array.isArray(value)) return ids
+  for (const item of value) {
+    const id = mutableRecord(item)?.id
+    if (typeof id === 'string') ids.add(id)
+  }
+  return ids
+}
+
+function legacyDashboardPinExists(
+  value: unknown,
+  secretIds: ReadonlySet<string>,
+  projectIds: ReadonlySet<string>,
+  providerIds: ReadonlySet<string>,
+): boolean {
+  if (typeof value !== 'string') return true
+  const separator = value.indexOf(':')
+  if (separator < 0) return secretIds.has(value)
+  const kind = value.slice(0, separator)
+  const id = value.slice(separator + 1)
+  if (kind === 'secret') return secretIds.has(id)
+  if (kind === 'project') return projectIds.has(id)
+  if (kind === 'service') return providerIds.has(id)
+  return true
+}
+
+function mutableRecord(value: unknown): Record<string, unknown> | null {
+  return isMutableRecord(value) ? value : null
+}
+
+function isMutableRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
 async function decodeVaultBackupSnapshot(

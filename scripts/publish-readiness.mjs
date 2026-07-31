@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from 'fs'
 import { join, relative } from 'path'
 import {
   findPrivatePreloadIpcChannelLeaks,
+  findPrivatePreloadModuleImportLeaks,
   isPrivateOverlaySourcePath,
 } from './open-source-config.mjs'
 import { validateLocalPackageTargets } from './script-targets.mjs'
@@ -35,6 +36,33 @@ for (const rootPath of ['src', 'browser-extension', 'bin', 'schemas']) {
 function fileContains(path, text) {
   if (!existsSync(path)) return false
   return readFileSync(path, 'utf8').includes(text)
+}
+
+for (const path of [
+  'src/renderer/src/types.ts',
+  'src/shared/vaultIpcContracts.ts',
+  'src/shared/vaultValidation.ts',
+]) {
+  if (
+    existsSync(path) &&
+    /PaidBetaOnboarding|paidBetaOnboarding/u.test(readFileSync(path, 'utf8'))
+  ) {
+    blockers.push(`${path} contains private paid-beta onboarding metadata.`)
+  }
+}
+
+if (
+  existsSync('src/renderer/src/components/OnboardingResearchPrompt.open.tsx') &&
+  /paid.?beta|agentClient|extensionChoice|Pro credit/iu.test(
+    readFileSync(
+      'src/renderer/src/components/OnboardingResearchPrompt.open.tsx',
+      'utf8',
+    ),
+  )
+) {
+  blockers.push(
+    'Community onboarding research UI contains private paid-beta choices or claims.',
+  )
 }
 
 const hasLicense = existsSync('LICENSE')
@@ -127,6 +155,39 @@ const forbiddenFeatureFiles = [
   ['src/main/browserExtensionIdentity.test.ts', 'Public Community source drops must not include browser-extension identity policy tests.'],
   ['src/main/browserExtensionNativeHostRegistrar.ts', 'Public Community source drops must not include browser-extension host registration.'],
   ['src/main/browserExtensionNativeHostRegistrar.test.ts', 'Public Community source drops must not include browser-extension host registration tests.'],
+  ['src/main/browserExtensionPairingController.ts', 'Public Community source drops must not include browser-extension pairing controller.'],
+  ['src/main/browserExtensionPairingController.test.ts', 'Public Community source drops must not include browser-extension pairing controller tests.'],
+  ['src/main/browserExtensionPairingControllerSupport.ts', 'Public Community source drops must not include browser-extension pairing controller support.'],
+  ['src/main/browserExtensionPairingFileStore.ts', 'Public Community source drops must not include browser-extension pairing file store.'],
+  ['src/main/browserExtensionPairingFileStore.test.ts', 'Public Community source drops must not include browser-extension pairing file store tests.'],
+  ['src/main/browserExtensionPairingHttp.ts', 'Public Community source drops must not include browser-extension pairing HTTP transport.'],
+  ['src/main/browserExtensionPairingHttp.test.ts', 'Public Community source drops must not include browser-extension pairing HTTP tests.'],
+  ['src/main/browserExtensionPairingSchema.ts', 'Public Community source drops must not include browser-extension pairing schema.'],
+  ['src/main/browserExtensionPairingSchema.test.ts', 'Public Community source drops must not include browser-extension pairing schema tests.'],
+  ['src/main/browserExtensionPairingStore.ts', 'Public Community source drops must not include browser-extension pairing store.'],
+  ['src/main/browserExtensionPairingStore.test.ts', 'Public Community source drops must not include browser-extension pairing store tests.'],
+  ['src/preload/browserExtensionBridge.ts', 'Public Community source drops must not include the browser-extension preload bridge.'],
+  ['src/preload/browserExtensionBridge.test.ts', 'Public Community source drops must not include browser-extension preload bridge tests.'],
+  ['src/shared/browserExtensionContracts.ts', 'Public Community source drops must not publish browser-extension IPC contracts.'],
+  ['src/shared/extensionPairingIpcContracts.ts', 'Public Community source drops must not publish extension pairing IPC contracts.'],
+  ['src/shared/extensionPairingIpcContracts.test.ts', 'Public Community source drops must not publish extension pairing IPC contract tests.'],
+  ['src/preload/extensionPairingBridge.ts', 'Public Community source drops must not include the extension pairing preload bridge.'],
+  ['src/preload/extensionPairingBridge.test.ts', 'Public Community source drops must not include extension pairing preload bridge tests.'],
+  ['src/renderer/src/hooks/useExtensionPairing.ts', 'Public Community source drops must not include extension pairing renderer hooks.'],
+  ['src/renderer/src/hooks/useExtensionPairing.test.ts', 'Public Community source drops must not include extension pairing renderer hook tests.'],
+  ['src/renderer/src/components/ExtensionPairingPanel.tsx', 'Public Community source drops must not include browser-extension pairing UI.'],
+  ['src/renderer/src/components/ExtensionPairingPanel.test.tsx', 'Public Community source drops must not include browser-extension pairing UI tests.'],
+  ['browser-extension/extension/pairing-identity.js', 'Public Community source drops must not include browser-extension pairing identity.'],
+  ['browser-extension/extension/pairing-identity.test.mjs', 'Public Community source drops must not include browser-extension pairing identity tests.'],
+  ['browser-extension/native-host/pairing-dispatch.mjs', 'Public Community source drops must not include signed pairing dispatch.'],
+  ['browser-extension/native-host/pairing-dispatch.test.mjs', 'Public Community source drops must not include signed pairing dispatch tests.'],
+  ['browser-extension/native-host/pairing-protocol.mjs', 'Public Community source drops must not include pairing protocol implementation.'],
+  ['browser-extension/native-host/pairing-record.mjs', 'Public Community source drops must not include authenticated pairing record verification.'],
+  ['browser-extension/native-host/pairing-state.mjs', 'Public Community source drops must not include pairing state implementation.'],
+  ['browser-extension/native-host/pairing-test-fixture.mjs', 'Public Community source drops must not include pairing test fixtures.'],
+  ['browser-extension/native-host/pairing-verifier.mjs', 'Public Community source drops must not include pairing signature verification.'],
+  ['browser-extension/native-host/pairing-verifier.test.mjs', 'Public Community source drops must not include pairing verifier tests.'],
+  ['scripts/check-browser-extension-pairing.mjs', 'Public Community source drops must not include private pairing architecture checks.'],
   ['src/main/providerBasicOps.ts', 'Public Community source drops must not include provider operation implementation.'],
   ['src/main/providerHttp.ts', 'Public Community source drops must not include provider HTTP implementation helpers.'],
   ['src/main/providerIpc.ts', 'Public Community source drops must use the disabled provider IPC shim.'],
@@ -140,9 +201,22 @@ const forbiddenFeatureFiles = [
   ['src/renderer/src/components/CreateCloudflareTokenModal.tsx', 'Public Community source drops must not include token lifecycle UI.'],
   ['src/renderer/src/components/ExtensionSaveCandidatePanel.tsx', 'Public Community source drops must not include browser-extension save approval UI.'],
   ['src/renderer/src/components/IntegrationsView.tsx', 'Public Community source drops must not include the Services tab.'],
+  ['src/renderer/src/components/LegacyMainContent.tsx', 'Public Community source drops must use the Community main-content composition.'],
+  ['src/renderer/src/components/LegacyMainContent.test.ts', 'Public Community source drops must not include closed main-content routing tests.'],
+  ['src/renderer/src/components/legacyMainContentRoute.ts', 'Public Community source drops must not include a dormant Services route.'],
   ['src/renderer/src/components/MainLayout.tsx', 'Public Community source drops must use the Community main layout.'],
   ['src/renderer/src/components/ModeSwitcher.tsx', 'Public Community source drops must use the Community mode switcher.'],
+  ['src/renderer/src/components/ModeSwitcher.test.tsx', 'Public Community source drops must not include closed mode-switcher tests.'],
+  ['src/renderer/src/components/OnboardingResearchPrompt.tsx', 'Public Community source drops must use the Community-only research prompt.'],
+  ['src/renderer/src/components/PaidBetaOnboarding.tsx', 'Public Community source drops must not include paid-beta onboarding implementation.'],
+  ['src/renderer/src/components/PaidBetaOnboardingOptions.tsx', 'Public Community source drops must not include paid-beta onboarding choices.'],
   ['src/renderer/src/components/ProvidersModal.tsx', 'Public Community source drops must not include Services/provider UI.'],
+  ['src/renderer/src/components/officialProviderBrandAssets.ts', 'Public Community source drops must not include private provider brand catalog metadata.'],
+  ['src/renderer/src/components/PinnedVaultLists.tsx', 'Public Community source drops must use the Community pinned Vault list.'],
+  ['src/renderer/src/components/PinnedVaultLists.test.tsx', 'Public Community source drops must not include closed dashboard-model tests.'],
+  ['src/renderer/src/components/ProjectsGuidanceHero.tsx', 'Public Community source drops must use the local-only Community Projects guidance.'],
+  ['src/renderer/src/components/ProjectsGuidanceHero.test.tsx', 'Public Community source drops must not include closed Projects guidance tests.'],
+  ['src/renderer/src/components/ProjectsGuidancePlacement.test.mjs', 'Public Community source drops must not include closed Projects placement tests.'],
   ['src/renderer/src/components/SecretDashboardModals.tsx', 'Public Community source drops must not include closed dashboard modals.'],
   ['src/renderer/src/components/SecretDetail.tsx', 'Public Community source drops must use the Community secret detail component.'],
   ['src/renderer/src/components/SecretLifecycleModals.tsx', 'Public Community source drops must not include Services/Agent lifecycle UI.'],
@@ -156,6 +230,8 @@ const forbiddenFeatureFiles = [
   ['src/renderer/src/lib/providerResearch.ts', 'Public Community source drops must not include provider research catalog metadata.'],
   ['src/renderer/src/lib/providerResearch.test.ts', 'Public Community source drops must not include provider research catalog tests.'],
   ['src/renderer/src/lib/providerVotes.ts', 'Public Community source drops must not include provider catalog voting.'],
+  ['src/renderer/src/lib/paidBetaOnboarding.ts', 'Public Community source drops must not include paid-beta onboarding state logic.'],
+  ['src/renderer/src/lib/paidBetaOnboarding.test.ts', 'Public Community source drops must not include paid-beta onboarding tests.'],
   ['src/renderer/src/lib/serviceCategories.ts', 'Public Community source drops must use the disabled service catalog shim.'],
   ['src/renderer/src/modeContext.tsx', 'Public Community source drops must use the Community mode context.'],
   ['src/shared/agentIpcContracts.ts', 'Public Community source drops must not publish private Agent IPC contracts.'],
@@ -236,6 +312,9 @@ const preloadSource = existsSync('src/preload/index.ts')
   : ''
 for (const term of findPrivatePreloadIpcChannelLeaks(preloadSource)) {
   blockers.push(`src/preload/index.ts exposes private IPC channel ${term}.`)
+}
+for (const term of findPrivatePreloadModuleImportLeaks(preloadSource)) {
+  blockers.push(`src/preload/index.ts imports private browser-extension module ${term}.`)
 }
 
 for (const warning of warnings) {

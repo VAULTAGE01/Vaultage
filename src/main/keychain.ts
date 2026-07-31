@@ -4,11 +4,11 @@ import { join } from 'path'
 import { spawnSync } from 'child_process'
 import {
   buildKeychainHelperEnvironment,
+  keychainServiceCoordinates,
   keychainHelperMetadataError,
 } from './keychainPolicy'
 
 export const IS_MAC = process.platform === 'darwin'
-const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
 
 export interface KeychainResult {
   key: string | null
@@ -26,19 +26,10 @@ export function helperPath(): string {
 }
 
 export function keychainHelperEnvironment(): NodeJS.ProcessEnv {
+  const coordinates = keychainServiceCoordinates()
   return buildKeychainHelperEnvironment(
     process.env,
-    {
-      service: OPEN_CORE_BUILD
-        ? 'xyz.arcalab.vault-oc.masterkey'
-        : 'xyz.arcalab.vaultage.masterkey',
-      legacyServices: OPEN_CORE_BUILD
-        ? ''
-        : 'com.eden.vaultage.masterkey,com.eden.vaultage.masterkey.migration,dev.vault.app.masterkey',
-      migrationService: OPEN_CORE_BUILD
-        ? 'xyz.arcalab.vault-oc.masterkey.migration'
-        : 'xyz.arcalab.vaultage.masterkey.migration',
-    },
+    coordinates,
     app.isPackaged ? undefined : app.getAppPath(),
   )
 }

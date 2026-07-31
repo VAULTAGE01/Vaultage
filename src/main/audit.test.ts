@@ -295,8 +295,8 @@ describe('audit log', () => {
     await appendAuditEvent(file, 'provider.action', { index: 1 }, macKey, rotation)
 
     const archive = (await readdir(dir)).find(name => name.startsWith('audit.log.segment-'))
-    expect(archive).toBeTruthy()
-    const archivePath = join(dir, archive!)
+    if (!archive) throw new TypeError('Expected an authenticated rotated segment')
+    const archivePath = join(dir, archive)
     const event = JSON.parse((await readFile(archivePath, 'utf8')).trim()) as { details: { index: number } }
     event.details.index = 9
     await writeFile(archivePath, `${JSON.stringify(event)}\n`, 'utf8')
@@ -322,5 +322,34 @@ describe('audit log', () => {
     const unkeyed = createAuditEvent('vault.unlock', {}, null, '2026-07-11T12:00:00.000Z', 'legacy-unkeyed')
     await writeFile(secondFile, `${JSON.stringify(unkeyed)}\n`, { encoding: 'utf8', mode: 0o600 })
     await expect(readVerifiedAuditLog(secondFile, macKey)).rejects.toThrow(/event MAC missing/)
+  })
+
+  it('rekeys a verified mixed legacy chain before creating its authenticated anchor', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vaultage-audit-'))
+    const file = join(dir, 'audit.log')
+    const macKey = deriveAuditMacKey(Buffer.from('test-vault-key-material'))
+    const first = createAuditEvent(
+      'vault.setup', {}, null, '2026-07-10T12:00:00.000Z', 'legacy-unkeyed-first',
+    )
+    const second = createAuditEvent(
+      'vault.lock', {}, first.hash, '2026-07-10T13:00:00.000Z', 'legacy-unkeyed-second',
+    )
+    const third = createAuditEvent(
+      'vault.unlock', {}, second.hash, '2026-07-11T12:00:00.000Z', 'legacy-keyed-third', macKey,
+    )
+    await writeFile(
+      file,
+      `${[first, second, third].map(event => JSON.stringify(event)).join('\n')}\n`,
+      { encoding: 'utf8', mode: 0o600 },
+    )
+
+    const migrated = await readVerifiedAuditLog(file, macKey)
+    expect(migrated.events.map(event => event.id)).toEqual([
+      'legacy-unkeyed-first',
+      'legacy-unkeyed-second',
+      'legacy-keyed-third',
+    ])
+    expect(migrated.events.every(event => event.hashScheme === 'hmac-sha256')).toBe(true)
+    expect(verifyAuditChain(migrated.events, { macKey, requireMac: true })).toEqual({ ok: true })
   })
 })

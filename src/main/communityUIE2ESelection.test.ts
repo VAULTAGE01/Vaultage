@@ -22,4 +22,12 @@ describe('Community UI E2E scenario selection', () => {
     expect(() => selectCommunityUIE2EScenarios('cancel,cancel')).toThrow()
     expect(() => selectCommunityUIE2EScenarios('cancel,unsupported')).toThrow()
   })
+
+  it('routes sidebar drag and drop through the native happy path', () => {
+    expect(selectCommunityUIE2EScenarios('sidebar-drag-drop')).toEqual({
+      adversarial: [],
+      happy: ['sidebar-drag-drop'],
+      policy: [],
+    })
+  })
 })

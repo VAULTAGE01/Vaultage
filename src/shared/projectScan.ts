@@ -65,14 +65,10 @@ export interface ProjectScanRequest {
   manualFiles?: string[]
   /** Existing project identity; omitted only while evaluating a new project. */
   projectId?: string
-  /** Closed-Free active slot selected for an atomic new-project replacement. */
-  replaceProjectId?: string
 }
 
 export interface ProjectDiscoverRequest {
   parentPath: string
-  /** Closed-Free active slot selected for candidate authorization. */
-  replaceProjectId?: string
 }
 
 export interface ProjectScanCandidate {

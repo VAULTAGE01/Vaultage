@@ -387,6 +387,9 @@ function validateSecret(value: unknown, path: string, state: ValidationState): s
   optionalIsoDateTime(secret.lastUsedAt, `${path}.lastUsedAt`)
   optionalInteger(secret.usageCount, `${path}.usageCount`, { min: 0 })
   optionalBoolean(secret.agentAvailable, `${path}.agentAvailable`)
+  optionalBoolean(secret.browserExtensionAllowed, `${path}.browserExtensionAllowed`)
+  optionalBoolean(secret.revealAllowed, `${path}.revealAllowed`)
+  optionalBoolean(secret.cliExportAllowed, `${path}.cliExportAllowed`)
 
   if (secret.providerLink !== undefined) {
     const link = record(secret.providerLink, `${path}.providerLink`)
@@ -484,7 +487,7 @@ function validateProject(value: unknown, path: string, state: ValidationState): 
     addUnique(projectEnvironmentIds, environmentId, `${environmentPath}.id`, 'project environment')
     addUnique(state.environmentIds, environmentId, `${environmentPath}.id`, 'project environment')
     text(environment.name, `${environmentPath}.name`, { max: VAULT_VALIDATION_LIMITS.maxNameChars })
-    text(environment.scope, `${environmentPath}.scope`, { allowEmpty: true, max: 256 })
+    const fixedScope = text(environment.scope, `${environmentPath}.scope`, { allowEmpty: true, max: 256 })
     enumText(environment.kind, `${environmentPath}.kind`, ENVIRONMENT_KINDS, 'uses an unsupported environment kind')
     validateEnvEntries(environment.entries, `${environmentPath}.entries`, state)
     optionalText(environment.path, `${environmentPath}.path`, { allowEmpty: true, max: 32_768 })
@@ -499,10 +502,30 @@ function validateProject(value: unknown, path: string, state: ValidationState): 
     if (environment.syncRule !== undefined) {
       enumText(environment.syncRule, `${environmentPath}.syncRule`, SYNC_RULES, 'uses an unsupported sync rule')
     }
+    if (environment.providerBinding !== undefined) {
+      if (environment.kind !== 'cloud') {
+        fail(`${environmentPath}.providerBinding`, 'relationship', 'requires a cloud environment')
+      }
+      if (environment.providerId === undefined) {
+        fail(`${environmentPath}.providerBinding`, 'relationship', 'requires a provider')
+      }
+      if (environment.syncRule !== undefined && environment.syncRule !== 'manual') {
+        fail(`${environmentPath}.syncRule`, 'unsupported', 'provider project actions require explicit manual approval')
+      }
+      if (!isFixedProviderEnvironment(projectId, environmentId, fixedScope)) {
+        fail(`${environmentPath}.id`, 'relationship', 'must match the fixed provider environment scope')
+      }
+      record(environment.providerBinding, `${environmentPath}.providerBinding`)
+    }
     optionalBoolean(environment.addToGitignore, `${environmentPath}.addToGitignore`)
     optionalStringArray(environment.manualScanFiles, `${environmentPath}.manualScanFiles`, 1_000, 32_768)
     optionalIsoDateTime(environment.lastSyncAt, `${environmentPath}.lastSyncAt`)
   }
+}
+
+function isFixedProviderEnvironment(projectId: string, environmentId: string, scope: string): boolean {
+  return ['development', 'staging', 'production'].includes(scope)
+    && environmentId === `${projectId}:${scope}`
 }
 
 function validateEnvEntries(value: unknown, path: string, state: ValidationState): void {

@@ -28,6 +28,10 @@ describe('validateVaultRoot', () => {
       status: 'active',
       statusUpdatedAt: NOW,
     }
+    vault.root.secrets[0].browserExtensionAllowed = false
+    vault.root.secrets[0].agentAvailable = false
+    vault.root.secrets[0].revealAllowed = false
+    vault.root.secrets[0].cliExportAllowed = false
     vault.envProjects[0].environments = [{
       id: 'environment-cloud',
       name: 'Production',
@@ -117,6 +121,36 @@ describe('validateVaultRoot', () => {
     expectInvalid(missingPin, 'dangling_reference', '$.preferences.localDashboardPinnedOrder[0]')
   })
 
+  it('validates provider target metadata on fixed slots and rejects automatic sync directions', () => {
+    const valid = validVault()
+    valid.envProjects[0].environments = [{
+      id: 'project-1:staging',
+      name: 'Stg',
+      scope: 'staging',
+      kind: 'cloud',
+      entries: [{ secretId: 'secret-1', fieldKey: 'API Key', envKey: 'API_KEY' }],
+      providerId: 'provider-1',
+      syncRule: 'manual',
+      providerBinding: {
+        kind: 'external-secret-target',
+        target: 'project-1-staging',
+      },
+    }]
+    expect(() => validateVaultRoot(valid)).not.toThrow()
+
+    const automatic = structuredClone(valid)
+    automatic.envProjects[0].environments[0].syncRule = 'push'
+    expectInvalid(automatic, 'unsupported', '$.envProjects[0].environments[0].syncRule')
+
+    const wrongSlot = structuredClone(valid)
+    wrongSlot.envProjects[0].environments[0].id = 'project-1:production'
+    expectInvalid(wrongSlot, 'relationship', '$.envProjects[0].environments[0].id')
+
+    const malformed = structuredClone(valid)
+    malformed.envProjects[0].environments[0].providerBinding = 'not-an-object'
+    expectInvalid(malformed, 'type', '$.envProjects[0].environments[0].providerBinding')
+  })
+
   it('allows renderer redaction placeholders but rejects unresolved persisted placeholders', () => {
     const rendererVault = validVault()
     rendererVault.root.secrets[0].fields[0].value = REDACTED_SECRET_VALUE
@@ -202,6 +236,10 @@ interface VaultSecretFixture {
   updatedAt: string
   expiresAt?: string
   providerLink?: Record<string, unknown>
+  browserExtensionAllowed?: boolean
+  agentAvailable?: boolean
+  revealAllowed?: boolean
+  cliExportAllowed?: boolean
 }
 
 function validVault() {

@@ -3,16 +3,44 @@
 const privateOverlaySourcePatterns = [
   /^browser-extension\//,
   /^bin\/vaultage\.mjs$/,
+  /^bin\/vaultage-mcp\.mjs$/,
+  /^docs\/mcp\.md$/,
   /^docs\/roadmap(?:\/|$)/,
   /^schemas\/agent-[^/]+\.schema\.json$/,
   /^scripts\/linear-roadmap(?:\/|$)/,
+  /^scripts\/run-agent-user-presence-benchmark(?:\.test\.mjs|\.sh)$/,
+  /^scripts\/services-ui-e2e\.mjs$/,
+  /^scripts\/services-provider-flow-visual-qa\.mjs$/,
+  /^scripts\/check-browser-extension-pairing(?:\.test)?\.mjs$/,
+  /^scripts\/mcp-demo\.mjs$/,
   /^src\/cli\//,
+  /^src\/main\/mcp[^/]*\.[cm]?[jt]sx?$/i,
+  /^src\/main\/(?:cloudflare|providers)(?:\/|$)/,
+  // Browser-extension pairing is a private trust boundary. Keep both the
+  // current leaf modules and future nested/private siblings out of Community.
+  /^src\/main\/browserExtension(?:Pairing|Identity|NativeHost)(?:\/|[^/]*\.[cm]?[jt]sx?$)/,
+  /^src\/shared\/browserExtensionContracts(?:\/|[^/]*\.[cm]?[jt]sx?$)/,
+  /^src\/shared\/extensionPairingIpcContracts(?:\/|[^/]*\.[cm]?[jt]sx?$)/,
+  /^src\/preload\/browserExtensionBridge(?:\/|[^/]*\.[cm]?[jt]sx?$)/,
+  /^src\/preload\/extensionPairingBridge(?:\/|[^/]*\.[cm]?[jt]sx?$)/,
+  /^src\/renderer\/src\/hooks\/useExtensionPairing(?:\/|[^/]*\.[cm]?[jt]sx?$)/,
   /^src\/main\/(?:agent|commercial|extension|provider)[^/]*\.[cm]?[jt]sx?$/i,
+  /^src\/main\/nativeUserPresence(?:\.test)?\.ts$/,
   /^src\/shared\/(?:agent|commercial|extension|provider)[^/]*\.[cm]?[jt]sx?$/i,
-  /^src\/renderer\/.*\/(?:Agent|Commercial|Extension|Integration|Provider|Service|UsageMap)[^/]*\.[cm]?[jt]sx?$/,
+  /^src\/shared\/awsProjectEnvironment(?:\/|[^/]*\.[cm]?[jt]sx?$)/i,
+  /^src\/renderer\/.*\/(?:Agent|Aws|Commercial|Extension|Integration|Provider|Service|UsageMap)[^/]*\.[cm]?[jt]sx?$/,
   /^src\/renderer\/.*\/(?:agent|commercial|extension|integration|provider|service)[^/]*\.[cm]?[jt]sx?$/i,
+  /^src\/renderer\/.*\/(?:PaidBeta|paidBeta)[^/]*\.[cm]?[jt]sx?$/,
   /^src\/renderer\/src\/components\/SettingsModal\.tsx$/,
 ]
+
+export const publicUi2026SourcePaths = new Set([
+  'src/renderer/src/ui2026/assets/projects-hero.png',
+  'src/renderer/src/ui2026/primitives/hero.tsx',
+  'src/renderer/src/ui2026/primitives/rows.tsx',
+  'src/renderer/src/ui2026/primitives/types.ts',
+  'src/renderer/src/ui2026/ui2026.css',
+])
 
 // Disabled seams are public source, so every one must be reviewed explicitly.
 // Never restore a blanket `*.disabled.*` exception: a closed implementation
@@ -33,7 +61,6 @@ export const reviewedDisabledSeamPaths = new Set([
   'src/renderer/src/commercialAccountContext.disabled.tsx',
   'src/renderer/src/components/AddProviderModal.disabled.tsx',
   'src/renderer/src/components/CommercialAccountSettings.disabled.tsx',
-  'src/renderer/src/components/CommercialProjectActivation.disabled.tsx',
   'src/renderer/src/components/CommercialReadiness.disabled.tsx',
   'src/renderer/src/components/CreateCloudflareTokenModal.disabled.tsx',
   'src/renderer/src/components/IntegrationsView.disabled.tsx',
@@ -52,6 +79,9 @@ export function isPrivateOverlaySourcePath(path) {
   const normalized = path.replaceAll('\\', '/')
   if (/\.disabled\.[cm]?[jt]sx?$/.test(normalized)) {
     return !isReviewedDisabledSeamPath(normalized)
+  }
+  if (normalized.startsWith('src/renderer/src/ui2026/')) {
+    return !publicUi2026SourcePaths.has(normalized)
   }
   // Redaction is a Community security boundary too. Keep its provider-key
   // sensitivity policy even though provider connector implementations remain
@@ -77,6 +107,7 @@ export const privatePreloadIpcChannelTerms = Object.freeze([
   'provider:cf-permissions-saved',
   'provider:cf-create-token-saved',
   'provider:cf-roll-token-saved',
+  'provider:aws-project-verify-target',
   'feedback:provider-vote',
   'vault:copy-agent-instructions',
   'vault:get-agent-access-policy',
@@ -92,6 +123,11 @@ export const privatePreloadIpcChannelTerms = Object.freeze([
   'vault:extension-save-candidate',
   'vault:extension-save-candidate-expired',
   'vault:respond-extension-save-candidate',
+  'vault:respond-extension-pairing',
+  'vault:get-extension-pairing-status',
+  'vault:unpair-extension-pairing',
+  'vault:extension-pairing-request',
+  'vault:extension-pairing-expired',
 ])
 
 export function findPrivateIpcNamespaceLeaks(source) {
@@ -103,6 +139,19 @@ export function findPrivatePreloadIpcChannelLeaks(source) {
     ...findPrivateIpcNamespaceLeaks(source),
     ...privatePreloadIpcChannelTerms,
   ].filter((term, index, terms) => source.includes(term) && terms.indexOf(term) === index)
+}
+
+const privatePreloadModuleImportPatterns = Object.freeze([
+  ['browserExtensionBridge', /(?:from\s+|import\s*(?:\(\s*)?)['"][^'"]*browserExtensionBridge(?:\.[cm]?[jt]sx?)?['"]/u],
+  ['browserExtensionContracts', /(?:from\s+|import\s*(?:\(\s*)?)['"][^'"]*browserExtensionContracts(?:\.[cm]?[jt]sx?)?['"]/u],
+  ['extensionPairingBridge', /(?:from\s+|import\s*(?:\(\s*)?)['"][^'"]*extensionPairingBridge(?:\.[cm]?[jt]sx?)?['"]/u],
+  ['extensionPairingIpcContracts', /(?:from\s+|import\s*(?:\(\s*)?)['"][^'"]*extensionPairingIpcContracts(?:\.[cm]?[jt]sx?)?['"]/u],
+])
+
+export function findPrivatePreloadModuleImportLeaks(source) {
+  return privatePreloadModuleImportPatterns
+    .filter(([, pattern]) => pattern.test(source))
+    .map(([term]) => term)
 }
 
 // These names describe the private standing-grant trust boundary. Community
@@ -161,7 +210,6 @@ export const openWebAliasPaths = {
   '#service-category-icons': ['src/renderer/src/components/serviceCategoryIcons.disabled.tsx'],
   '#sidebar': ['src/renderer/src/components/Sidebar.open.tsx'],
   '#commercial-readiness': ['src/renderer/src/components/CommercialReadiness.disabled.tsx'],
-  '#commercial-project-activation': ['src/renderer/src/components/CommercialProjectActivation.disabled.tsx'],
   '#commercial-capabilities': ['src/renderer/src/lib/CommercialFeatureCapabilities.disabled.ts'],
   '#commercial-account': ['src/renderer/src/commercialAccountContext.disabled.tsx'],
   '#commercial-account-settings': ['src/renderer/src/components/CommercialAccountSettings.disabled.tsx'],
@@ -214,20 +262,35 @@ export function stripClosedReleaseConfiguration(source) {
   ]
   const definePattern = /\s*\/\/ VAULTAGE_CLOSED_RELEASE_DEFINE_START[\s\S]*?\/\/ VAULTAGE_CLOSED_RELEASE_DEFINE_END\n/u
   const markerMatches = [...patterns, definePattern].map(pattern => pattern.test(source))
+  let result = source
   if (markerMatches.every(match => !match)) {
     if (/VAULTAGE_COMMERCIAL_RELEASE|__VAULTAGE_COMMERCIAL_RUNTIME_CONFIGURATION__|commercialRuntimeConfig/u.test(source)) {
       throw new Error('Unmarked closed release configuration remains in Community Vite config')
     }
-    return source
-  }
-  if (!markerMatches.every(Boolean)) {
+  } else if (!markerMatches.every(Boolean)) {
     throw new Error('Closed release configuration markers are incomplete')
+  } else {
+    for (const pattern of patterns) {
+      result = result.replace(pattern, '')
+    }
+    result = result.replace(definePattern, '\n')
   }
-  let result = source
-  for (const pattern of patterns) {
-    result = result.replace(pattern, '')
+
+  const benchmarkStart = '// VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_START'
+  const benchmarkEnd = '// VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_END'
+  const startCount = result.split(benchmarkStart).length - 1
+  const endCount = result.split(benchmarkEnd).length - 1
+  if (startCount !== endCount) {
+    throw new Error('Closed Agent user-presence benchmark markers are incomplete')
   }
-  return result.replace(definePattern, '\n')
+  result = result.replace(
+    /\/\/ VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_START[\s\S]*?\/\/ VAULTAGE_CLOSED_AGENT_PRESENCE_BENCHMARK_END\n/gu,
+    '',
+  )
+  if (/VAULTAGE_AGENT_PRESENCE|agentUserPresenceBenchmark|agentPresenceBenchmarkBuildPolicy/u.test(result)) {
+    throw new Error('Unmarked closed Agent user-presence benchmark configuration remains in Community Vite config')
+  }
+  return result
 }
 
 export const openWebTypecheckInclude = [
@@ -241,6 +304,7 @@ export const openWebTypecheckExclude = [
   // Excluding the full file here keeps this source-tree check equivalent to
   // the staged build and prevents private provider/agent contracts leaking in.
   'src/renderer/src/env.d.ts',
+  'src/renderer/src/main.tsx',
   'src/renderer/src/components/AddProviderModal.tsx',
   'src/renderer/src/components/AddSecretModal.tsx',
   'src/renderer/src/components/AgentView.tsx',
@@ -248,11 +312,22 @@ export const openWebTypecheckExclude = [
   'src/renderer/src/components/ExtensionSaveCandidatePanel.tsx',
   'src/renderer/src/components/IntegrationSecretDetail.tsx',
   'src/renderer/src/components/IntegrationsView.tsx',
+  'src/renderer/src/components/LegacyMainContent.tsx',
+  'src/renderer/src/components/LegacyMainContent.test.ts',
+  'src/renderer/src/components/legacyMainContentRoute.ts',
   'src/renderer/src/components/MainLayout.tsx',
   'src/renderer/src/components/ModeSwitcher.tsx',
+  'src/renderer/src/components/ModeSwitcher.test.tsx',
+  'src/renderer/src/components/OnboardingResearchPrompt.tsx',
   'src/renderer/src/components/ProviderIcons.tsx',
+  'src/renderer/src/components/officialProviderBrandAssets.ts',
+  'src/renderer/src/components/PinnedVaultLists.tsx',
+  'src/renderer/src/components/PinnedVaultLists.test.tsx',
   'src/renderer/src/components/ProviderRoadmapPanel.tsx',
   'src/renderer/src/components/ProvidersModal.tsx',
+  'src/renderer/src/components/ProjectsGuidanceHero.tsx',
+  'src/renderer/src/components/ProjectsGuidanceHero.test.tsx',
+  'src/renderer/src/components/ProjectsGuidancePlacement.test.mjs',
   'src/renderer/src/components/SecretDashboardModals.tsx',
   'src/renderer/src/components/SecretDetail.tsx',
   'src/renderer/src/components/SecretLifecycleModals.tsx',
@@ -275,6 +350,11 @@ export const openWebTypecheckExclude = [
 
 export const openElectronBuilderConfig = `appId: xyz.arcalab.vault-oc
 productName: vault-OC
+
+# Community has no updater runtime. The null value is intentional: electron-builder
+# treats an empty list as permission to infer GitHub from .git/config, while
+# null disables update-provider resolution and app-update.yml generation.
+publish: null
 
 directories:
   buildResources: build

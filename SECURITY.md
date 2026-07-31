@@ -43,9 +43,12 @@ Vaultage is designed around a local-first trust boundary:
   this-device-only macOS Keychain item gated by local user presence. Touch ID
   is used when available; macOS may offer system-password fallback.
 - Public Community builds expose only My Vault and Projects.
-- Private/Pro Agent mode is local-only and must be explicitly enabled while the vault is unlocked.
+- Closed Free Agent mode is local-only and must be explicitly enabled while the vault is unlocked.
+- Closed Free keeps unlimited local Vault storage and unlimited Projects plus that local Agent/CLI
+  access. The sole released paid capability is Services/provider lifecycle;
+  the browser extension is deferred and unavailable.
 - Plaintext export paths require explicit confirmation and must be treated as sensitive.
-- Private/Pro provider credentials are stored inside the encrypted vault and provider API calls run behind a worker-thread RPC boundary. ADR-024 keeps Agent and provider workflows in the paid/private surface.
+- Trial/Pro Services credentials are stored inside the encrypted vault and provider API calls run behind a worker-thread RPC boundary. ADR-024 keeps Agent and provider workflows out of the Community surface.
 - Sensitive main-process events are recorded in a redacted hash-chained local audit log foundation.
 - Optional paid-beta accounts add a metadata-only cloud control plane for
   identity, device authorization, billing state, signed entitlements, account
@@ -55,13 +58,13 @@ Vaultage is designed around a local-first trust boundary:
 ## In Scope
 
 - Desktop app main/preload/renderer code.
-- Private/Pro Local Agent API on `127.0.0.1`.
+- Closed Free Local Agent API on `127.0.0.1`.
 - Vault encryption, unlock, lock, backup, import, and export behavior.
 - Provider integration code implemented in the private desktop source.
 - Paid-beta account, session-refresh, device-enrollment/revocation, billing,
   webhook, entitlement, recovery-notification, export, and deletion surfaces.
-- Commercial desktop and browser-extension entitlement enforcement, including
-  offline/grace transitions and closed-Free limits.
+- Commercial entitlement enforcement for Services lifecycle, including
+  offline/grace transitions. The browser extension remains deferred and unavailable.
 - Cloudflare Worker service bindings, queues, D1/R2 lifecycle controls,
   rate limits, redacted operational logging, and deployable configuration
   defined for the paid-beta control plane in the private cloud repository.

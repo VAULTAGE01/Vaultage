@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { EnvProject } from '../types'
-import { buildActiveProjectMappingUpdates } from './projectMappingPolicy'
+import { buildProjectMappingUpdates } from './projectMappingPolicy'
 
 const projects: EnvProject[] = ['project-a', 'project-b', 'project-c'].map(id => ({
   id,
@@ -12,23 +12,23 @@ const projects: EnvProject[] = ['project-a', 'project-b', 'project-c'].map(id =>
   addToGitignore: true,
 }))
 
-describe('closed Free secret mapping batches', () => {
-  it('updates only changed active Projects and preserves inactive mappings', () => {
-    const updates = buildActiveProjectMappingUpdates(projects, [
+describe('Free secret mapping batches', () => {
+  it('updates every changed Project without an activation-slot filter', () => {
+    const updates = buildProjectMappingUpdates(projects, [
       { projectId: 'project-a', enabled: true, envKey: 'API_TOKEN', fieldKey: 'token' },
       { projectId: 'project-b', enabled: false, envKey: 'API_TOKEN', fieldKey: 'token' },
       { projectId: 'project-c', enabled: false, envKey: 'OLD_KEY', fieldKey: 'token' },
-    ], new Set(['project-a', 'project-b']), 'secret-1')
+    ], 'secret-1')
 
-    expect(updates.map(project => project.id)).toEqual(['project-a'])
+    expect(updates.map(project => project.id)).toEqual(['project-a', 'project-c'])
     expect(updates[0]?.entries).toEqual([{ secretId: 'secret-1', envKey: 'API_TOKEN', fieldKey: 'token' }])
-    expect(projects[2]?.entries).toEqual([{ secretId: 'secret-1', envKey: 'OLD_KEY', fieldKey: 'token' }])
+    expect(updates[1]?.entries).toEqual([])
   })
 
-  it('does not submit unchanged active Projects', () => {
-    const updates = buildActiveProjectMappingUpdates(projects, [
+  it('does not submit unchanged Projects', () => {
+    const updates = buildProjectMappingUpdates(projects, [
       { projectId: 'project-c', enabled: true, envKey: 'OLD_KEY', fieldKey: 'token' },
-    ], new Set(['project-c']), 'secret-1')
+    ], 'secret-1')
 
     expect(updates).toEqual([])
   })
@@ -41,9 +41,9 @@ describe('closed Free secret mapping batches', () => {
         { secretId: 'secret-2', envKey: 'OTHER_TOKEN', fieldKey: 'token' },
       ],
     }
-    const updates = buildActiveProjectMappingUpdates([project], [
+    const updates = buildProjectMappingUpdates([project], [
       { projectId: 'project-a', enabled: true, envKey: 'API_TOKEN', fieldKey: 'token' },
-    ], new Set(['project-a']), 'secret-1')
+    ], 'secret-1')
 
     expect(updates).toEqual([])
     expect(project.entries[0]).toMatchObject({ fieldId: 'field-1', envKey: 'API_TOKEN' })
@@ -57,9 +57,9 @@ describe('closed Free secret mapping batches', () => {
         path: '/current', entries: [], addToGitignore: false,
       }],
     }
-    const updates = buildActiveProjectMappingUpdates([project], [
+    const updates = buildProjectMappingUpdates([project], [
       { projectId: 'project-a', enabled: true, envKey: 'API_TOKEN', fieldId: 'field-2', fieldKey: 'token' },
-    ], new Set(['project-a']), 'secret-1')
+    ], 'secret-1')
 
     expect(updates).toHaveLength(1)
     expect(updates[0]?.entries).toEqual([
