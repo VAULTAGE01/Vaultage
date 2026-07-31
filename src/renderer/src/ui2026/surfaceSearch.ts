@@ -1,7 +1,7 @@
 export type SurfaceSearchKeyboardEvent = Pick<
   globalThis.KeyboardEvent,
   'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'
->
+>;
 
 export function isSurfaceSearchShortcut(
   event: SurfaceSearchKeyboardEvent,
@@ -11,5 +11,5 @@ export function isSurfaceSearchShortcut(
     && !event.altKey
     && !event.shiftKey
     && event.key.toLocaleLowerCase() === 'k'
-  )
+  );
 }

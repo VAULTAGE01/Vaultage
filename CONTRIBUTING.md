@@ -15,6 +15,9 @@ This document is the intended contribution posture for the public open-core rele
   automation, cloud account code, managed OAuth, browser extension code, and
   paid overlay modules must stay out of the Community source surface unless
   explicitly relicensed.
+- Accepted Vault, Projects, and shared UI contributions are reconciled into the
+  private composition source through a maintainer-reviewed import PR. Do not
+  edit provenance manifests or generated output; those changes are rejected.
 
 ## Development Checks
 

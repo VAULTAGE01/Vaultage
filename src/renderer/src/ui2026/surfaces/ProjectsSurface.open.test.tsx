@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { EnvProject } from '@/types'
-import { ProjectsSurface } from './ProjectsSurface'
+import { ProjectsSurface } from './ProjectsSurface.open'
 
 const projects: readonly EnvProject[] = [{
   id: 'api',

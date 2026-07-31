@@ -1,7 +1,7 @@
 import { X } from 'lucide-react';
 import type { ReactElement, ReactNode } from 'react';
 import { ActionButton } from './rows';
-import type { ActionSpec, HeroFact } from './types';
+import type { ActionSpec, HeroFact } from './types.open';
 
 export function SurfaceSectionHeader({
   id,

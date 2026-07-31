@@ -49,6 +49,12 @@ export default defineConfig({
           : './src/renderer/src/commercialAccountContext.tsx',
         import.meta.url,
       )),
+      '#commercial-account-settings': fileURLToPath(new URL(
+        openCoreBuild
+          ? './src/renderer/src/components/CommercialAccountSettings.disabled.tsx'
+          : './src/renderer/src/components/CommercialAccountSettings.tsx',
+        import.meta.url,
+      )),
     },
   },
   test: {

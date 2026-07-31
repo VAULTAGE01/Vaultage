@@ -8,6 +8,7 @@
     --accent-foreground:      0 0% 0%;
     --destructive:            350 90% 60%;    /* #f43f5e */
     --destructive-foreground: 0 0% 100%;
+    --success:                142 71% 45%;
     --muted:                  0 0% 48%;
     --muted-foreground:      0 0% 48%;
     --border:                 0 0% 16%;
@@ -237,7 +238,7 @@
     isolation: isolate;
     background:
       linear-gradient(180deg, rgba(255,255,255,0.090), rgba(255,255,255,0.032)),
-      rgba(2,8,6,0.74);
+      rgba(10, 10, 10, 0.74);
     border-color: var(--liquid-border);
     box-shadow:
       inset 0 1px 0 rgba(255,255,255,0.12),

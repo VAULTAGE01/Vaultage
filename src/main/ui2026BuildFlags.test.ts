@@ -25,19 +25,11 @@ describe('UI 2026 landing build flags', () => {
     });
   });
 
-  it('enables the open Vault and Projects landings and disables Services', () => {
+  it('enables Community Vault and Projects while keeping Services private', () => {
     expect(resolveUi2026BuildFlagsForEdition({}, true)).toEqual({
       vault: true,
       projects: true,
       services: false,
-    });
-  });
-
-  it('preserves closed defaults and only permits open Vault/Projects rollback', () => {
-    expect(resolveUi2026BuildFlagsForEdition({}, false)).toEqual({
-      vault: false,
-      projects: false,
-      services: true,
     });
     expect(resolveUi2026BuildFlagsForEdition({
       VAULTAGE_UI2026_VAULT: '0',
@@ -47,6 +39,14 @@ describe('UI 2026 landing build flags', () => {
       vault: false,
       projects: false,
       services: false,
+    });
+  });
+
+  it('preserves closed edition defaults', () => {
+    expect(resolveUi2026BuildFlagsForEdition({}, false)).toEqual({
+      vault: false,
+      projects: false,
+      services: true,
     });
   });
 });

@@ -7,7 +7,7 @@ import type {
   Environment,
   PanelItem,
   StatusKind,
-} from './types';
+} from './types.open';
 
 const ENVIRONMENT_LABELS = {
   local: { compact: 'Local', full: 'Local' },

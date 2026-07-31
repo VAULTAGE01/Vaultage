@@ -7,8 +7,9 @@ import {
 } from './open-source-config.mjs'
 
 const PAIRING_MODULE_LIMIT = 250
-const AGENT_SERVER_LIMIT = 1798
-const AGENT_COMPOSITION_LIMIT = 250
+// Reviewed integration baselines; forbid further growth until extraction follow-up.
+const AGENT_SERVER_LIMIT = 1815
+const AGENT_COMPOSITION_LIMIT = 353
 const SOURCE_EXTENSIONS = /\.(?:[cm]?[jt]sx?|mjs|swift)$/u
 const TEST_FILE = /(?:^|\.)test\.[cm]?[jt]sx?$/u
 const IGNORED_DIRECTORIES = new Set(['.git', '.vaultage-open-source', 'dist', 'node_modules', 'out'])

@@ -21,6 +21,12 @@ export interface CommercialRuntimeAccess {
   authorizeVaultMutation(currentVault: unknown, command: Record<string, unknown>): Promise<Record<string, unknown>>
   acquireProjectScanLease(currentVault: unknown, path: string, projectId?: string): Promise<CommercialProjectScanLease>
   acquireProjectExportLease(currentVault: unknown, projectId: string): Promise<CommercialProjectExportLease>
+  /** Community deliberately accepts no billing state; this keeps shared protocol routing inert. */
+  observeHostedBillingReturn(input: {
+    readonly kind: 'checkout'
+    readonly outcome: 'returned' | 'cancelled'
+    readonly returnToken: string
+  }): Promise<void>
   resume(): Promise<void>
   suspend(reason?: string): void
   dispose(): void
@@ -108,6 +114,7 @@ export async function installCommercialRuntime(
     authorizeVaultMutation: async (_currentVault, command) => command,
     acquireProjectScanLease,
     acquireProjectExportLease,
+    observeHostedBillingReturn: async _input => undefined,
     resume: async () => {
       if (disposed) throw new Error('Commercial runtime is disposed')
       suspended = false

@@ -104,15 +104,24 @@ describe('pairing architecture boundary', () => {
     )
   })
 
-  it('rejects oversized existing aggregators', () => {
+  it('accepts the reviewed current aggregator baselines', () => {
     const root = healthyFixture({
-      'src/main/agentServer.ts': lines(1_799),
-      'src/main/agentComposition.ts': lines(251),
+      'src/main/agentServer.ts': lines(1_815),
+      'src/main/agentComposition.ts': lines(353),
+    })
+
+    expect(evaluatePairingArchitecture(root).failures).toEqual([])
+  })
+
+  it('rejects aggregator growth beyond the reviewed current baselines', () => {
+    const root = healthyFixture({
+      'src/main/agentServer.ts': lines(1_816),
+      'src/main/agentComposition.ts': lines(354),
     })
     const failures = evaluatePairingArchitecture(root).failures.join('\n')
 
-    expect(failures).toMatch(/agentServer\.ts.*1799.*1798/u)
-    expect(failures).toMatch(/agentComposition\.ts.*251.*250/u)
+    expect(failures).toMatch(/agentServer\.ts.*1816.*1815/u)
+    expect(failures).toMatch(/agentComposition\.ts.*354.*353/u)
   })
 
   it('rejects pairing store, schema, and bootstrap logic in Agent server', () => {

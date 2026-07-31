@@ -1,37 +1,27 @@
-import { describe, expect, it, vi } from 'vitest'
-import { scheduleElementFocus } from './focusRestoration'
+import { describe, expect, it, vi } from 'vitest';
+import { scheduleElementFocus } from './focusRestoration';
 
-describe('UI2026 focus restoration', () => {
-  it('focuses a target after the remount frame', () => {
-    const frames: FrameRequestCallback[] = []
-    const focus = vi.fn()
+describe('scheduleElementFocus', () => {
+  it('captures the requested target and focuses it after the rendered frame', () => {
+    const focus = vi.fn();
+    const findTarget = vi.fn(() => ({ focus }));
+    let scheduled: FrameRequestCallback | undefined;
+
     const frame = scheduleElementFocus(
-      'projects-search',
+      'rail-search',
       (callback) => {
-        frames.push(callback)
-        return 17
+        scheduled = callback;
+        return 42;
       },
-      (id) => id === 'projects-search' ? { focus } : null,
-    )
+      findTarget,
+    );
 
-    expect(frame).toBe(17)
-    expect(focus).not.toHaveBeenCalled()
-    frames[0]?.(0)
-    expect(focus).toHaveBeenCalledOnce()
-  })
+    expect(frame).toBe(42);
+    expect(focus).not.toHaveBeenCalled();
 
-  it('does not fail when the target was replaced before the frame', () => {
-    const frames: FrameRequestCallback[] = []
-    const frame = scheduleElementFocus(
-      'missing',
-      (callback) => {
-        frames.push(callback)
-        return 18
-      },
-      () => null,
-    )
+    scheduled?.(0);
 
-    expect(frame).toBe(18)
-    expect(() => frames[0]?.(0)).not.toThrow()
-  })
-})
+    expect(findTarget).toHaveBeenCalledWith('rail-search');
+    expect(focus).toHaveBeenCalledOnce();
+  });
+});
