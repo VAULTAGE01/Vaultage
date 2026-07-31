@@ -7,7 +7,6 @@ import type { EnvProject } from '../types'
 import EnvProjectsModal from './EnvProjectsModal'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, ArrowLeft, CheckCircle2, FolderKanban, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
-import { CommunityProjectsGuidanceHero } from './ProjectsGuidanceHero.open'
 
 function formatDate(value?: string): string {
   if (!value) return 'Never exported'
@@ -23,7 +22,6 @@ export default function ProjectsView() {
     initialProjectId?: string | null
     startNew?: boolean
   } | null>(null)
-  const [showGuidance, setShowGuidance] = useState(true)
   const projects = state.vault?.envProjects ?? []
   const secrets = useMemo(() => state.vault ? flatSecrets(state.vault.root) : [], [state.vault])
   const secretLabels = useMemo(
@@ -94,9 +92,6 @@ export default function ProjectsView() {
           </div>
         ) : (
           <div className="dashboard-grid max-w-none">
-            {showGuidance && (
-              <CommunityProjectsGuidanceHero onDismiss={() => setShowGuidance(false)} />
-            )}
             <section className="dashboard-section">
               <p className="text-[10px] font-semibold uppercase tracking-wider text-text-secondary">Project overview</p>
               <div className="dashboard-metric-grid">
