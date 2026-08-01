@@ -16,7 +16,7 @@ function styleRule(selector: string): string {
 
 describe('modal layout widths', () => {
   it('uses a wide, viewport-safe default DialogContent container', () => {
-    expect(componentSource('ui/dialog.tsx')).toContain('max-w-5xl')
+    expect(componentSource('ui/dialog.tsx')).toContain('max-w-6xl')
   })
 
   it('widens content-dense Community modal flows', () => {
@@ -30,8 +30,8 @@ describe('modal layout widths', () => {
     const overlay = styleRule('.liquid-modal-overlay')
     const shell = styleRule('.liquid-modal-shell')
     const sheen = styleRule('.liquid-modal-shell::before')
-    expect(overlay).toContain('background: rgba(0,0,0,0.56);')
-    expect(shell).toContain('rgba(10, 10, 10, 0.74)')
+    expect(overlay).toContain('background: var(--liquid-modal-overlay);')
+    expect(shell).toContain('var(--liquid-modal-surface)')
     expect(shell).toContain('border-color: var(--liquid-border);')
     expect([overlay, shell, sheen].join('\\n')).not.toContain('radial-gradient')
   })
