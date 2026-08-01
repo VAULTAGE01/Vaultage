@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "kind": "vaultage-community-source-provenance-v1",
   "source": {
-    "commitSha": "446edd37b368cc632df3eae22a1f798cd1613e7c",
-    "treeSha": "fbc36c94b8c31ee9c4400c1804d49b4bc8086e02",
+    "commitSha": "d51fc11fa55bbdc26b548f8c01ad5851c742bb31",
+    "treeSha": "8cdfef6287439d096a195362e10102b3fb671e9d",
     "trackedState": "clean"
   },
   "generator": {
@@ -13,6 +13,6 @@
   "packageVersion": "0.1.0",
   "stagedTree": {
     "algorithm": "sha256",
-    "sha256": "201594df8397e5a6bcc5c1fec86897f4ab70130d133e41d68c81e0cd49783b7f"
+    "sha256": "b918004594ebf2146dc662908f2e7e51f6606759f0e4352b9fed454c600d7616"
   }
 }

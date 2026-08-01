@@ -29,6 +29,9 @@ describe('Community UI2026 Projects surface', () => {
     expect(html).toContain('Manage mappings')
     expect(html).toContain('Export .env')
     expect(html).toContain('API service')
+    expect(html).not.toContain('ui26-projects-hero-shell')
+    expect(html).not.toContain('Keep local projects and Vault mappings in sync')
+    expect(html).not.toContain('Dismiss project guidance')
     expect(html).not.toMatch(/Services|Agent|provider|billing|cloud environment/i)
   })
 
