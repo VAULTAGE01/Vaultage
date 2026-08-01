@@ -1,6 +1,6 @@
 # Vaultage Community Changelog
 
-## 2026-08-01 - v0.1.2 candidate
+## 2026-08-01 - v0.1.3 candidate
 
 - Carries the current UI2026 Vault and Projects experience, including the
   neutral wider modal canvas and bounded mobile project review flow.
