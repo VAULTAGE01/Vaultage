@@ -497,6 +497,47 @@ function validateCommunityReleaseWorkflow(workflow, source) {
   ) {
     failures.push('Community signing must be one bounded protected macOS job after Linux preflight')
   }
+  const buildSteps = Array.isArray(build?.steps) ? build.steps : []
+  const packageIndex = buildSteps.findIndex(
+    step => step?.name === 'Build, sign, and notarize the universal Community app and sign its DMG',
+  )
+  const notarizeIndex = buildSteps.findIndex(
+    step => step?.name === 'Notarize and staple the exact Community DMG',
+  )
+  const recordIndex = buildSteps.findIndex(
+    step => step?.name === 'Record the exact built Community artifact',
+  )
+  const notarizeStep = buildSteps[notarizeIndex]
+  const notarizeRun = String(notarizeStep?.run ?? '')
+  if (
+    packageIndex < 0
+    || notarizeIndex <= packageIndex
+    || recordIndex <= notarizeIndex
+    || !exactRecord(notarizeStep, ['env', 'name', 'run'])
+    || !deepExact(notarizeStep?.env, {
+      APPLE_ID: '${{ secrets.APPLE_ID }}',
+      APPLE_APP_SPECIFIC_PASSWORD: '${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}',
+      APPLE_TEAM_ID: '${{ secrets.APPLE_TEAM_ID }}',
+    })
+    || ![
+      'DMG="$(node scripts/select-exact-release-dmg.mjs dist)"',
+      'xcrun notarytool submit "$DMG" \\',
+      '--apple-id "$APPLE_ID"',
+      '--password "$APPLE_APP_SPECIFIC_PASSWORD"',
+      '--team-id "$APPLE_TEAM_ID"',
+      '--wait',
+      'xcrun stapler staple "$DMG"',
+      'xcrun stapler validate "$DMG"',
+    ].every(marker => notarizeRun.includes(marker))
+  ) {
+    failures.push('Community release workflow must explicitly notarize and staple the selected DMG before recording it')
+  }
+  const downloadedAcceptanceStep = buildSteps.find(
+    step => step?.name === 'Mount and accept the exact downloaded Community DMG',
+  )
+  if (!String(downloadedAcceptanceStep?.run ?? '').includes('xcrun stapler validate "$DMG"')) {
+    failures.push('Community release workflow must preserve final staple validation for the downloaded DMG')
+  }
   if (
     publish?.['runs-on'] !== 'ubuntu-24.04'
     || publish?.['timeout-minutes'] !== 15

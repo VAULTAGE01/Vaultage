@@ -51,6 +51,68 @@ describe('release metadata policy', () => {
     expect(result.stderr).toContain('forbidden legacy or cross-repository term: Vaultage.app')
   })
 
+  it.each([
+    [
+      'Apple notarization submission',
+      '          xcrun notarytool submit "$DMG" \\\n',
+      '          true # DMG notarization omitted\n',
+      'Community release workflow must explicitly notarize and staple the selected DMG before recording it',
+    ],
+    [
+      'DMG stapling',
+      '          xcrun stapler staple "$DMG"\n',
+      '          true # DMG staple omitted\n',
+      'Community release workflow must explicitly notarize and staple the selected DMG before recording it',
+    ],
+    [
+      'downloaded DMG staple validation',
+      '          xcrun stapler validate "$DMG"\n          spctl --assess --type open',
+      '          true # downloaded DMG staple validation omitted\n          spctl --assess --type open',
+      'Community release workflow must preserve final staple validation for the downloaded DMG',
+    ],
+  ])('rejects a Community release workflow without %s', (_label, current, replacement, expectedError) => {
+    // Given a canonical Community workflow with one required DMG acceptance operation removed.
+    const root = fixtureRoot({ community: true })
+    const path = join(root, '.github/workflows/community-release.yml')
+    const source = readFileSync(path, 'utf8')
+
+    // When the release metadata policy checks that weakened workflow.
+    write(root, '.github/workflows/community-release.yml', source.replace(current, replacement))
+    const result = check(root)
+
+    // Then the source gate must reject a signed-only or unstapled DMG.
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(expectedError)
+  })
+
+  it('rejects recording the DMG before notarization and stapling', () => {
+    // Given the canonical workflow with its artifact-record and DMG-notarization steps reversed.
+    const root = fixtureRoot({ community: true })
+    const path = join(root, '.github/workflows/community-release.yml')
+    const source = readFileSync(path, 'utf8')
+    const notarizeStart = source.indexOf('      - name: Notarize and staple the exact Community DMG\n')
+    const recordStart = source.indexOf('      - name: Record the exact built Community artifact\n')
+    const verifyStart = source.indexOf(
+      '      - name: Verify packaged Community signature, entitlements, and launch\n',
+    )
+    const notarizeBlock = source.slice(notarizeStart, recordStart)
+    const recordBlock = source.slice(recordStart, verifyStart)
+
+    // When the release metadata policy checks the reordered custody steps.
+    write(
+      root,
+      '.github/workflows/community-release.yml',
+      `${source.slice(0, notarizeStart)}${recordBlock}${notarizeBlock}${source.slice(verifyStart)}`,
+    )
+    const result = check(root)
+
+    // Then it must reject a digest recorded before the final DMG bytes exist.
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(
+      'Community release workflow must explicitly notarize and staple the selected DMG before recording it',
+    )
+  })
+
   it('rejects running dependency or candidate code before exact Community commit binding', () => {
     const root = fixtureRoot({ community: true })
     const path = join(root, '.github/workflows/community-release.yml')

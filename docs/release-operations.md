@@ -10,8 +10,10 @@ Status: required public-source operator runbook.
    exact current `main` commit.
 3. Run `pnpm verify:release` and `pnpm publish:check` from a frozen-lockfile
    install, using hosted Linux CI when local storage cannot safely support it.
-4. Create an immutable `v<version>` tag on that exact commit. Do not move or
-   overwrite an existing tag.
+4. Create a fresh `v<version>` tag on that exact commit. Do not move or
+   overwrite an existing tag. Repository-enforced tag protection and immutable
+   releases are activation prerequisites, not properties currently guaranteed
+   by this source workflow.
 5. Refresh the Electron support snapshot from the official sources if its gate
    is expired.
 6. Obtain legal approval for Apache-2.0 notices, third-party inventory, and

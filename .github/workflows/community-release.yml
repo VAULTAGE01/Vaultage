@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       release_tag:
-        description: Existing immutable tag matching package.json (for example v0.1.2)
+        description: Existing tag matching package.json (for example v0.1.2)
         required: true
         type: string
 
@@ -108,7 +108,7 @@ jobs:
       - name: Install Community dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build, sign, notarize, and staple the universal Community DMG
+      - name: Build, sign, and notarize the universal Community app and sign its DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -119,6 +119,21 @@ jobs:
         run: |
           pnpm build:open-local
           pnpm exec electron-builder --config electron-builder.release.yml --mac --universal
+
+      - name: Notarize and staple the exact Community DMG
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          DMG="$(node scripts/select-exact-release-dmg.mjs dist)"
+          xcrun notarytool submit "$DMG" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+          xcrun stapler staple "$DMG"
+          xcrun stapler validate "$DMG"
 
       - name: Record the exact built Community artifact
         run: |
@@ -312,7 +327,7 @@ jobs:
         with:
           subject-path: release-assets/*.dmg
 
-      - name: Create the immutable Community prerelease with the same-repository token
+      - name: Create the Community prerelease with the same-repository token
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ inputs.release_tag }}

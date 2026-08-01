@@ -102,18 +102,21 @@ automation-authored merge never supplies that approval.
 
 The public `.github/workflows/community-release.yml` workflow is the only
 official Community binary publication lane. It is manually dispatched from the
-exact current `main` commit after an immutable matching tag already exists. An
+exact current `main` commit after a fresh matching tag already exists. An
 Ubuntu preflight reruns the complete Community gate, one protected macOS job
-builds/signs/notarizes and accepts the downloaded DMG, and an Ubuntu job attests
+builds, signs, and notarizes the app, signs the DMG, explicitly notarizes and
+staples that DMG, then accepts the downloaded artifact; an Ubuntu job attests
 and publishes the accepted assets. Publication uses the same-repository
 `GITHUB_TOKEN`; no cross-repository release token or maintainer PAT is used.
 
 Configure the public `community-release` environment with the accountable
 release reviewer and its Apple signing secrets. Configure the repository's tag
 rules for `v*`. Those protections live in GitHub settings and cannot be proved
-or weakened by this repository's YAML. The protected workflow alone uses
-`electron-builder.release.yml`; ordinary local packaging continues to use the
-unsigned, non-notarizing `electron-builder.yml` contract.
+or weakened by this repository's YAML. Until those rules and GitHub immutable
+releases are enabled, maintainers must treat published tags and releases as
+append-only and never move, overwrite, or replace them. The protected workflow
+alone uses `electron-builder.release.yml`; ordinary local packaging continues
+to use the unsigned, non-notarizing `electron-builder.yml` contract.
 
 Community `v0.x` releases use manual updates. The app does not check for or
 install updates, and the release does not publish updater metadata. Users
