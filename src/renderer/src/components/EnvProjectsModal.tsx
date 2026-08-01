@@ -295,7 +295,7 @@ function CreateFlowOption({
       type="button"
       onClick={onClick}
       className={cn(
-        'rounded-lg border px-4 py-3 text-left transition-colors',
+        'rounded-lg border px-3 py-2.5 text-left transition-colors sm:px-4 sm:py-3',
         active ? 'border-accent/45 bg-accent/10 text-text' : 'border-border bg-black/10 text-text-secondary hover:bg-white/5 hover:text-text',
       )}
     >
@@ -1002,9 +1002,9 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
           </div>
 
 
-          <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)] overflow-hidden">
-            <aside className="flex min-h-0 flex-col border-r border-border">
-              <div className="border-b border-border px-5 py-4">
+          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(12rem,52%)_minmax(0,1fr)] overflow-hidden sm:grid-cols-[340px_minmax(0,1fr)] sm:grid-rows-1">
+            <aside className="flex min-h-0 flex-col overflow-hidden border-b border-border sm:border-b-0 sm:border-r">
+              <div className="flex-shrink-0 border-b border-border px-4 py-3 sm:px-5 sm:py-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Source</p>
                 <div className="mt-3 grid gap-2">
                   <CreateFlowOption
@@ -1022,7 +1022,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
                 </div>
               </div>
 
-              <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-3 sm:px-5 sm:py-4" role="region" aria-label="Discovered project candidates">
                 {createFlow === 'scan-parent' ? (
                   <div className="space-y-4">
                     <div className="space-y-2">
@@ -1105,7 +1105,7 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
               </div>
             </aside>
 
-            <main className="flex min-h-0 flex-col">
+            <main className="flex min-h-0 flex-col overflow-hidden" aria-label="Project review">
               <div className="flex-shrink-0 border-b border-border px-6 py-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Review</p>
                 <h3 className="mt-1 text-sm font-semibold text-text">
