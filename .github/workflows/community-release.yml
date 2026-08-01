@@ -11,6 +11,14 @@ on:
         description: Existing tag matching package.json (for example v0.1.2)
         required: true
         type: string
+      release_mode:
+        description: Signed evaluation skips notarization; notarized requires Apple account credentials
+        required: true
+        default: signed-evaluation
+        type: choice
+        options:
+          - signed-evaluation
+          - notarized
 
 permissions:
   contents: read
@@ -33,6 +41,7 @@ jobs:
       - name: Verify the exact reviewed Community main and tag candidate
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           test "$GITHUB_REPOSITORY" = "VAULTAGE01/Vaultage"
@@ -48,6 +57,10 @@ jobs:
           test "$(git rev-parse --verify "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
           test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"
           test "$RELEASE_TAG" = "v$(node -p \"require('./package.json').version\")"
+          case "$RELEASE_MODE" in
+            signed-evaluation|notarized) ;;
+            *) exit 1 ;;
+          esac
           test -z "$(git status --porcelain)"
 
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271
@@ -89,6 +102,7 @@ jobs:
       - name: Recheck the exact Community main and tag candidate before signing
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           test "$GITHUB_REPOSITORY" = "VAULTAGE01/Vaultage"
@@ -104,11 +118,15 @@ jobs:
           test "$(git rev-parse --verify "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
           test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"
           test "$RELEASE_TAG" = "v$(node -p \"require('./package.json').version\")"
+          case "$RELEASE_MODE" in
+            signed-evaluation|notarized) ;;
+            *) exit 1 ;;
+          esac
 
       - name: Install Community dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build, sign, and notarize the universal Community app and sign its DMG
+      - name: Build and sign the universal Community app and DMG
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -116,11 +134,36 @@ jobs:
           CSC_NAME: ${{ secrets.CSC_NAME }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
         run: |
+          test -n "$APPLE_TEAM_ID"
+          test -n "$CSC_NAME"
+          test -n "$CSC_LINK"
+          test -n "$CSC_KEY_PASSWORD"
+          case "$RELEASE_MODE" in
+            signed-evaluation)
+              BUILDER_CONFIG=electron-builder.signed-evaluation.yml
+              ;;
+            notarized)
+              test -n "$APPLE_ID"
+              test -n "$APPLE_APP_SPECIFIC_PASSWORD"
+              BUILDER_CONFIG=electron-builder.release.yml
+              ;;
+            *) exit 1 ;;
+          esac
           pnpm build:open-local
-          pnpm exec electron-builder --config electron-builder.release.yml --mac --universal
+          pnpm exec electron-builder --config "$BUILDER_CONFIG" --mac --universal
+
+      - name: Label signed evaluation DMG as not notarized
+        if: ${{ inputs.release_mode == 'signed-evaluation' }}
+        run: |
+          DMG="$(node scripts/select-exact-release-dmg.mjs dist)"
+          LABELED_DMG="${DMG%.dmg}-SIGNED-EVALUATION-NOT-NOTARIZED.dmg"
+          test "$LABELED_DMG" != "$DMG"
+          mv "$DMG" "$LABELED_DMG"
 
       - name: Notarize and staple the exact Community DMG
+        if: ${{ inputs.release_mode == 'notarized' }}
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
@@ -144,13 +187,21 @@ jobs:
             --out dist/packaged-mac-artifact-record.json
 
       - name: Verify packaged Community signature, entitlements, and launch
+        env:
+          RELEASE_MODE: ${{ inputs.release_mode }}
         run: |
           APP=dist/mac-universal/vault-OC.app
           codesign --verify --deep --strict "$APP"
           FRAMEWORK="$APP/Contents/Frameworks/Electron Framework.framework/Electron Framework"
           test "$(lipo -archs "$FRAMEWORK" | tr ' ' '\n' | sort | tr '\n' ' ')" = 'arm64 x86_64 '
-          xcrun stapler validate "$APP"
-          spctl --assess --type execute --verbose "$APP"
+          case "$RELEASE_MODE" in
+            notarized)
+              xcrun stapler validate "$APP"
+              spctl --assess --type execute --verbose "$APP"
+              ;;
+            signed-evaluation) ;;
+            *) exit 1 ;;
+          esac
           pnpm smoke:mac-entitlements -- "$APP"
           pnpm smoke:packaged-app -- "$APP"
 
@@ -170,7 +221,7 @@ jobs:
       - name: Retain the signed Community candidate briefly
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: community-mac-release-${{ inputs.release_commit }}
+          name: community-mac-release-${{ inputs.release_mode }}-${{ inputs.release_commit }}
           retention-days: 3
           if-no-files-found: error
           path: |
@@ -180,18 +231,30 @@ jobs:
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: community-mac-release-${{ inputs.release_commit }}
+          name: community-mac-release-${{ inputs.release_mode }}-${{ inputs.release_commit }}
           path: downloaded-community-release
 
       - name: Mount and accept the exact downloaded Community DMG
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           DMG="$(node scripts/select-exact-release-dmg.mjs downloaded-community-release \
             --artifact-record downloaded-community-release/packaged-mac-artifact-record.json)"
-          xcrun stapler validate "$DMG"
-          spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+          case "$RELEASE_MODE" in
+            notarized)
+              xcrun stapler validate "$DMG"
+              spctl --assess --type open --context context:primary-signature --verbose "$DMG"
+              ;;
+            signed-evaluation)
+              case "$(basename "$DMG")" in
+                *-SIGNED-EVALUATION-NOT-NOTARIZED.dmg) ;;
+                *) exit 1 ;;
+              esac
+              ;;
+            *) exit 1 ;;
+          esac
           MOUNT="$RUNNER_TEMP/vaultage-community-downloaded-dmg"
           mkdir -p "$MOUNT"
           hdiutil attach -readonly -nobrowse -mountpoint "$MOUNT" "$DMG"
@@ -201,8 +264,10 @@ jobs:
           codesign --verify --deep --strict "$APP"
           FRAMEWORK="$APP/Contents/Frameworks/Electron Framework.framework/Electron Framework"
           test "$(lipo -archs "$FRAMEWORK" | tr ' ' '\n' | sort | tr '\n' ' ')" = 'arm64 x86_64 '
-          xcrun stapler validate "$APP"
-          spctl --assess --type execute --verbose "$APP"
+          if [ "$RELEASE_MODE" = notarized ]; then
+            xcrun stapler validate "$APP"
+            spctl --assess --type execute --verbose "$APP"
+          fi
           pnpm smoke:mac-entitlements -- "$APP"
           pnpm smoke:packaged-app -- "$APP"
           node --input-type=module - "$APP" "$DMG" \
@@ -228,7 +293,9 @@ jobs:
             schemaVersion: 1,
             kind: 'vaultage-downloaded-mac-artifact-acceptance-v1',
             releaseCommit: process.env.RELEASE_COMMIT,
+            releaseMode: process.env.RELEASE_MODE,
             releaseTag: process.env.RELEASE_TAG,
+            notarized: process.env.RELEASE_MODE === 'notarized',
             dmgName: record.dmgName,
             dmgSha256,
             appSha256,
@@ -239,7 +306,7 @@ jobs:
       - name: Retain the downloaded-DMG acceptance receipt briefly
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: community-mac-release-acceptance-${{ inputs.release_commit }}
+          name: community-mac-release-acceptance-${{ inputs.release_mode }}-${{ inputs.release_commit }}
           retention-days: 3
           if-no-files-found: error
           path: downloaded-community-release/community-dmg-acceptance.json
@@ -266,6 +333,7 @@ jobs:
       - name: Recheck the exact Community tag before publication
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           test "$GITHUB_REPOSITORY" = "VAULTAGE01/Vaultage"
@@ -277,20 +345,25 @@ jobs:
           test "$(git rev-parse --verify "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"
           test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"
           test "$RELEASE_TAG" = "v$(node -p \"require('./package.json').version\")"
+          case "$RELEASE_MODE" in
+            signed-evaluation|notarized) ;;
+            *) exit 1 ;;
+          esac
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: community-mac-release-${{ inputs.release_commit }}
+          name: community-mac-release-${{ inputs.release_mode }}-${{ inputs.release_commit }}
           path: artifacts/community-mac-release
 
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          name: community-mac-release-acceptance-${{ inputs.release_commit }}
+          name: community-mac-release-acceptance-${{ inputs.release_mode }}-${{ inputs.release_commit }}
           path: artifacts/community-mac-release-acceptance
 
       - name: Stage exact accepted Community release assets
         env:
           RELEASE_COMMIT: ${{ inputs.release_commit }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           DMG="$(node scripts/select-exact-release-dmg.mjs artifacts/community-mac-release \
@@ -308,11 +381,17 @@ jobs:
           const acceptance = JSON.parse(readFileSync(acceptancePath))
           if (
             acceptance.releaseCommit !== process.env.RELEASE_COMMIT
+            || acceptance.releaseMode !== process.env.RELEASE_MODE
             || acceptance.releaseTag !== process.env.RELEASE_TAG
+            || acceptance.notarized !== (process.env.RELEASE_MODE === 'notarized')
             || acceptance.buildArtifactRecordSha256 !== digest(recordBytes)
             || acceptance.dmgSha256 !== record.dmgSha256
             || acceptance.appSha256 !== record.appSha256
           ) throw new Error('Community release assets do not match the protected acceptance receipt')
+          if (
+            process.env.RELEASE_MODE === 'signed-evaluation'
+            && !record.dmgName.endsWith('-SIGNED-EVALUATION-NOT-NOTARIZED.dmg')
+          ) throw new Error('signed evaluation DMG is missing its NOT NOTARIZED filename warning')
           NODE
           mkdir release-assets
           cp "$DMG" release-assets/
@@ -330,14 +409,27 @@ jobs:
       - name: Create the Community prerelease with the same-repository token
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_MODE: ${{ inputs.release_mode }}
           RELEASE_TAG: ${{ inputs.release_tag }}
         run: |
           test -n "$GH_TOKEN"
           ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1
+          case "$RELEASE_MODE" in
+            signed-evaluation)
+              RELEASE_TITLE="Vaultage Community $RELEASE_TAG — SIGNED EVALUATION — NOT NOTARIZED"
+              RELEASE_WARNING="SIGNED EVALUATION PRERELEASE — NOT NOTARIZED and not production-ready. macOS may require right-click Open on first launch."
+              ;;
+            notarized)
+              RELEASE_TITLE="Vaultage Community $RELEASE_TAG — NOTARIZED PRERELEASE"
+              RELEASE_WARNING="Signed and notarized Community prerelease. This prerelease is not production-ready."
+              ;;
+            *) exit 1 ;;
+          esac
           gh release create "$RELEASE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --verify-tag \
             --prerelease \
-            --title "Vaultage Community $RELEASE_TAG" \
+            --title "$RELEASE_TITLE" \
+            --notes "$RELEASE_WARNING" \
             --generate-notes \
             release-assets/*

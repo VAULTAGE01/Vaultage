@@ -1,0 +1,7 @@
+extends: electron-builder.yml
+
+# Protected CI may use this override to sign the app and DMG without Apple
+# notarization. The release workflow labels every resulting artifact as an
+# evaluation build that is NOT notarized.
+dmg:
+  sign: true

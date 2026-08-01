@@ -8,6 +8,12 @@ not published an official Community binary or customer-ready release. After
 the first signed candidate is accepted, official `v0.x` updates will be manual
 downloads from this repository's GitHub Releases page.
 
+The release operator defaults to a **SIGNED EVALUATION — NOT NOTARIZED**
+prerelease mode. Those builds are Developer ID signed but are not
+production-ready, and macOS may require **right-click Open** on first launch.
+The fully notarized mode remains available when Apple account credentials are
+configured.
+
 The supported desktop and packaging target is macOS 12 or newer. Windows and
 Linux installers are not implemented or advertised.
 
