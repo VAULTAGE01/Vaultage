@@ -24,6 +24,9 @@
     --liquid-highlight:       rgba(255, 255, 255, 0.18);
     --liquid-shadow:          rgba(0, 0, 0, 0.42);
     --liquid-modal-input:     rgb(7, 9, 10);
+    --liquid-modal-bg:        rgba(7, 9, 10, 0.84);
+    --liquid-modal-card:      rgba(17, 19, 20, 0.72);
+    --liquid-modal-soft:      rgba(24, 26, 27, 0.72);
     --liquid-modal-surface:   rgba(7, 9, 10, 0.94);
     --liquid-modal-overlay:   rgba(0, 0, 0, 0.62);
     --glass-border-strong:    rgba(255, 255, 255, 0.18);
@@ -253,15 +256,15 @@
   /* Modal content stays on the same neutral canvas as the app instead of
      amplifying the green backdrop through backdrop-filter saturation. */
   .liquid-modal-shell .bg-bg {
-    background-color: rgba(7, 9, 10, 0.84) !important;
+    background-color: var(--liquid-modal-bg) !important;
   }
 
   .liquid-modal-shell .bg-card {
-    background-color: rgba(17, 19, 20, 0.72) !important;
+    background-color: var(--liquid-modal-card) !important;
   }
 
   .liquid-modal-shell .bg-surface {
-    background-color: rgba(24, 26, 27, 0.72) !important;
+    background-color: var(--liquid-modal-soft) !important;
   }
 
   .liquid-modal-shell::before {

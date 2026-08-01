@@ -30,8 +30,13 @@ describe('modal layout widths', () => {
     const overlay = styleRule('.liquid-modal-overlay')
     const shell = styleRule('.liquid-modal-shell')
     const sheen = styleRule('.liquid-modal-shell::before')
+    const childSurfaces = [styleRule('.liquid-modal-shell .bg-bg'), styleRule('.liquid-modal-shell .bg-card'), styleRule('.liquid-modal-shell .bg-surface')]
     expect(overlay).toContain('background: var(--liquid-modal-overlay);')
     expect(shell).toContain('var(--liquid-modal-surface)')
+    expect(childSurfaces.join('\\n')).toContain('var(--liquid-modal-bg)')
+    expect(childSurfaces.join('\\n')).toContain('var(--liquid-modal-card)')
+    expect(childSurfaces.join('\\n')).toContain('var(--liquid-modal-soft)')
+    expect(childSurfaces.join('\\n')).not.toMatch(/background-color: rgba\(/)
     expect(shell).toContain('border-color: var(--liquid-border);')
     expect([overlay, shell, sheen].join('\\n')).not.toContain('radial-gradient')
   })
