@@ -1,10 +1,8 @@
 import { AlertCircle, CheckCircle2, FolderKanban, FolderSearch, Plus, Search, Settings2, Upload, Zap } from 'lucide-react'
 import { useMemo, useState, type ReactElement } from 'react'
-import { PROJECTS_HERO_ART } from '../assets/open'
 import {
   CompactRow,
   QuickActionCard,
-  SurfaceHero,
   SurfaceSectionHeader,
   Ui2026Shell,
 } from '../primitives.open'
@@ -35,7 +33,6 @@ export function ProjectsSurface({
 }: ProjectsSurfaceProps): ReactElement {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
-  const [heroVisible, setHeroVisible] = useState(true)
   const model = useMemo(() => buildProjectsSurfaceModel(projects), [projects])
   const searchResults = useMemo(
     () => filterProjectsSearchEntries(projectsSearchEntries(projects), searchQuery),
@@ -68,25 +65,6 @@ export function ProjectsSurface({
       )}
     >
       <div className='ui26-projects-layout'>
-        {heroVisible ? (
-          <div className='ui26-projects-hero-shell'>
-            <SurfaceHero
-              eyebrow='Local Project Mappings'
-              title='Keep local projects and Vault mappings in sync'
-              description='Scan a folder, connect Vault fields to env keys, and export only when you choose.'
-              facts={[
-                { label: 'Scan local folders', value: 'Find env files without leaving the app.' },
-                { label: 'Map Vault fields', value: 'Review every key before it is exported.' },
-                { label: 'Export on demand', value: 'Write a plaintext .env only after confirmation.' },
-              ]}
-              tone='guided'
-              onDismiss={() => setHeroVisible(false)}
-              dismissLabel='Dismiss project guidance'
-              visual={<img className='ui26-projects-hero-art' src={PROJECTS_HERO_ART} width='1200' height='524' alt='' />}
-            />
-          </div>
-        ) : null}
-
         <section className='ui26-projects-action-section' aria-labelledby='projects-quick-actions'>
           <SurfaceSectionHeader id='projects-quick-actions' title='Quick actions' icon={<Zap size={18} />} />
           <div className='ui26-projects-actions'>

@@ -8,38 +8,6 @@
   padding-right: var(--ui26-space-1);
 }
 
-.ui26-projects-hero-shell > .ui26-hero {
-  display: grid;
-  grid-template-columns: minmax(0, 1.3fr) minmax(var(--ui26-project-guidance-art-min-width), 0.82fr);
-  align-items: center;
-  gap: var(--ui26-space-5);
-  min-height: 210px;
-  padding: var(--ui26-space-5);
-  border-color: var(--ui26-project-border);
-  background:
-    radial-gradient(circle at 87% 40%, var(--ui26-project-green-glow), transparent 30%),
-    radial-gradient(circle at 9% 0%, var(--ui26-project-violet-glow), transparent 42%),
-    linear-gradient(135deg, var(--ui26-project-hero-start), var(--ui26-project-hero-end) 74%);
-}
-
-.ui26-projects-hero-shell .ui26-hero > div:first-child {
-  min-width: 0;
-}
-
-.ui26-projects-hero-shell .ui26-hero h1 {
-  max-width: var(--ui26-project-guidance-copy-max-width);
-  font-size: var(--ui26-type-display-sm);
-}
-
-.ui26-projects-hero-art {
-  display: block;
-  width: 100%;
-  max-width: 420px;
-  height: auto;
-  margin-inline: auto;
-  object-fit: contain;
-}
-
 .ui26-projects-actions {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -234,10 +202,6 @@
 }
 
 @media (max-width: 680px) {
-  .ui26-projects-hero-shell > .ui26-hero {
-    grid-template-columns: 1fr;
-  }
-
   .ui26-projects-actions,
   .ui26-projects-panels {
     grid-template-columns: 1fr;
