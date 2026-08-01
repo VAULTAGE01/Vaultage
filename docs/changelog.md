@@ -4,8 +4,11 @@
 
 - Carries the current UI2026 Vault and Projects experience, including the
   neutral wider modal canvas and bounded mobile project review flow.
-- Adds the public, protected macOS release lane for the first signed/notarized
-  Community DMG, public provenance attestation, SBOMs, and `SHA256SUMS`.
+- Adds a public, protected macOS release lane with an explicit signed-evaluation
+  mode and a preserved fully notarized mode, public provenance attestation,
+  SBOMs, and `SHA256SUMS`.
+- Labels signed evaluation artifacts and prereleases as **NOT NOTARIZED** and
+  documents that macOS may require right-click Open.
 - Corrects release packaging and acceptance to the actual `vault-OC.app`
   bundle while leaving ordinary local builds unsigned and non-notarizing.
 - States the `v0.x` manual-update contract; no updater runtime or updater

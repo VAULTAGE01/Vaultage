@@ -113,6 +113,10 @@ const communityReleaseBuilderConfigPath = join(root, 'electron-builder.release.y
 const communityReleaseBuilderConfig = existsSync(communityReleaseBuilderConfigPath)
   ? readFileSync(communityReleaseBuilderConfigPath, 'utf8')
   : ''
+const communitySignedEvaluationBuilderConfigPath = join(root, 'electron-builder.signed-evaluation.yml')
+const communitySignedEvaluationBuilderConfig = existsSync(communitySignedEvaluationBuilderConfigPath)
+  ? readFileSync(communitySignedEvaluationBuilderConfigPath, 'utf8')
+  : ''
 const privateProductPackage = pkg.name !== 'vaultage-open-local'
 let parsedBuilderConfig
 try {
@@ -163,7 +167,24 @@ if (!privateProductPackage) {
   ) {
     failures.push('Community release builder override must enable only notarization and DMG signing over the reviewed local config')
   }
-  if (Object.values(pkg.scripts ?? {}).some(value => String(value).includes('electron-builder.release.yml'))) {
+  let parsedCommunitySignedEvaluationBuilder
+  try {
+    parsedCommunitySignedEvaluationBuilder = yaml.load(communitySignedEvaluationBuilderConfig)
+  } catch (error) {
+    failures.push(`electron-builder.signed-evaluation.yml must be valid YAML: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (
+    !exactRecord(parsedCommunitySignedEvaluationBuilder, ['dmg', 'extends'])
+    || parsedCommunitySignedEvaluationBuilder.extends !== 'electron-builder.yml'
+    || !exactRecord(parsedCommunitySignedEvaluationBuilder.dmg, ['sign'])
+    || parsedCommunitySignedEvaluationBuilder.dmg.sign !== true
+  ) {
+    failures.push('Community signed-evaluation builder override must enable only DMG signing over the unsigned, non-notarizing local config')
+  }
+  if (Object.values(pkg.scripts ?? {}).some(value =>
+    String(value).includes('electron-builder.release.yml')
+    || String(value).includes('electron-builder.signed-evaluation.yml')
+  )) {
     failures.push('Community release builder override must remain CI-only and absent from package scripts')
   }
 }
@@ -402,15 +423,20 @@ function validateCommunityReleaseWorkflow(workflow, source) {
   if (
     !exactRecord(workflow.on, ['workflow_dispatch'])
     || !exactRecord(dispatch, ['inputs'])
-    || !exactRecord(inputs, ['release_commit', 'release_tag'])
+    || !exactRecord(inputs, ['release_commit', 'release_mode', 'release_tag'])
     || !exactRecord(inputs.release_commit, ['description', 'required', 'type'])
+    || !exactRecord(inputs.release_mode, ['default', 'description', 'options', 'required', 'type'])
     || !exactRecord(inputs.release_tag, ['description', 'required', 'type'])
     || inputs.release_commit.required !== true
     || inputs.release_commit.type !== 'string'
+    || inputs.release_mode.default !== 'signed-evaluation'
+    || !exactArray(inputs.release_mode.options, ['signed-evaluation', 'notarized'])
+    || inputs.release_mode.required !== true
+    || inputs.release_mode.type !== 'choice'
     || inputs.release_tag.required !== true
     || inputs.release_tag.type !== 'string'
   ) {
-    failures.push('Community release workflow must be manual-only with exact required commit and tag inputs')
+    failures.push('Community release workflow must expose only explicit signed-evaluation and notarized manual modes')
   }
   if (!exactRecord(workflow.permissions, ['contents']) || workflow.permissions.contents !== 'read') {
     failures.push('Community release workflow must default to read-only repository contents')
@@ -463,8 +489,9 @@ function validateCommunityReleaseWorkflow(workflow, source) {
     || !deepExact(prepareSteps[0], exactPrepareCheckout)
     || bindingIndex !== 1
     || !exactRecord(bindingStep, ['env', 'name', 'run'])
-    || !exactRecord(bindingStep?.env, ['RELEASE_COMMIT', 'RELEASE_TAG'])
+    || !exactRecord(bindingStep?.env, ['RELEASE_COMMIT', 'RELEASE_MODE', 'RELEASE_TAG'])
     || bindingStep.env.RELEASE_COMMIT !== '${{ inputs.release_commit }}'
+    || bindingStep.env.RELEASE_MODE !== '${{ inputs.release_mode }}'
     || bindingStep.env.RELEASE_TAG !== '${{ inputs.release_tag }}'
     || !expectedPrepareTail.every((step, index) => deepExact(prepareSteps[index + 2], step))
     || installIndex !== 4
@@ -483,6 +510,8 @@ function validateCommunityReleaseWorkflow(workflow, source) {
     'test "$(git rev-parse --verify "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"',
     'test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"',
     'test "$RELEASE_TAG" = "v$(node -p',
+    'case "$RELEASE_MODE" in',
+    'signed-evaluation|notarized)',
     'test -z "$(git status --porcelain)"',
   ]) {
     if (!bindingRun.includes(marker)) {
@@ -499,7 +528,10 @@ function validateCommunityReleaseWorkflow(workflow, source) {
   }
   const buildSteps = Array.isArray(build?.steps) ? build.steps : []
   const packageIndex = buildSteps.findIndex(
-    step => step?.name === 'Build, sign, and notarize the universal Community app and sign its DMG',
+    step => step?.name === 'Build and sign the universal Community app and DMG',
+  )
+  const evaluationLabelIndex = buildSteps.findIndex(
+    step => step?.name === 'Label signed evaluation DMG as not notarized',
   )
   const notarizeIndex = buildSteps.findIndex(
     step => step?.name === 'Notarize and staple the exact Community DMG',
@@ -507,13 +539,28 @@ function validateCommunityReleaseWorkflow(workflow, source) {
   const recordIndex = buildSteps.findIndex(
     step => step?.name === 'Record the exact built Community artifact',
   )
+  const evaluationLabelStep = buildSteps[evaluationLabelIndex]
   const notarizeStep = buildSteps[notarizeIndex]
   const notarizeRun = String(notarizeStep?.run ?? '')
   if (
     packageIndex < 0
-    || notarizeIndex <= packageIndex
-    || recordIndex <= notarizeIndex
-    || !exactRecord(notarizeStep, ['env', 'name', 'run'])
+    || evaluationLabelIndex <= packageIndex
+    || notarizeIndex <= evaluationLabelIndex
+    || evaluationLabelStep?.if !== "${{ inputs.release_mode == 'signed-evaluation' }}"
+    || notarizeStep?.if !== "${{ inputs.release_mode == 'notarized' }}"
+    || ![
+      'BUILDER_CONFIG=electron-builder.signed-evaluation.yml',
+      'BUILDER_CONFIG=electron-builder.release.yml',
+      '--config "$BUILDER_CONFIG"',
+      '-SIGNED-EVALUATION-NOT-NOTARIZED.dmg',
+    ].every(marker => source.includes(marker))
+  ) {
+    failures.push('Community release workflow must keep signed-evaluation signing separate from the notarized path')
+  }
+  if (
+    recordIndex <= notarizeIndex
+    || !exactRecord(notarizeStep, ['env', 'if', 'name', 'run'])
+    || notarizeStep?.if !== "${{ inputs.release_mode == 'notarized' }}"
     || !deepExact(notarizeStep?.env, {
       APPLE_ID: '${{ secrets.APPLE_ID }}',
       APPLE_APP_SPECIFIC_PASSWORD: '${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}',
@@ -535,7 +582,17 @@ function validateCommunityReleaseWorkflow(workflow, source) {
   const downloadedAcceptanceStep = buildSteps.find(
     step => step?.name === 'Mount and accept the exact downloaded Community DMG',
   )
-  if (!String(downloadedAcceptanceStep?.run ?? '').includes('xcrun stapler validate "$DMG"')) {
+  const downloadedAcceptanceRun = String(downloadedAcceptanceStep?.run ?? '')
+  if (
+    ![
+      'notarized)',
+      'xcrun stapler validate "$DMG"',
+      'signed-evaluation)',
+      '*-SIGNED-EVALUATION-NOT-NOTARIZED.dmg)',
+      'releaseMode: process.env.RELEASE_MODE',
+      "notarized: process.env.RELEASE_MODE === 'notarized'",
+    ].every(marker => downloadedAcceptanceRun.includes(marker))
+  ) {
     failures.push('Community release workflow must preserve final staple validation for the downloaded DMG')
   }
   if (
@@ -554,7 +611,8 @@ function validateCommunityReleaseWorkflow(workflow, source) {
     ['exact current-main dispatch', 'test "$GITHUB_SHA" = "$RELEASE_COMMIT"'],
     ['exact tag/package version binding', 'test "$RELEASE_TAG" = "v$(node -p'],
     ['protected release environment', 'environment: community-release'],
-    ['private CI-only builder override', '--config electron-builder.release.yml'],
+    ['private CI-only builder override', 'BUILDER_CONFIG=electron-builder.release.yml'],
+    ['signed-evaluation CI-only builder override', 'BUILDER_CONFIG=electron-builder.signed-evaluation.yml'],
     ['actual Community app bundle name', 'dist/mac-universal/vault-OC.app'],
     ['mounted Community app bundle name', 'APP="$MOUNT/vault-OC.app"'],
     ['signed app and DMG acceptance record', 'record-packaged-mac-artifact.mjs'],
@@ -568,6 +626,15 @@ function validateCommunityReleaseWorkflow(workflow, source) {
   ]
   for (const [label, marker] of requiredMarkers) {
     if (!source.includes(marker)) failures.push(`Community release workflow is missing ${label}`)
+  }
+  if (![
+    '-SIGNED-EVALUATION-NOT-NOTARIZED.dmg',
+    'community-mac-release-${{ inputs.release_mode }}-${{ inputs.release_commit }}',
+    'SIGNED EVALUATION — NOT NOTARIZED',
+    'releaseMode: process.env.RELEASE_MODE',
+    "notarized: process.env.RELEASE_MODE === 'notarized'",
+  ].every(marker => source.includes(marker))) {
+    failures.push('Signed evaluation releases must be unmistakably labeled as not notarized')
   }
   for (const forbidden of [
     'VAULTAGE_COMMUNITY_RELEASE_TOKEN',

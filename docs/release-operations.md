@@ -20,20 +20,27 @@ Status: required public-source operator runbook.
    trademark terms. Technical checks do not replace counsel review.
 
 Configure the public `community-release` environment before dispatching the
-workflow. It requires the Apple signing values named `APPLE_ID`,
-`APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `CSC_NAME`, `CSC_LINK`, and
-`CSC_KEY_PASSWORD`. Store values only as protected environment secrets; never
-put them in source, workflow inputs, logs, or artifacts. The workflow publishes
-with its same-repository `GITHUB_TOKEN` and does not require a release PAT.
+workflow. `signed-evaluation` requires `APPLE_TEAM_ID`, `CSC_NAME`, `CSC_LINK`,
+and `CSC_KEY_PASSWORD`. It does not require `APPLE_ID` or
+`APPLE_APP_SPECIFIC_PASSWORD`. The `notarized` mode additionally requires those
+two Apple account values. Store values only as protected environment secrets;
+never put them in source, workflow inputs, logs, or artifacts. The workflow
+publishes with its same-repository `GITHUB_TOKEN` and does not require a release
+PAT.
 
 Dispatch `.github/workflows/community-release.yml` from `main` with the exact
-40-character candidate commit and matching tag. The workflow fails closed if
-the dispatch SHA, current `main`, tag commit, and package version differ. Do not
-dispatch the macOS job until the environment and signing inputs are ready.
+40-character candidate commit, matching tag, and explicit release mode. The
+workflow fails closed if the dispatch SHA, current `main`, tag commit, package
+version, or mode differ. Do not dispatch the macOS job until the environment
+and signing inputs are ready.
 
-Official desktop candidates must include the signed/notarized `vault-OC` DMG,
-`SHA256SUMS`, dependency and packaged-app CycloneDX SBOMs, acceptance receipts,
-and public build provenance. Community `v0.x` updates are manual: no updater
+The default signed-evaluation candidate must be Developer ID signed and named
+`*-SIGNED-EVALUATION-NOT-NOTARIZED.dmg`. Its prerelease title and receipt must
+also state that it is not notarized. It is not production-ready, and macOS may
+require **right-click Open** on first launch. The `notarized` mode retains Apple
+submission, stapling, and Gatekeeper checks. Both modes include `SHA256SUMS`,
+dependency and packaged-app CycloneDX SBOMs, acceptance receipts, and public
+build provenance. Community `v0.x` updates are manual: no updater
 runtime or updater metadata is shipped. Install the
 candidate on a separate macOS account and manually exercise a disposable vault,
 project export, and backup/restore before promotion until signed-artifact E2E is

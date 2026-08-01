@@ -66,8 +66,8 @@ describe('release metadata policy', () => {
     ],
     [
       'downloaded DMG staple validation',
-      '          xcrun stapler validate "$DMG"\n          spctl --assess --type open',
-      '          true # downloaded DMG staple validation omitted\n          spctl --assess --type open',
+      '              xcrun stapler validate "$DMG"\n              spctl --assess --type open',
+      '              true # downloaded DMG staple validation omitted\n              spctl --assess --type open',
       'Community release workflow must preserve final staple validation for the downloaded DMG',
     ],
   ])('rejects a Community release workflow without %s', (_label, current, replacement, expectedError) => {
@@ -77,7 +77,7 @@ describe('release metadata policy', () => {
     const source = readFileSync(path, 'utf8')
 
     // When the release metadata policy checks that weakened workflow.
-    write(root, '.github/workflows/community-release.yml', source.replace(current, replacement))
+    write(root, '.github/workflows/community-release.yml', source.replaceAll(current, replacement))
     const result = check(root)
 
     // Then the source gate must reject a signed-only or unstapled DMG.
@@ -111,6 +111,58 @@ describe('release metadata policy', () => {
     expect(result.stderr).toContain(
       'Community release workflow must explicitly notarize and staple the selected DMG before recording it',
     )
+  })
+
+  it.each([
+    [
+      'the signed-evaluation default',
+      'default: signed-evaluation',
+      'default: notarized',
+      'Community release workflow must expose only explicit signed-evaluation and notarized manual modes',
+    ],
+    [
+      'the mode-selected builder override',
+      '--config "$BUILDER_CONFIG"',
+      '--config electron-builder.release.yml',
+      'Community release workflow must keep signed-evaluation signing separate from the notarized path',
+    ],
+    [
+      'the notarized-only Apple submission condition',
+      "if: ${{ inputs.release_mode == 'notarized' }}",
+      'if: ${{ always() }}',
+      'Community release workflow must keep signed-evaluation signing separate from the notarized path',
+    ],
+    [
+      'the evaluation DMG filename warning',
+      '-SIGNED-EVALUATION-NOT-NOTARIZED.dmg',
+      '-evaluation.dmg',
+      'Signed evaluation releases must be unmistakably labeled as not notarized',
+    ],
+    [
+      'the release-mode artifact name',
+      'community-mac-release-${{ inputs.release_mode }}-${{ inputs.release_commit }}',
+      'community-mac-release-${{ inputs.release_commit }}',
+      'Signed evaluation releases must be unmistakably labeled as not notarized',
+    ],
+    [
+      'the evaluation prerelease title warning',
+      'SIGNED EVALUATION — NOT NOTARIZED',
+      'SIGNED EVALUATION',
+      'Signed evaluation releases must be unmistakably labeled as not notarized',
+    ],
+  ])('rejects a Community release workflow without %s', (_label, current, replacement, expectedError) => {
+    // Given a Community workflow with one signed-evaluation boundary weakened.
+    const root = fixtureRoot({ community: true })
+    const path = join(root, '.github/workflows/community-release.yml')
+    const source = readFileSync(path, 'utf8')
+
+    // When the release metadata policy checks that weakened mode contract.
+    write(root, '.github/workflows/community-release.yml', source.replaceAll(current, replacement))
+    const result = check(root)
+
+    // Then the manual release operator must reject the ambiguous evaluation path.
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain(expectedError)
   })
 
   it('rejects running dependency or candidate code before exact Community commit binding', () => {
@@ -178,6 +230,19 @@ dmg:
     const result = check(root)
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('release builder override must remain CI-only')
+  })
+
+  it('requires a signing-only Community evaluation builder override', () => {
+    // Given a Community source tree without the dedicated signing-only override.
+    const root = fixtureRoot({ community: true })
+    rmSync(join(root, 'electron-builder.signed-evaluation.yml'), { force: true })
+
+    // When release metadata is checked.
+    const result = check(root)
+
+    // Then the fully notarized override must not be reused for evaluation builds.
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('signed-evaluation builder override must enable only DMG signing')
   })
 
   it('rejects private workflow filenames outside the exact release and Store allowlist', () => {
@@ -683,6 +748,10 @@ dmg:
     write(root, 'electron-builder.release.yml', `extends: electron-builder.yml
 mac:
   notarize: true
+dmg:
+  sign: true
+`)
+    write(root, 'electron-builder.signed-evaluation.yml', `extends: electron-builder.yml
 dmg:
   sign: true
 `)
