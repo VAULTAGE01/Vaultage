@@ -30,7 +30,7 @@ describe('modal layout widths', () => {
     expect(componentSource('ImportModal.tsx')).toContain('max-w-5xl max-h-[85vh] flex flex-col')
     expect(componentSource('ExportModal.tsx')).toContain('max-w-4xl max-h-[88vh] flex flex-col overflow-hidden')
     expect(componentSource('EnvProjectsModal.tsx').match(/w-\[min\(64rem,calc\(100vw-2rem\)\)\]/g)).toHaveLength(2)
-    expect(componentSource('EnvProjectsModal.tsx')).toContain('grid-cols-1 grid-rows-[auto_minmax(0,1fr)]')
+    expect(componentSource('EnvProjectsModal.tsx')).toContain('grid-cols-1 grid-rows-[minmax(12rem,52%)_minmax(0,1fr)]')
     expect(componentSource('EnvProjectsModal.tsx')).toContain('sm:grid-cols-[340px_minmax(0,1fr)]')
   })
 
