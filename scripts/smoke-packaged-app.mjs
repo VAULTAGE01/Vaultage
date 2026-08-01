@@ -4,14 +4,14 @@ import { join } from 'path'
 import { tmpdir } from 'os'
 
 const appPathArg = process.argv.slice(2).find(arg => arg !== '--')
-const appPath = appPathArg || join(process.cwd(), 'dist/mac-universal/Vaultage.app')
+const appPath = appPathArg || join(process.cwd(), 'dist/mac-universal/vault-OC.app')
 
 if (process.platform !== 'darwin') {
   console.log('Packaged app launch smoke skipped on non-darwin platform.')
   process.exit(0)
 }
 
-const executable = join(appPath, 'Contents/MacOS/Vaultage')
+const executable = join(appPath, 'Contents/MacOS/vault-OC')
 if (!existsSync(executable)) {
   console.error(`Packaged app executable not found: ${executable}`)
   process.exit(1)

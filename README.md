@@ -3,8 +3,10 @@
 Vaultage Community is a local encrypted vault for secrets, API keys, secure
 notes, and project `.env` workflows.
 
-This repository is pre-release source for inspection and development. Vaultage
-has not published an official Community binary or customer-ready release.
+This repository contains the `0.1.2` pre-release source candidate. Vaultage has
+not published an official Community binary or customer-ready release. After
+the first signed candidate is accepted, official `v0.x` updates will be manual
+downloads from this repository's GitHub Releases page.
 
 The supported desktop and packaging target is macOS 12 or newer. Windows and
 Linux installers are not implemented or advertised.

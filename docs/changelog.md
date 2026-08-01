@@ -1,5 +1,16 @@
 # Vaultage Community Changelog
 
+## 2026-08-01 - v0.1.2 candidate
+
+- Carries the current UI2026 Vault and Projects experience, including the
+  neutral wider modal canvas and bounded mobile project review flow.
+- Adds the public, protected macOS release lane for the first signed/notarized
+  Community DMG, public provenance attestation, SBOMs, and `SHA256SUMS`.
+- Corrects release packaging and acceptance to the actual `vault-OC.app`
+  bundle while leaving ordinary local builds unsigned and non-notarizing.
+- States the `v0.x` manual-update contract; no updater runtime or updater
+  metadata is shipped.
+
 ## 2026-07-11 - Native credential boundary hardening
 
 - The Keychain helper authenticates its direct parent and validates the
