@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "kind": "vaultage-community-source-provenance-v1",
   "source": {
-    "commitSha": "fde0e8a8715a8cdacc07af5a82a460d46b75bc36",
-    "treeSha": "8accbe0e10553bd093e5f09fb68ae3a6e8810b36",
+    "commitSha": "21827b38ff22b0dd23fd505b47ddb46527231fa0",
+    "treeSha": "ff3553c04a15cfba4b7ba782982b7b8135fd0763",
     "trackedState": "clean"
   },
   "generator": {
