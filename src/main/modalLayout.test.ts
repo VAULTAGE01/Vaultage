@@ -19,6 +19,12 @@ describe('modal layout widths', () => {
     expect(componentSource('ui/dialog.tsx')).toContain('max-w-6xl')
   })
 
+  it('keeps the shared text-input flow wide at its callsite', () => {
+    const source = componentSource('TextInputDialogProvider.tsx')
+    expect(source).toContain('className="max-w-2xl"')
+    expect(source).not.toContain('className="max-w-md"')
+  })
+
   it('widens content-dense Community modal flows', () => {
     expect(componentSource('AddSecretModal.open.tsx')).toContain('w-[640px] max-w-[calc(100vw-32px)]')
     expect(componentSource('ImportModal.tsx')).toContain('max-w-5xl max-h-[85vh] flex flex-col')

@@ -90,7 +90,7 @@ export function TextInputDialogProvider({ children }: { children: ReactNode }) {
         {active && (
           <DialogContent
             hideClose
-            className="max-w-md"
+            className="max-w-2xl"
             aria-describedby={`text-input-description-${active.id}`}
           >
             <form onSubmit={submit}>

@@ -6,15 +6,15 @@ const SECRET_TITLE = 'Synthetic Local API Key'
 
 export async function verifyCommunitySidebarSecretDragDrop(page: Page): Promise<void> {
   const navigation = page.locator('aside[aria-label="Application navigation"]')
+  const rootFolder = navigation.getByText('My Vault', { exact: true }).last().locator('xpath=ancestor::button[1]')
 
-  await page.getByText('My Vault', { exact: true }).last().click()
+  if (await rootFolder.getAttribute('aria-expanded') !== 'true') await rootFolder.click()
   await navigation.getByTitle('New folder').click()
 
   const dialog = page.getByRole('dialog', { name: 'New folder' })
   await dialog.getByLabel('Folder name', { exact: true }).fill(TARGET_FOLDER)
   await dialog.getByRole('button', { name: 'Create folder', exact: true }).click()
 
-  const rootFolder = navigation.getByText('My Vault', { exact: true }).last().locator('xpath=ancestor::button[1]')
   const targetFolder = navigation.getByRole('button').filter({ hasText: TARGET_FOLDER })
   await targetFolder.waitFor({ state: 'visible', timeout: 10_000 })
   const initialRootCount = await itemCount(rootFolder)
