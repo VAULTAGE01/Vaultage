@@ -509,7 +509,7 @@ function validateCommunityReleaseWorkflow(workflow, source) {
     'test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"',
     'test "$(git rev-parse --verify "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"',
     'test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"',
-    'test "$RELEASE_TAG" = "v$(node -p',
+    'test "$RELEASE_TAG" = "v$(node -p \'require("./package.json").version\')"',
     'case "$RELEASE_MODE" in',
     'signed-evaluation|notarized)',
     'test -z "$(git status --porcelain)"',
