@@ -1002,8 +1002,8 @@ export default function EnvProjectsModal({ onClose, initialProjectId = null, sta
           </div>
 
 
-          <div className="grid min-h-0 flex-1 grid-cols-[340px_minmax(0,1fr)] overflow-hidden">
-            <aside className="flex min-h-0 flex-col border-r border-border">
+          <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[auto_minmax(0,1fr)] overflow-hidden sm:grid-cols-[340px_minmax(0,1fr)] sm:grid-rows-1">
+            <aside className="flex min-h-0 flex-col border-b border-border sm:border-b-0 sm:border-r">
               <div className="border-b border-border px-5 py-4">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-muted">Source</p>
                 <div className="mt-3 grid gap-2">
