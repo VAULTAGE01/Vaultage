@@ -23,6 +23,7 @@ tokens rather than raw color values.
 | Accent | --ui26-accent / --ui26-accent-hover | Actions and links |
 | Focus | --ui26-focus | Keyboard focus |
 | Status | --ui26-success, --ui26-warning, --ui26-danger, --ui26-info | State communication |
+| Modal canvas | --liquid-modal-surface / --liquid-modal-overlay | Neutral modal surface and backdrop; no hue amplification |
 
 ## 3. Typography
 
@@ -87,6 +88,10 @@ interaction contract, not decoration.
 The system uses mixed tonal surfaces with subtle borders and restrained glass
 sheen. Elevation is expressed by --ui26-surface-*, --ui26-glass-*, and
 --ui26-border-*; foundation components do not introduce new ad-hoc shadows.
+Modal surfaces use the neutral --liquid-modal-* tokens and remove saturation
+from the backdrop filter so dialogs retain the app canvas character without a
+green cast. The shared DialogContent primitive defaults to a wide max-width;
+individual forms may remain narrower when their content benefits from it.
 
 ## 8. Accessibility Constraints & Accepted Debt
 
