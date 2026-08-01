@@ -12,8 +12,8 @@ export function resolveUi2026BuildFlags(
   environment: Readonly<Record<string, string | undefined>>,
 ): Ui2026BuildFlags {
   return Object.freeze({
-    vault: resolveFlag(environment['VAULTAGE_UI2026_VAULT'], false),
-    projects: resolveFlag(environment['VAULTAGE_UI2026_PROJECTS'], false),
+    vault: resolveFlag(environment['VAULTAGE_UI2026_VAULT'], true),
+    projects: resolveFlag(environment['VAULTAGE_UI2026_PROJECTS'], true),
     services: resolveFlag(environment['VAULTAGE_UI2026_SERVICES'], true),
   });
 }

@@ -5,10 +5,10 @@ import {
 } from './ui2026BuildFlags';
 
 describe('UI 2026 landing build flags', () => {
-  it('keeps the established Vault and Projects landings while enabling Services', () => {
+  it('enables the launch Vault, Projects, and Services surfaces by default', () => {
     expect(resolveUi2026BuildFlags({})).toEqual({
-      vault: false,
-      projects: false,
+      vault: true,
+      projects: true,
       services: true,
     });
   });
@@ -16,11 +16,11 @@ describe('UI 2026 landing build flags', () => {
   it('keeps an explicit per-surface rollback switch', () => {
     expect(resolveUi2026BuildFlags({
       VAULTAGE_UI2026_VAULT: '0',
-      VAULTAGE_UI2026_PROJECTS: '1',
-      VAULTAGE_UI2026_SERVICES: 'invalid',
+      VAULTAGE_UI2026_PROJECTS: '0',
+      VAULTAGE_UI2026_SERVICES: '0',
     })).toEqual({
       vault: false,
-      projects: true,
+      projects: false,
       services: false,
     });
   });
@@ -44,8 +44,8 @@ describe('UI 2026 landing build flags', () => {
 
   it('preserves closed edition defaults', () => {
     expect(resolveUi2026BuildFlagsForEdition({}, false)).toEqual({
-      vault: false,
-      projects: false,
+      vault: true,
+      projects: true,
       services: true,
     });
   });
