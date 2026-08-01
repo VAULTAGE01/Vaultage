@@ -1,5 +1,4 @@
-import { existsSync, lstatSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'fs'
-import { createHash } from 'crypto'
+import { existsSync, lstatSync, mkdtempSync, readdirSync, rmSync } from 'fs'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { spawnSync } from 'child_process'
@@ -10,7 +9,7 @@ import {
 } from '@electron/fuses'
 
 const appPathArg = process.argv.slice(2).find(arg => arg !== '--')
-const appPath = appPathArg || join(process.cwd(), 'dist/mac-universal/Vaultage.app')
+const appPath = appPathArg || join(process.cwd(), 'dist/mac-universal/vault-OC.app')
 const forbiddenKeys = [
   'com.apple.security.cs.allow-unsigned-executable-memory',
   'com.apple.security.cs.disable-library-validation',
@@ -140,7 +139,7 @@ if (!existsSync(helperPath)) {
     console.error('Packaged app and Keychain helper must share a non-ad-hoc Apple team identity')
     failed = true
   }
-  if (appIdentifier !== 'xyz.arcalab.vaultage') {
+  if (appIdentifier !== 'xyz.arcalab.vault-oc') {
     console.error(`Packaged app has unexpected signing identifier: ${appIdentifier ?? 'missing'}`)
     failed = true
   }
@@ -150,70 +149,6 @@ if (!existsSync(helperPath)) {
   }
   if (!helperDescription?.match(/^CodeDirectory .*flags=.*\bruntime\b/m)) {
     console.error('Packaged Keychain helper signature is missing the hardened-runtime flag')
-    failed = true
-  }
-}
-
-const extensionHostPath = join(appPath, 'Contents', 'Resources', 'vaultage-extension-native-host')
-if (!existsSync(extensionHostPath)) {
-  console.error(`Packaged extension native host is missing: ${extensionHostPath}`)
-  failed = true
-} else {
-  const stat = lstatSync(extensionHostPath)
-  if (!stat.isFile() || stat.isSymbolicLink()) {
-    console.error('Packaged extension native host must be a regular non-symlink file')
-    failed = true
-  }
-  if ((stat.mode & 0o022) !== 0 || (stat.mode & 0o111) === 0) {
-    console.error('Packaged extension native host has unsafe permissions')
-    failed = true
-  }
-  const verify = spawnSync(
-    'codesign',
-    ['--verify', '--strict', '--all-architectures', '--', extensionHostPath],
-    { encoding: 'utf8' },
-  )
-  if (verify.status !== 0) {
-    console.error((verify.stderr || verify.stdout || 'Extension native-host signature verification failed').trim())
-    failed = true
-  }
-  const architectures = spawnSync('lipo', ['-archs', extensionHostPath], { encoding: 'utf8' })
-  const actualArchitectures = architectures.status === 0
-    ? architectures.stdout.trim().split(/\s+/).sort()
-    : []
-  if (JSON.stringify(actualArchitectures) !== JSON.stringify(['arm64', 'x86_64'])) {
-    console.error(`Packaged extension native host must be universal arm64+x86_64; found ${actualArchitectures.join(',') || 'unreadable'}`)
-    failed = true
-  }
-  const description = describeCode(extensionHostPath)
-  if (identityValue(description, 'Identifier') !== 'xyz.arcalab.vaultage.extension-host') {
-    console.error('Packaged extension native host has an unexpected signing identifier')
-    failed = true
-  }
-  const hostTeam = identityValue(description, 'TeamIdentifier')
-  if (!appTeam || appTeam === 'not set' || hostTeam !== appTeam) {
-    console.error('Packaged app and extension native host must share a non-ad-hoc Apple team identity')
-    failed = true
-  }
-  if (!description?.match(/^CodeDirectory .*flags=.*\bruntime\b/m)) {
-    console.error('Packaged extension native host signature is missing the hardened-runtime flag')
-    failed = true
-  }
-}
-
-const packagedPolicy = join(appPath, 'Contents', 'Resources', 'browser-extension', 'extension', 'provider-pages.json')
-const sourcePolicy = join(process.cwd(), 'browser-extension', 'extension', 'provider-pages.json')
-if (!existsSync(packagedPolicy) || !existsSync(sourcePolicy)) {
-  console.error('Packaged extension provider policy is missing')
-  failed = true
-} else {
-  const policyStat = lstatSync(packagedPolicy)
-  const digest = path => createHash('sha256').update(readFileSync(path)).digest('hex')
-  if (!policyStat.isFile() || policyStat.isSymbolicLink() || (policyStat.mode & 0o022) !== 0) {
-    console.error('Packaged extension provider policy has unsafe file properties')
-    failed = true
-  } else if (digest(packagedPolicy) !== digest(sourcePolicy)) {
-    console.error('Packaged extension provider policy does not match the reviewed source bytes')
     failed = true
   }
 }

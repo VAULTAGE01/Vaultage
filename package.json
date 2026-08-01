@@ -1,6 +1,6 @@
 {
   "name": "vaultage-open-local",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "packageManager": "pnpm@11.11.0",
   "description": "Encrypted key/secret vault with Touch ID",
   "productName": "vault-OC",

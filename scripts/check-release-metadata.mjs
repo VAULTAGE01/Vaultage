@@ -21,6 +21,10 @@ const PRIVATE_WORKFLOW_ALLOWLIST = new Set([
   'extension-store-upload.yml',
   'release.yml',
 ])
+const COMMUNITY_WORKFLOW_ALLOWLIST = new Set([
+  'ci.yml',
+  'community-release.yml',
+])
 
 const SEMVER = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z.-]+)?$/
 
@@ -105,6 +109,10 @@ const productionBuilderConfigPath = join(root, 'electron-builder.production.yml'
 const productionBuilderConfig = existsSync(productionBuilderConfigPath)
   ? readFileSync(productionBuilderConfigPath, 'utf8')
   : ''
+const communityReleaseBuilderConfigPath = join(root, 'electron-builder.release.yml')
+const communityReleaseBuilderConfig = existsSync(communityReleaseBuilderConfigPath)
+  ? readFileSync(communityReleaseBuilderConfigPath, 'utf8')
+  : ''
 const privateProductPackage = pkg.name !== 'vaultage-open-local'
 let parsedBuilderConfig
 try {
@@ -128,6 +136,36 @@ if (/^(?:win|nsis):/m.test(builderConfig)) {
 }
 if (/browser-extension\/native-host|vaultage-extension-native-host|provider-pages\.json/u.test(builderConfig)) {
   failures.push('ordinary Electron packages must remain extension-host-free')
+}
+if (!privateProductPackage) {
+  if (
+    parsedBuilderConfig?.appId !== 'xyz.arcalab.vault-oc'
+    || parsedBuilderConfig?.productName !== 'vault-OC'
+    || parsedBuilderConfig?.publish !== null
+    || parsedBuilderConfig?.mac?.notarize !== false
+    || parsedBuilderConfig?.dmg?.sign !== false
+  ) {
+    failures.push('Community local builder config must keep the vault-OC identity, updater disabled, and signing/notarization off')
+  }
+  let parsedCommunityReleaseBuilder
+  try {
+    parsedCommunityReleaseBuilder = yaml.load(communityReleaseBuilderConfig)
+  } catch (error) {
+    failures.push(`electron-builder.release.yml must be valid YAML: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  if (
+    !exactRecord(parsedCommunityReleaseBuilder, ['dmg', 'extends', 'mac'])
+    || parsedCommunityReleaseBuilder.extends !== 'electron-builder.yml'
+    || !exactRecord(parsedCommunityReleaseBuilder.mac, ['notarize'])
+    || parsedCommunityReleaseBuilder.mac.notarize !== true
+    || !exactRecord(parsedCommunityReleaseBuilder.dmg, ['sign'])
+    || parsedCommunityReleaseBuilder.dmg.sign !== true
+  ) {
+    failures.push('Community release builder override must enable only notarization and DMG signing over the reviewed local config')
+  }
+  if (Object.values(pkg.scripts ?? {}).some(value => String(value).includes('electron-builder.release.yml'))) {
+    failures.push('Community release builder override must remain CI-only and absent from package scripts')
+  }
 }
 if (!privateProductPackage && (productionBuilderConfig || pkg.scripts?.['dist:mac:production'])) {
   failures.push('Community packages must not carry private production extension packaging')
@@ -193,11 +231,13 @@ const ciWorkflowPath = join(root, '.github/workflows/ci.yml')
 const workflowsPath = join(root, '.github/workflows')
 if (!privateProductPackage && existsSync(workflowsPath)) {
   const workflowEntries = readdirSync(workflowsPath, { withFileTypes: true })
-  const exactCommunityWorkflow = workflowEntries.length === 1
-    && workflowEntries[0].isFile()
-    && workflowEntries[0].name === 'ci.yml'
+  const unexpectedCommunityWorkflows = workflowEntries
+    .filter(entry => !entry.isFile() || !COMMUNITY_WORKFLOW_ALLOWLIST.has(entry.name))
+    .map(entry => entry.name)
+  const exactCommunityWorkflow = workflowEntries.length === COMMUNITY_WORKFLOW_ALLOWLIST.size
+    && unexpectedCommunityWorkflows.length === 0
   if (!exactCommunityWorkflow) {
-    failures.push('Community packages must contain only .github/workflows/ci.yml')
+    failures.push('Community packages must contain exactly the reviewed CI and Community release workflows')
   }
 } else if (privateProductPackage && existsSync(workflowsPath)) {
   const unexpectedPrivateWorkflows = readdirSync(workflowsPath, { withFileTypes: true })
@@ -278,8 +318,25 @@ if (!existsSync(ciWorkflowPath)) {
   }
 }
 
+const communityReleaseWorkflowPath = join(root, '.github/workflows/community-release.yml')
+if (!privateProductPackage) {
+  if (!existsSync(communityReleaseWorkflowPath)) {
+    failures.push('Community release workflow is missing')
+  } else {
+    const workflow = readFileSync(communityReleaseWorkflowPath, 'utf8')
+    validateWorkflowActionPins(workflow, 'Community release workflow')
+    let parsedWorkflow
+    try {
+      parsedWorkflow = yaml.load(workflow)
+    } catch {
+      // validateWorkflowActionPins reports the invalid workflow YAML.
+    }
+    validateCommunityReleaseWorkflow(parsedWorkflow, workflow)
+  }
+}
+
 const releaseWorkflowPath = join(root, '.github/workflows/release.yml')
-if (existsSync(releaseWorkflowPath)) {
+if (privateProductPackage && existsSync(releaseWorkflowPath)) {
   const workflow = readFileSync(releaseWorkflowPath, 'utf8')
   validateWorkflowActionPins(workflow, 'Release workflow')
   let parsedReleaseWorkflow
@@ -331,6 +388,163 @@ if (existsSync(releaseWorkflowPath)) {
   if (parsedReleaseWorkflow) validateReleaseArtifactCustody(parsedReleaseWorkflow)
   if (/anchore\/sbom-action@(?![a-f0-9]{40}\b)/.test(workflow)) {
     failures.push('Release workflow must pin anchore/sbom-action to a full commit SHA')
+  }
+}
+
+function validateCommunityReleaseWorkflow(workflow, source) {
+  if (!exactRecord(workflow, ['concurrency', 'jobs', 'name', 'on', 'permissions'])
+    || workflow.name !== 'Community macOS release') {
+    failures.push('Community release workflow must use the exact reviewed top-level control inventory')
+    return
+  }
+  const dispatch = workflow.on?.workflow_dispatch
+  const inputs = dispatch?.inputs
+  if (
+    !exactRecord(workflow.on, ['workflow_dispatch'])
+    || !exactRecord(dispatch, ['inputs'])
+    || !exactRecord(inputs, ['release_commit', 'release_tag'])
+    || !exactRecord(inputs.release_commit, ['description', 'required', 'type'])
+    || !exactRecord(inputs.release_tag, ['description', 'required', 'type'])
+    || inputs.release_commit.required !== true
+    || inputs.release_commit.type !== 'string'
+    || inputs.release_tag.required !== true
+    || inputs.release_tag.type !== 'string'
+  ) {
+    failures.push('Community release workflow must be manual-only with exact required commit and tag inputs')
+  }
+  if (!exactRecord(workflow.permissions, ['contents']) || workflow.permissions.contents !== 'read') {
+    failures.push('Community release workflow must default to read-only repository contents')
+  }
+  if (
+    !exactRecord(workflow.concurrency, ['cancel-in-progress', 'group'])
+    || workflow.concurrency.group !== 'community-release'
+    || workflow.concurrency['cancel-in-progress'] !== false
+  ) {
+    failures.push('Community release workflow must serialize candidates without cancelling an active release')
+  }
+
+  const jobs = workflow.jobs
+  const expectedJobs = [
+    'build-sign-and-accept-community-macos',
+    'prepare-community-source',
+    'publish-community-release',
+  ]
+  if (!exactRecord(jobs, expectedJobs)) {
+    failures.push(`Community release workflow must define only the exact jobs: ${expectedJobs.join(', ')}`)
+    return
+  }
+  const prepare = jobs['prepare-community-source']
+  const build = jobs['build-sign-and-accept-community-macos']
+  const publish = jobs['publish-community-release']
+  if (prepare?.['runs-on'] !== 'ubuntu-24.04' || prepare?.['timeout-minutes'] !== 30) {
+    failures.push('Community release preflight must run on bounded Ubuntu')
+  }
+  const prepareSteps = Array.isArray(prepare?.steps) ? prepare.steps : []
+  const bindingIndex = prepareSteps.findIndex(
+    step => step?.name === 'Verify the exact reviewed Community main and tag candidate',
+  )
+  const installIndex = prepareSteps.findIndex(step => step?.name === 'Install Community dependencies')
+  const releaseGateIndex = prepareSteps.findIndex(step => step?.name === 'Verify Community source on Linux')
+  const expectedPrepareTail = [
+    actionStep(PNPM_SETUP_ACTION, { version: '11.11.0' }),
+    actionStep(NODE_SETUP_ACTION, { 'node-version': 24, cache: 'pnpm' }),
+    namedRunStep('Install Community dependencies', 'pnpm install --frozen-lockfile'),
+    namedRunStep('Verify Community source on Linux', 'pnpm verify:release'),
+  ]
+  const exactPrepareCheckout = actionStep(CHECKOUT_ACTION, {
+    ref: '${{ inputs.release_commit }}',
+    'fetch-depth': 0,
+    'persist-credentials': false,
+  })
+  const bindingStep = prepareSteps[1]
+  const bindingRun = String(bindingStep?.run ?? '')
+  if (
+    prepareSteps.length !== 6
+    || !deepExact(prepareSteps[0], exactPrepareCheckout)
+    || bindingIndex !== 1
+    || !exactRecord(bindingStep, ['env', 'name', 'run'])
+    || !exactRecord(bindingStep?.env, ['RELEASE_COMMIT', 'RELEASE_TAG'])
+    || bindingStep.env.RELEASE_COMMIT !== '${{ inputs.release_commit }}'
+    || bindingStep.env.RELEASE_TAG !== '${{ inputs.release_tag }}'
+    || !expectedPrepareTail.every((step, index) => deepExact(prepareSteps[index + 2], step))
+    || installIndex !== 4
+    || releaseGateIndex !== 5
+  ) {
+    failures.push('Community release preflight must use the exact checkout, binding, setup, install, and gate order')
+  }
+  for (const marker of [
+    'test "$GITHUB_REPOSITORY" = "VAULTAGE01/Vaultage"',
+    'test "$GITHUB_REF" = "refs/heads/main"',
+    'test "$GITHUB_SHA" = "$RELEASE_COMMIT"',
+    'test "${#RELEASE_COMMIT}" -eq 40',
+    'git check-ref-format "refs/tags/$RELEASE_TAG"',
+    'git fetch --force origin refs/heads/main',
+    'test "$(git rev-parse HEAD)" = "$RELEASE_COMMIT"',
+    'test "$(git rev-parse --verify "$RELEASE_TAG^{commit}")" = "$RELEASE_COMMIT"',
+    'test "$(git rev-parse origin/main)" = "$RELEASE_COMMIT"',
+    'test "$RELEASE_TAG" = "v$(node -p',
+    'test -z "$(git status --porcelain)"',
+  ]) {
+    if (!bindingRun.includes(marker)) {
+      failures.push(`Community release preflight binding step is missing: ${marker}`)
+    }
+  }
+  if (
+    build?.['runs-on'] !== 'macos-14'
+    || build?.['timeout-minutes'] !== 45
+    || build?.environment !== 'community-release'
+    || !exactArray(build?.needs, ['prepare-community-source'])
+  ) {
+    failures.push('Community signing must be one bounded protected macOS job after Linux preflight')
+  }
+  if (
+    publish?.['runs-on'] !== 'ubuntu-24.04'
+    || publish?.['timeout-minutes'] !== 15
+    || !exactArray(publish?.needs, ['build-sign-and-accept-community-macos'])
+    || !exactRecord(publish?.permissions, ['attestations', 'contents', 'id-token'])
+    || publish.permissions.attestations !== 'write'
+    || publish.permissions.contents !== 'write'
+    || publish.permissions['id-token'] !== 'write'
+  ) {
+    failures.push('Community publication must be a bounded Ubuntu job with only provenance and same-repository release authority')
+  }
+
+  const requiredMarkers = [
+    ['exact current-main dispatch', 'test "$GITHUB_SHA" = "$RELEASE_COMMIT"'],
+    ['exact tag/package version binding', 'test "$RELEASE_TAG" = "v$(node -p'],
+    ['protected release environment', 'environment: community-release'],
+    ['private CI-only builder override', '--config electron-builder.release.yml'],
+    ['actual Community app bundle name', 'dist/mac-universal/vault-OC.app'],
+    ['mounted Community app bundle name', 'APP="$MOUNT/vault-OC.app"'],
+    ['signed app and DMG acceptance record', 'record-packaged-mac-artifact.mjs'],
+    ['downloaded DMG mount acceptance', 'Mount and accept the exact downloaded Community DMG'],
+    ['locked dependency SBOM', 'pnpm sbom:generate'],
+    ['packaged app SBOM', 'anchore/sbom-action@'],
+    ['public artifact attestation', 'actions/attest-build-provenance@'],
+    ['canonical checksum filename', 'SHA256SUMS'],
+    ['same-repository GitHub token', 'GH_TOKEN: ${{ github.token }}'],
+    ['non-persisted checkout credentials', 'persist-credentials: false'],
+  ]
+  for (const [label, marker] of requiredMarkers) {
+    if (!source.includes(marker)) failures.push(`Community release workflow is missing ${label}`)
+  }
+  for (const forbidden of [
+    'VAULTAGE_COMMUNITY_RELEASE_TOKEN',
+    'repository: VAULTAGE01/Vaultage',
+    'Vaultage.app',
+    'SHASUMS256.txt',
+    'latest-mac.yml',
+  ]) {
+    if (source.includes(forbidden)) {
+      failures.push(`Community release workflow contains forbidden legacy or cross-repository term: ${forbidden}`)
+    }
+  }
+  const checkoutCount = (source.match(/uses: actions\/checkout@[a-f0-9]{40}\b/gu) ?? []).length
+  const nonPersistingCheckoutCount = (
+    source.match(/uses: actions\/checkout@[a-f0-9]{40}\b[\s\S]{0,220}?persist-credentials: false/gu) ?? []
+  ).length
+  if (checkoutCount !== 3 || nonPersistingCheckoutCount !== checkoutCount) {
+    failures.push('Community release workflow must use exactly three non-persisting exact-ref checkouts')
   }
 }
 

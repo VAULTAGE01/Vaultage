@@ -7,6 +7,10 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { communitySourceCiWorkflow, privateSourceCiWorkflow } from './check-source-ci.mjs'
 
 const checker = resolve(dirname(fileURLToPath(import.meta.url)), 'check-release-metadata.mjs')
+const canonicalCommunityReleaseWorkflow = readFileSync(
+  resolve(dirname(fileURLToPath(import.meta.url)), '../.github/workflows/community-release.yml'),
+  'utf8',
+)
 const roots = []
 
 afterEach(() => {
@@ -26,11 +30,92 @@ describe('release metadata policy', () => {
 
   it('rejects additional Community workflows', () => {
     const root = fixtureRoot({ community: true })
-    write(root, '.github/workflows/release.yml', 'jobs: {}\n')
+    write(root, '.github/workflows/hidden-release.yml', 'jobs: {}\n')
 
     const result = check(root)
     expect(result.status).toBe(1)
-    expect(result.stderr).toContain('Community packages must contain only .github/workflows/ci.yml')
+    expect(result.stderr).toContain('exactly the reviewed CI and Community release workflows')
+  })
+
+  it('rejects a Community release workflow that uses a cross-repository token or stale app name', () => {
+    const root = fixtureRoot({ community: true })
+    const path = join(root, '.github/workflows/community-release.yml')
+    write(root, '.github/workflows/community-release.yml', readFileSync(path, 'utf8')
+      .replace('GH_TOKEN: ${{ github.token }}', 'GH_TOKEN: ${{ secrets.VAULTAGE_COMMUNITY_RELEASE_TOKEN }}')
+      .replaceAll('vault-OC.app', 'Vaultage.app'))
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('same-repository GitHub token')
+    expect(result.stderr).toContain('actual Community app bundle name')
+    expect(result.stderr).toContain('forbidden legacy or cross-repository term: Vaultage.app')
+  })
+
+  it('rejects running dependency or candidate code before exact Community commit binding', () => {
+    const root = fixtureRoot({ community: true })
+    const path = join(root, '.github/workflows/community-release.yml')
+    const source = readFileSync(path, 'utf8')
+    const bindingStart = source.indexOf(
+      '      - name: Verify the exact reviewed Community main and tag candidate\n',
+    )
+    const bindingEnd = source.indexOf(
+      '\n      - uses: pnpm/action-setup@',
+      bindingStart,
+    )
+    const bindingBlock = source.slice(bindingStart, bindingEnd)
+    const withoutBinding = `${source.slice(0, bindingStart)}${source.slice(bindingEnd)}`
+    const releaseGate = '      - name: Verify Community source on Linux\n        run: pnpm verify:release\n'
+    write(
+      root,
+      '.github/workflows/community-release.yml',
+      withoutBinding.replace(releaseGate, `${releaseGate}\n${bindingBlock}\n`),
+    )
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('exact checkout, binding, setup, install, and gate order')
+  })
+
+  it('rejects any executable step before exact Community commit binding', () => {
+    const root = fixtureRoot({ community: true })
+    const path = join(root, '.github/workflows/community-release.yml')
+    write(root, '.github/workflows/community-release.yml', readFileSync(path, 'utf8').replace(
+      '      - name: Verify the exact reviewed Community main and tag candidate',
+      '      - name: Execute candidate before binding\n        run: node scripts/unreviewed.mjs\n\n      - name: Verify the exact reviewed Community main and tag candidate',
+    ))
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('exact checkout, binding, setup, install, and gate order')
+  })
+
+  it('rejects weakening ordinary Community packages to sign or notarize locally', () => {
+    const root = fixtureRoot({ community: true })
+    write(root, 'electron-builder.yml', `appId: xyz.arcalab.vault-oc
+productName: vault-OC
+publish: null
+mac:
+  notarize: true
+dmg:
+  sign: true
+`)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('local builder config must keep')
+  })
+
+  it('rejects exposing the protected Community builder override as a package script', () => {
+    const root = fixtureRoot({
+      community: true,
+      scripts: {
+        'dist:mac:release': 'electron-builder --config electron-builder.release.yml --mac --universal',
+      },
+    })
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('release builder override must remain CI-only')
   })
 
   it('rejects private workflow filenames outside the exact release and Store allowlist', () => {
@@ -485,6 +570,7 @@ function fixtureRoot(options = {}) {
   const pkg = {
     name: options.community ? 'vaultage-open-local' : 'vaultage-fixture',
     version: '0.1.0',
+    ...(options.community ? { productName: 'vault-OC' } : {}),
     packageManager: 'pnpm@11.11.0',
     engines: { node: '>=22.12.0' },
     scripts: options.scripts ?? (options.community ? {} : {
@@ -515,18 +601,37 @@ function fixtureRoot(options = {}) {
         'actions/setup-node': '48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e',
         'actions/upload-artifact': '043fb46d1a93c77aae656e7c1c64a875d1fc6a0a',
         'actions/download-artifact': '3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
+        'actions/attest-build-provenance': '0f67c3f4856b2e3261c31976d6725780e5e4c373',
+        'anchore/sbom-action': 'e22c389904149dbc22b58101806040fa8d37a610',
         'softprops/action-gh-release': '3d0d9888cb7fd7b750713d6e236d1fcb99157228',
       },
     }, null, 2)}\n`,
   )
   write(root, 'AGENTS.md', 'Follow docs/ci-cd.md.\n')
   write(root, 'CLAUDE.md', 'Follow docs/ci-cd.md.\n')
-  write(root, 'electron-builder.yml', `appId: xyz.arcalab.vaultage
+  if (options.community) {
+    write(root, 'electron-builder.yml', `appId: xyz.arcalab.vault-oc
+productName: vault-OC
+publish: null
+mac:
+  notarize: false
+dmg:
+  sign: false
+`)
+    write(root, 'electron-builder.release.yml', `extends: electron-builder.yml
+mac:
+  notarize: true
+dmg:
+  sign: true
+`)
+    write(root, '.github/workflows/community-release.yml', canonicalCommunityReleaseWorkflow)
+  } else {
+    write(root, 'electron-builder.yml', `appId: xyz.arcalab.vaultage
 publish: []
 mac:
   target: dmg
 `)
-  if (!options.community) write(root, 'electron-builder.production.yml', `extends: electron-builder.yml
+    write(root, 'electron-builder.production.yml', `extends: electron-builder.yml
 mac:
   extraResources:
     - from: resources/vaultage-extension-native-host
@@ -536,6 +641,7 @@ mac:
   binaries:
     - Contents/Resources/vaultage-extension-native-host
 `)
+  }
   write(root, '.github/workflows/ci.yml', options.community
     ? communitySourceCiWorkflow()
     : privateSourceCiWorkflow())
