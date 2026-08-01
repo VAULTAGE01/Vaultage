@@ -8,7 +8,7 @@ on:
         required: true
         type: string
       release_tag:
-        description: Existing tag matching package.json (for example v0.1.3)
+        description: Existing tag matching package.json (for example v0.1.4)
         required: true
         type: string
       release_mode:
