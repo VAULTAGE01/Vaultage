@@ -150,7 +150,7 @@ async function createFolderThroughDialog(page: Page): Promise<void> {
   await folderName.fill(`  ${SYNTHETIC_FOLDER_NAME}  `)
   expect(await create.isEnabled()).toBe(true)
   expect(await folderName.evaluate(element => getComputedStyle(element).backgroundColor))
-    .toBe('rgb(7, 16, 12)')
+    .toBe('rgba(24, 26, 27, 0.72)')
   const evidencePath = process.env['VAULTAGE_COMMUNITY_E2E_DIALOG_EVIDENCE']
   if (evidencePath) await page.screenshot({ path: evidencePath, animations: 'disabled' })
   await create.click()
