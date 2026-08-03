@@ -9,8 +9,8 @@ in one encrypted local vault and maps them into local Projects.
 Vaultage Community is the accountless, open-source Vault + Projects surface.
 This repository is pre-release source for inspection and development. The public
 signed-evaluation artifact is a candidate, not a customer-ready release or
-production distribution. Vaultage has not published an official Community
-binary for general use or a customer-ready release.
+production distribution. Vaultage has not published an official Community binary
+for general use or a customer-ready release.
 
 The release operator defaults to a **SIGNED EVALUATION — NOT NOTARIZED**
 prerelease mode. Those builds are Developer ID signed but are not
