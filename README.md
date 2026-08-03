@@ -1,12 +1,16 @@
 # Vaultage
 
-Vaultage Community is a local encrypted vault for secrets, API keys, secure
-notes, and project `.env` workflows.
+Vaultage Community is a local-first macOS desktop vault for API keys,
+passwords, secure notes, and project environment values. It keeps those values
+in one encrypted local vault and maps them into local Projects.
 
-This repository contains the `0.1.4` pre-release source candidate. Vaultage has
-not published an official Community binary or customer-ready release. After
-the first signed candidate is accepted, official `v0.x` updates will be manual
-downloads from this repository's GitHub Releases page.
+## What is Vaultage?
+
+Vaultage Community is the accountless, open-source Vault + Projects surface.
+This repository is pre-release source for inspection and development. The public
+signed-evaluation artifact is a candidate, not a customer-ready release or
+production distribution. Vaultage has not published an official Community
+binary for general use or a customer-ready release.
 
 The release operator defaults to a **SIGNED EVALUATION — NOT NOTARIZED**
 prerelease mode. Those builds are Developer ID signed but are not
@@ -17,50 +21,69 @@ configured.
 The supported desktop and packaging target is macOS 12 or newer. Windows and
 Linux installers are not implemented or advertised.
 
-This public source distribution includes My Vault and local Projects only. It
-does not require an account, has no active-Project limit, and does not include Agent workflows, CLI helpers,
-Services/provider connectors, managed OAuth, token lifecycle automation,
-browser extension code, cloud sync/audit, spend dashboards, signing identities,
-or private paid modules.
+## Features
 
-Product, feature, architecture, and release docs live in [docs/](./docs/README.md).
+- **My Vault** — folders, secrets, secure notes, image secrets, import/export,
+  reveal/copy controls, global search, and local audit viewing/export.
+- **Projects** — local project records, project scanning, environment-key
+  mapping, and explicit `.env` export from selected vault fields.
+- **macOS user-presence unlock** — Touch ID when available; macOS may offer
+  system-password fallback.
+- **Local-first security** — the Community build requires no account and keeps
+  vault data, project scans, and exports on the user's machine.
 
-## Current Product Surface
+## What you can do with it
 
-- **My Vault**: encrypted local vault with macOS user-presence unlock (Touch ID
-  when available; macOS may offer system-password fallback), folders,
-  secrets, import/export, reveal/copy flows, and local audit viewing/export.
-- **Projects**: local project records, project scanning, env-key mapping, and
-  explicit `.env` export from the unlocked local vault.
+- Set up and unlock a local encrypted vault with a master password and macOS
+  user presence when available.
+- Organize API keys, passwords, SSH keys, secure notes, custom fields, and
+  images; import CSV data; search and pin frequently used secrets.
+- Scan a selected local project for environment keys, map those keys to vault
+  fields, and explicitly export a `.env` file.
+- Review redacted local audit events, export audit data, and lock the vault
+  manually or when macOS/app lifecycle events require it.
 
-## Security Posture
+## Architecture
 
-Current guarantees live in [SECURITY.md](./SECURITY.md).
+```mermaid
+flowchart LR
+  subgraph APP["macOS Community app"]
+    R["React renderer<br/>sandboxed"]
+    P["Preload<br/>contextBridge"]
+    M["Electron main<br/>vault · projects · audit"]
+    R <--> P
+    P <--> M
+  end
 
-Important constraints:
+  M --> V[("Encrypted local vault")]
+  M --> A["Redacted local audit log"]
+  M --> F["Selected project files<br/>explicit .env export"]
+  M --> K["macOS Keychain helper<br/>user presence"]
+```
 
-- Plaintext JSON and `.env` export flows require the flow-specific explicit
-  confirmation: macOS user presence where configured, or exact typed
-  confirmation where specified. Non-macOS builds are not a supported product.
-- Protected password inputs use macOS Secure Event Input while focused.
-- CSV import has explicit size and parser-shape limits before creating secrets.
-- Sensitive main-process events are written to a redacted hash-chained local
-  audit log foundation.
+The renderer receives redacted vault snapshots. The main process owns unlock,
+storage, audit, project scanning, and plaintext release actions. The preload
+bridge exposes only the Community Vault + Projects IPC surface.
 
-Legal ownership and protective notices live in [NOTICE](./NOTICE),
-[DISCLAIMER.md](./DISCLAIMER.md), and [TRADEMARK.md](./TRADEMARK.md).
+## Security and secrets
 
-## Development
+Vault data is encrypted locally. The vault key is wrapped by a
+master-password-derived key and may also be restored to a this-device-only
+macOS Keychain item gated by local user presence. Sensitive values are resolved
+in the main process for copy, reveal, and export actions after the applicable
+confirmation.
 
-Install dependencies:
+Plaintext JSON and `.env` export are intentional, user-visible actions. Keep
+exported files out of version control and read [SECURITY.md](./SECURITY.md) for
+the current guarantees, limitations, and private reporting process.
+
+## Run it locally
+
+This is pre-release source, not a published installer. On a supported macOS
+development machine:
 
 ```sh
 pnpm install
-```
-
-Run the Community release gate:
-
-```sh
 pnpm verify:release
 ```
 
@@ -77,15 +100,40 @@ pnpm build:open-local
 pnpm check:open-artifact
 ```
 
-See [docs/README.md](./docs/README.md) for the docs map,
-[docs/ci-cd.md](./docs/ci-cd.md) for CI, and
-[docs/repo-structure.md](./docs/repo-structure.md) for the source boundary.
+See [docs/README.md](./docs/README.md) for the docs map and
+[docs/ci-cd.md](./docs/ci-cd.md) for CI and release protocol.
+
+## Contributing
+
+Vaultage's public contribution posture is still pre-release. Read
+[CONTRIBUTING.md](./CONTRIBUTING.md) and [docs/governance.md](./docs/governance.md)
+for the current process and Community boundary. Never submit real secrets,
+vault files, provider credentials, screenshots of secret values, or `.env`
+contents.
 
 ## Commercial Editions
 
 Vaultage Community protects local secrets and maps them to local projects.
 Closed commercial editions may add account-gated automation and hosted
-workflows. Those modules are not part of this public source distribution.
+workflows. Agent workflows, CLI helpers, Services/provider connectors, managed
+OAuth, token lifecycle automation, browser extension code, cloud sync/audit,
+spend dashboards, signing identities, and private paid modules are not part of
+this public source distribution.
+
+## Going deeper
+
+- [Product brief](./docs/product.md) — product surface, principles, and
+  non-goals.
+- [Feature inventory](./docs/features.md) — current Community capabilities and
+  source pointers.
+- [Architecture](./docs/architecture.md) — process model, trust boundaries,
+  IPC, and data model.
+- [Project scanning](./docs/project-scanning.md) — local scan behavior and
+  privacy boundaries.
+- [Release provenance](./docs/release-provenance.md) — source and artifact
+  verification expectations.
+- [Legal notices](./NOTICE), [disclaimer](./DISCLAIMER.md), and
+  [trademark policy](./TRADEMARK.md).
 
 ## License
 
@@ -94,6 +142,3 @@ The public Community source distribution is licensed under Apache-2.0.
 Vaultage is a project, product, and brand of Arcalab, a sole proprietorship.
 See [NOTICE](./NOTICE) and [DISCLAIMER.md](./DISCLAIMER.md) for ownership,
 no-warranty, misuse, and liability notices.
-
-See [TRADEMARK.md](./TRADEMARK.md) for the policy covering the Vaultage name,
-logos, official builds, and release channels.
