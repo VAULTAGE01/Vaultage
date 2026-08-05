@@ -4,6 +4,12 @@ These instructions apply to Codex/OpenAI-based agents in the public Community
 repository. Read `docs/ci-cd.md`, `docs/architecture.md`, and the relevant
 feature documentation before editing.
 
+- For external contribution work, follow `CONTRIBUTING.md`: use a contributor
+  fork, create one task branch in one clean worktree at exact fetched upstream
+  `main`, run `pnpm contributor:preflight` before editing, and run
+  `pnpm contributor:finish` after committing. Never work directly on `main` or
+  push directly to `VAULTAGE01/Vaultage`.
+
 - Preserve the public Vault + Projects boundary. Do not add Agent, CLI,
   Services/provider, extension, cloud account, entitlement, signing, or paid
   overlay implementation without an approved public-boundary decision.
@@ -23,4 +29,5 @@ feature documentation before editing.
 - Do not publish, tag, sign, or claim a release from local checks alone. Follow
   the hosted-CI, review, provenance, and artifact rules in `docs/ci-cd.md`.
 
-The canonical process lives in `docs/ci-cd.md`; do not duplicate it here.
+The canonical process lives in `docs/ci-cd.md`; do not weaken or duplicate it
+elsewhere.
