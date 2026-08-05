@@ -3,6 +3,7 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { discoverProjectCandidates, parseDotenvAssignments, parseDotenvValue, scanProject } from './projectScanner'
+import { serializeEnvFile } from './security'
 
 let tempRoot: string | null = null
 
@@ -78,6 +79,46 @@ describe('project scanner discovery', () => {
       { key: 'MULTILINE', value: 'first\nsecond # value', line: 1 },
       { key: 'NEXT', value: 'ok', line: 3 },
     ])
+  })
+
+  it('decodes the shell-safety escapes Vaultage writes into exported .env files', () => {
+    expect(parseDotenvValue('"p\\$ssw0rd"')).toBe('p$ssw0rd')
+    expect(parseDotenvValue('"\\`backtick\\`"')).toBe('`backtick`')
+    expect(parseDotenvValue('"postgres://user:p\\$ss@db.example.com:5432/app"'))
+      .toBe('postgres://user:p$ss@db.example.com:5432/app')
+    // A single-quoted dotenv value is literal, so its backslashes are preserved.
+    expect(parseDotenvValue("'p\\$ssw0rd'")).toBe('p\\$ssw0rd')
+    // Escapes the writer never emits keep their backslash rather than silently
+    // dropping a character the user typed.
+    expect(parseDotenvValue('"drop\\qzero"')).toBe('drop\\qzero')
+  })
+
+  it('reads back every exported field value that Vaultage itself wrote', () => {
+    const values = [
+      'p$ssw0rd',
+      'postgres://user:p$ss@db.example.com:5432/app',
+      '`backtick`',
+      '$HOME',
+      '${NOT_EXPANDED}',
+      'plain-token',
+      'has space',
+      'has"double"quotes',
+      "has'single'quotes",
+      'back\\slash',
+      'trailing\\',
+      'line1\nline2',
+      'crlf\r\n',
+      'tab\there',
+      '#hash',
+      'value # not-a-comment',
+      '',
+      'unicode-é-😀',
+    ]
+    const entries = values.map((value, index) => ({ envKey: `FIELD_${index}`, value }))
+
+    const parsed = parseDotenvAssignments(serializeEnvFile(entries))
+
+    expect(parsed.map(assignment => assignment.value)).toEqual(values)
   })
 
   it('classifies test-local dotenv files as testing and contains manual files', async () => {
