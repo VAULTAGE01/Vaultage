@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { expect, it } from 'vitest'
 import { checkContributorState } from './contributor-worktree.mjs'
 
 const SHA_A = 'a'.repeat(40)
@@ -22,19 +21,19 @@ function state(overrides = {}) {
   }
 }
 
-test('accepts a clean contributor branch at exact upstream main before work', () => {
-  assert.deepEqual(checkContributorState(state()), [])
+it('accepts a clean contributor branch at exact upstream main before work', () => {
+  expect(checkContributorState(state())).toEqual([])
 })
 
-test('accepts a clean committed branch descending from upstream at finish', () => {
-  assert.deepEqual(checkContributorState(state({
+it('accepts a clean committed branch descending from upstream at finish', () => {
+  expect(checkContributorState(state({
     aheadCount: 2,
     head: SHA_B,
     phase: 'finish',
-  })), [])
+  }))).toEqual([])
 })
 
-test('rejects protected, detached, dirty, stale, tokenized, and forkless worktrees', () => {
+it('rejects protected, detached, dirty, stale, tokenized, and forkless worktrees', () => {
   const failures = checkContributorState(state({
     branch: 'main',
     head: SHA_B,
@@ -43,23 +42,22 @@ test('rejects protected, detached, dirty, stale, tokenized, and forkless worktre
     ],
     status: ' M README.md',
   }))
-  assert.ok(failures.some(failure => failure.includes('main or master')))
-  assert.ok(failures.some(failure => failure.includes('must be clean')))
-  assert.ok(failures.some(failure => failure.includes('exact fetched upstream')))
-  assert.ok(failures.some(failure => failure.includes('contributor-owned')))
-  assert.ok(failures.some(failure => failure.includes('must not embed credentials')))
+  expect(failures.some(failure => failure.includes('main or master'))).toBe(true)
+  expect(failures.some(failure => failure.includes('must be clean'))).toBe(true)
+  expect(failures.some(failure => failure.includes('exact fetched upstream'))).toBe(true)
+  expect(failures.some(failure => failure.includes('contributor-owned'))).toBe(true)
+  expect(failures.some(failure => failure.includes('must not embed credentials'))).toBe(true)
 
-  assert.ok(checkContributorState(state({ branch: null })).some(
-    failure => failure.includes('named branch'),
-  ))
+  expect(checkContributorState(state({ branch: null })).some(
+    failure => failure.includes('named branch'))).toBe(true)
 })
 
-test('rejects a finish that does not contain committed work above upstream', () => {
+it('rejects a finish that does not contain committed work above upstream', () => {
   const failures = checkContributorState(state({
     aheadCount: 0,
     phase: 'finish',
     upstreamIsAncestor: false,
   }))
-  assert.ok(failures.some(failure => failure.includes('descend from fetched upstream')))
-  assert.ok(failures.some(failure => failure.includes('at least one committed change')))
+  expect(failures.some(failure => failure.includes('descend from fetched upstream'))).toBe(true)
+  expect(failures.some(failure => failure.includes('at least one committed change'))).toBe(true)
 })
