@@ -32,6 +32,8 @@
     "check:source-drop-secrets": "node scripts/check-source-drop-secrets.mjs",
     "check:schemas": "node scripts/check-schemas.mjs",
     "check:product-truth": "node scripts/check-product-truth.mjs",
+    "contributor:preflight": "node scripts/contributor-worktree.mjs preflight",
+    "contributor:finish": "node scripts/contributor-worktree.mjs finish",
     "publish:check": "node scripts/publish-readiness.mjs",
     "smoke:mac-entitlements": "node scripts/smoke-mac-entitlements.mjs",
     "smoke:packaged-app": "node scripts/smoke-packaged-app.mjs",

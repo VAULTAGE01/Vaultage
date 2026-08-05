@@ -3,6 +3,12 @@
 Follow `docs/ci-cd.md` as the canonical delivery and housekeeping process,
 then read `docs/architecture.md` and the relevant feature documentation.
 
+- External contribution work must follow `CONTRIBUTING.md`: one contributor
+  fork, one task branch, and one clean worktree based on exact fetched upstream
+  `main`. Run `pnpm contributor:preflight` before editing and
+  `pnpm contributor:finish` after committing. Never work on or push directly to
+  upstream `main`.
+
 - Preserve the public Vault + Projects boundary; closed commercial surfaces do
   not belong in this repository without an approved boundary decision.
 - Do not commit or print credentials, tokens, private keys, plaintext vault
@@ -20,4 +26,4 @@ then read `docs/architecture.md` and the relevant feature documentation.
 - Do not publish, tag, sign, or claim a release from local evidence alone.
 
 Propose process changes in `docs/ci-cd.md` so every agent family follows one
-policy.
+policy; do not create a model-specific bypass.

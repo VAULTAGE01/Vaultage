@@ -21,6 +21,29 @@ neither source rules nor the generated diff changes a trust boundary. Security,
 ambiguous generated sync, source-boundary, and release/publication changes
 require an independent or maintainer review.
 
+## External Contributor Worktrees
+
+External contributors and contribution agents use a GitHub account and fork
+that are distinct from the `VAULTAGE01` owner. Their local checkout has one
+remote for `VAULTAGE01/Vaultage` and one remote for the contributor fork; HTTPS
+remote URLs must never embed credentials.
+
+Every task starts from a freshly fetched exact upstream `main` in a new named
+branch and a dedicated clean worktree. Contributors run
+`pnpm contributor:preflight` before editing. The command rejects protected or
+detached branches, dirty or stale worktrees, missing fork/upstream separation,
+and token-bearing remote URLs. After committing, `pnpm contributor:finish`
+requires a clean branch containing at least one commit descended from upstream
+`main` and reports the verified fork remote name. Push only to that remote;
+do not assume a shared checkout's `origin` is the fork.
+
+Contributors push only to their fork and open a pull request into upstream
+`main`. They do not switch to a maintainer GitHub identity, reuse a maintainer's
+dirty checkout, push directly to upstream, or bypass the required Ubuntu PR CI.
+Maintainers reconcile accepted public Vault/Projects changes into the canonical
+private composition separately; that import must preserve public authorship and
+source provenance.
+
 ## Pull Request CI
 
 `.github/workflows/ci.yml` runs on pull requests and pushes to `main`.
