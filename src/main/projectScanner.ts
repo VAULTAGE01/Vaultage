@@ -406,12 +406,18 @@ function hasClosingDotenvQuote(value: string, quote: '"' | "'"): boolean {
   return false
 }
 
+// Must stay the exact inverse of formatDotenvValue in shared/dotenvCore, which
+// escapes `$` and a backtick so a shell sourcing the exported file cannot expand
+// or execute a saved field value. Decoding them back is what lets a rescan of a
+// Vaultage-exported .env report the value the vault actually holds.
 function dotenvEscape(char: string): string {
   if (char === 'n') return '\n'
   if (char === 'r') return '\r'
   if (char === 't') return '\t'
   if (char === '"') return '"'
   if (char === '\\') return '\\'
+  if (char === '$') return '$'
+  if (char === '`') return '`'
   return `\\${char}`
 }
 
