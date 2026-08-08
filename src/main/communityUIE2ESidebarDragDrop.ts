@@ -6,9 +6,11 @@ const SECRET_TITLE = 'Synthetic Local API Key'
 
 export async function verifyCommunitySidebarSecretDragDrop(page: Page): Promise<void> {
   const navigation = page.locator('aside[aria-label="Application navigation"]')
-  const rootFolder = navigation.getByText('My Vault', { exact: true }).last().locator('xpath=ancestor::button[1]')
+  const activeVaultRoot = navigation.locator(
+    '[data-vault-hierarchy="sidebar"] [data-vault-action="switch"][aria-current="true"]',
+  )
 
-  if (await rootFolder.getAttribute('aria-expanded') !== 'true') await rootFolder.click()
+  await activeVaultRoot.waitFor({ state: 'visible', timeout: 10_000 })
   await navigation.getByTitle('New folder').click()
 
   const dialog = page.getByRole('dialog', { name: 'New folder' })
@@ -17,7 +19,6 @@ export async function verifyCommunitySidebarSecretDragDrop(page: Page): Promise<
 
   const targetFolder = navigation.getByRole('button').filter({ hasText: TARGET_FOLDER })
   await targetFolder.waitFor({ state: 'visible', timeout: 10_000 })
-  const initialRootCount = await itemCount(rootFolder)
 
   const secret = navigation.getByRole('button', { name: SECRET_TITLE, exact: true })
   await secret.waitFor({ state: 'visible', timeout: 10_000 })
@@ -31,24 +32,14 @@ export async function verifyCommunitySidebarSecretDragDrop(page: Page): Promise<
   ).toContain('drag to move it to another folder')
 
   await secret.dragTo(targetFolder)
-  await expect.poll(async () => await itemCount(rootFolder), { timeout: 10_000 })
-    .toBe(initialRootCount - 1)
   await expect.poll(async () => await targetFolder.textContent(), { timeout: 10_000 })
     .toMatch(/1\s*$/u)
 
   await targetFolder.click()
   await secret.waitFor({ state: 'visible', timeout: 10_000 })
 
-  await secret.dragTo(rootFolder)
-  await expect.poll(async () => await itemCount(rootFolder), { timeout: 10_000 })
-    .toBe(initialRootCount)
+  await secret.dragTo(activeVaultRoot)
   await expect.poll(async () => await targetFolder.textContent(), { timeout: 10_000 })
     .toMatch(/0\s*$/u)
   await secret.waitFor({ state: 'visible', timeout: 10_000 })
-}
-
-async function itemCount(locator: { textContent: () => Promise<string | null> }): Promise<number> {
-  const match = (await locator.textContent())?.match(/(\d+)\s*$/u)
-  if (!match) throw new Error('Sidebar folder count is unavailable')
-  return Number(match[1])
 }

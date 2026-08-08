@@ -11,7 +11,7 @@ const PRIVATE_WORKFLOWS = [
   'extension-store-upload.yml',
   'release.yml',
 ]
-const COMMUNITY_WORKFLOWS = ['ci.yml', 'community-release.yml']
+const COMMUNITY_WORKFLOWS = ['ci.yml']
 
 export function privateSourceCiWorkflow() {
   return `name: CI

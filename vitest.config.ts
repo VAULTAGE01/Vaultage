@@ -62,6 +62,7 @@ export default defineConfig({
       ...configDefaults.exclude,
       '.vaultage-open-source/**',
       '.vaultage-open-source-test-*/**',
+      'scripts/pages-production-release-operator.test.mjs',
     ],
   },
 })

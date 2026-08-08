@@ -186,6 +186,15 @@ export async function installProjectFolderDialog(
   }, projectDir)
 }
 
+export async function installRecoveryKitSaveDialog(
+  application: ElectronApplication,
+  tmpDir: string,
+): Promise<void> {
+  await application.evaluate(({ dialog }, destination) => {
+    dialog.showSaveDialog = async () => ({ canceled: false, filePath: destination })
+  }, join(tmpDir, 'Vaultage-Emergency-Kit.pdf'))
+}
+
 export async function cleanupCommunityUIE2EResources(
   application: ElectronApplication | null,
   resources: CommunityUIE2EResources,

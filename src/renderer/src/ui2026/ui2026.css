@@ -118,6 +118,7 @@
   --ui26-type-display: 30px;
   --ui26-type-hero: 32px;
   --ui26-type-hero-lg: 36px;
+  --ui26-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   --ui26-weight-medium: 550;
   --ui26-weight-semibold: 600;
   --ui26-weight-strong: 650;
@@ -597,6 +598,16 @@
   font-weight: var(--ui26-weight-strong);
   letter-spacing: var(--ui26-tracking-overline);
   text-transform: uppercase;
+}
+.ui26-provider-category-copy {
+  color: var(--ui26-text-secondary);
+  font-size: var(--ui26-type-small);
+  line-height: var(--ui26-leading-copy);
+}
+.ui26-provider-state-counts {
+  color: var(--ui26-text-muted);
+  font-size: var(--ui26-type-caption);
+  line-height: var(--ui26-leading-copy);
 }
 .ui26-grid {
   display: grid;

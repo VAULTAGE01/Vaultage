@@ -3,6 +3,12 @@ import { vaultIpcContracts } from './vaultIpcContracts'
 
 describe('vaultIpcContracts', () => {
   it('declares stable vault IPC channel names', () => {
+    expect(vaultIpcContracts.listVaults.channel).toBe('vault:list-vaults')
+    expect(vaultIpcContracts.createVault.channel).toBe('vault:create-vault')
+    expect(vaultIpcContracts.switchVault.channel).toBe('vault:switch-vault')
+    expect(vaultIpcContracts.renameVault.channel).toBe('vault:rename-vault')
+    expect(vaultIpcContracts.setVaultArchived.channel).toBe('vault:set-vault-archived')
+    expect(vaultIpcContracts.deleteVault.channel).toBe('vault:delete-vault')
     expect(vaultIpcContracts.mutate.channel).toBe('vault:mutate')
     expect(vaultIpcContracts.copySecretField.channel).toBe('vault:copy-secret-field')
     expect(vaultIpcContracts.revealSecretField.channel).toBe('vault:reveal-secret-field')
@@ -11,6 +17,40 @@ describe('vaultIpcContracts', () => {
     expect(vaultIpcContracts.beginEncryptedImport.channel).toBe('vault:begin-encrypted-import')
     expect(vaultIpcContracts.commitEncryptedImport.channel).toBe('vault:commit-encrypted-import')
     expect(vaultIpcContracts.cancelEncryptedImport.channel).toBe('vault:cancel-encrypted-import')
+  })
+
+  it('validates bounded vault collection management payloads at the IPC boundary', () => {
+    expect(vaultIpcContracts.listVaults.validate(undefined)).toBeUndefined()
+    const mutation = { operationId: 'collection-operation-1', expectedRevision: 4 }
+    expect(vaultIpcContracts.createVault.validate({ ...mutation, name: 'Work' })).toEqual({ ...mutation, name: 'Work' })
+    expect(vaultIpcContracts.switchVault.validate({ ...mutation, vaultId: 'vault-work' })).toEqual({ ...mutation, vaultId: 'vault-work' })
+    expect(vaultIpcContracts.renameVault.validate({ ...mutation, vaultId: 'vault-work', name: 'Renamed' }))
+      .toEqual({ ...mutation, vaultId: 'vault-work', name: 'Renamed' })
+    expect(vaultIpcContracts.setVaultArchived.validate({ ...mutation, vaultId: 'vault-work', archived: true }))
+      .toEqual({ ...mutation, vaultId: 'vault-work', archived: true })
+    expect(vaultIpcContracts.deleteVault.validate({
+      ...mutation,
+      vaultId: 'vault-work',
+      confirmation: 'DELETE vault-work',
+      masterPassword: 'current master password',
+    })).toEqual({
+      ...mutation,
+      vaultId: 'vault-work',
+      confirmation: 'DELETE vault-work',
+      masterPassword: 'current master password',
+    })
+
+    expect(() => vaultIpcContracts.createVault.validate({ ...mutation, name: ' Work' })).toThrow('Invalid vault name')
+    expect(() => vaultIpcContracts.renameVault.validate({ ...mutation, vaultId: 'vault-work', name: 'Work', forged: true }))
+      .toThrow('unsupported property forged')
+    expect(() => vaultIpcContracts.setVaultArchived.validate({ ...mutation, vaultId: 'vault-work', archived: 'true' }))
+      .toThrow('vault archive state must be a boolean')
+    expect(() => vaultIpcContracts.deleteVault.validate({ ...mutation, vaultId: 'vault-work', confirmation: 'DELETE vault-work' }))
+      .toThrow('missing required property masterPassword')
+    expect(() => vaultIpcContracts.switchVault.validate({ vaultId: 'vault-work' }))
+      .toThrow('missing required property operationId')
+    expect(() => vaultIpcContracts.switchVault.validate({ ...mutation, expectedRevision: 0, vaultId: 'vault-work' }))
+      .toThrow('vault collection revision must be a positive integer')
   })
 
   it('validates reveal payloads at the boundary', () => {

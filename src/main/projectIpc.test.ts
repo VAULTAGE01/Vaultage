@@ -470,6 +470,7 @@ class TestAuthController extends AuthController {
         getAuthStateStatus: async () => 'missing',
         readCredentials: async () => ({ paramsRaw: '{}', wrappedKey: Buffer.alloc(0) }),
         readVault: async () => ({}),
+        validateVaultBackupSnapshot: async () => ({}),
         createVaultState: async () => undefined,
         commitAuthCredentials: async () => undefined,
         commitRestoredVaultState: async () => undefined,

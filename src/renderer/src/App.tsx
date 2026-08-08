@@ -9,6 +9,8 @@ import MenuBarPanel     from './components/MenuBarPanel'
 import { Toaster }      from './components/ui/sonner'
 import CommercialReadiness from '#commercial-readiness'
 import { CommercialAccountProvider } from '#commercial-account'
+import { RecoveryKitProvider } from './components/RecoveryKitCenter'
+import { VaultScopeBoundary } from './components/VaultScopeBoundary'
 
 class AppErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -53,13 +55,22 @@ function AppInner() {
   if (state.screen === 'recovery')    return <BackupRestoreScreen recoveryError={state.error} />
   if (state.screen === 'locked')      return <AuthScreen />
   return (
-    <CommercialAccountProvider>
-      <AppErrorBoundary>
-        <MainLayout />
-      </AppErrorBoundary>
-      <Toaster position="bottom-right" />
-      <CommercialReadiness />
-    </CommercialAccountProvider>
+    // Every vault has an independent navigation and draft scope. Keying the
+    // provider remounts Mode/MainLayout and every nested modal when the active
+    // root changes, so equal project/provider ids cannot cross vaults.
+    <VaultScopeBoundary vaultId={state.vault?.root.id ?? 'unavailable'}>
+      <ModeProvider>
+        <CommercialAccountProvider>
+          <RecoveryKitProvider>
+            <AppErrorBoundary>
+              <MainLayout />
+            </AppErrorBoundary>
+            <Toaster position="bottom-right" />
+            <CommercialReadiness />
+          </RecoveryKitProvider>
+        </CommercialAccountProvider>
+      </ModeProvider>
+    </VaultScopeBoundary>
   )
 }
 
@@ -68,9 +79,5 @@ export default function App() {
     return <MenuBarPanel />
   }
 
-  return (
-    <ModeProvider>
-      <AppInner />
-    </ModeProvider>
-  )
+  return <AppInner />
 }

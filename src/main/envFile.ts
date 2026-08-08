@@ -36,8 +36,8 @@ export interface WriteProjectEnvFileOptions {
   overwriteExisting?: unknown
   invalidPathMessage?: string
   signal?: AbortSignal
-  /** Rechecked immediately before each synchronous atomic commit. */
-  authorizeCommit?: () => boolean
+  /** Rechecked immediately before each atomic commit. */
+  authorizeCommit?: () => boolean | Promise<boolean>
 }
 
 export interface WriteProjectEnvFileResult {
@@ -71,7 +71,7 @@ export async function writeProjectEnvFile(
   }
 
   try {
-    assertAuthorized(options)
+    await assertAuthorized(options)
     const envPath = join(targetFolder, '.env')
     const envExisted = await regularFileExistsNoFollow(envPath)
     if (envExisted && options.overwriteExisting !== true) {
@@ -180,7 +180,7 @@ async function atomicWritePrivateFile(
     await handle.close()
     handle = null
 
-    assertAuthorized(options)
+    await assertAuthorized(options)
     if (overwrite) {
       assertReplaceableTarget(targetPath)
       renameSync(tempPath, targetPath)
@@ -219,11 +219,11 @@ function assertReplaceableTarget(path: string): void {
   }
 }
 
-function assertAuthorized(
+async function assertAuthorized(
   options: Pick<WriteProjectEnvFileOptions, 'signal' | 'authorizeCommit'>,
-): void {
+): Promise<void> {
   if (options.signal?.aborted) throw new Error('Project env write was cancelled before commit')
-  if (options.authorizeCommit && !options.authorizeCommit()) {
+  if (options.authorizeCommit && !(await options.authorizeCommit())) {
     throw new Error('Vaultage locked before the project env write could commit')
   }
 }

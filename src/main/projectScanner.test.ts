@@ -86,10 +86,7 @@ describe('project scanner discovery', () => {
     expect(parseDotenvValue('"\\`backtick\\`"')).toBe('`backtick`')
     expect(parseDotenvValue('"postgres://user:p\\$ss@db.example.com:5432/app"'))
       .toBe('postgres://user:p$ss@db.example.com:5432/app')
-    // A single-quoted dotenv value is literal, so its backslashes are preserved.
     expect(parseDotenvValue("'p\\$ssw0rd'")).toBe('p\\$ssw0rd')
-    // Escapes the writer never emits keep their backslash rather than silently
-    // dropping a character the user typed.
     expect(parseDotenvValue('"drop\\qzero"')).toBe('drop\\qzero')
   })
 

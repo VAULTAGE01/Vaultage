@@ -14,8 +14,9 @@ import {
   encodeVaultRecordStore,
   garbageCollectVaultRecords,
   isVaultRecordManifest,
-  maxVaultRecordCount,
+  measureVaultRecordBlobBytes,
   readVaultRecordBlobs,
+  validateVaultRecordManifest,
   writeVaultRecordBlobs,
   type VaultRecordManifest,
 } from './vaultRecordStore'
@@ -36,6 +37,32 @@ import {
   VaultValidationError,
   validateVaultRoot,
 } from '../shared/vaultValidation'
+import {
+  parseRecoveryEnvelope,
+  serializeRecoveryEnvelope,
+  type RecoveryKitEnvelope,
+} from './recoveryKit'
+import { DEFAULT_LOCAL_FOLDERS } from '../shared/defaultLocalFolders'
+import {
+  createVaultCollectionManifest,
+  findVaultCollectionMutationReceipt,
+  isVaultCollectionManifest,
+  requireVaultCollectionEntry,
+  summarizeVaultCollection,
+  validateExactVaultId,
+  validateNewVaultName,
+  validateVaultCollectionManifest,
+  withVaultCollectionMutationReceipt,
+  type VaultCollectionMutationType,
+  type VaultCollectionManifest,
+  type VaultCollectionSummary,
+} from './vaultCollection'
+import {
+  MAX_VAULT_COLLECTION_ATTACHMENTS,
+  MAX_VAULT_COLLECTION_ATTACHMENT_BYTES,
+  measureVaultAttachmentBlobBytes,
+} from './vaultCollectionLimits'
+import { migrateLegacyVaultMutationReceipts } from './vaultMutationReceipts'
 
 export const VAULT_DIR = join(app.getPath('userData'), 'vault-data')
 export const VAULT_FILE = join(VAULT_DIR, 'vault.enc')
@@ -47,15 +74,21 @@ export const BACKUP_MANIFEST_FILE = 'vaultage-backup.json'
 export const VAULT_RECORDS_DIR = join(VAULT_DIR, 'records')
 export const VAULT_ATTACHMENTS_DIR = join(VAULT_DIR, 'attachments')
 
-const STATE_FORMAT = 'vaultage.auth-state.v1'
+const LEGACY_STATE_FORMAT = 'vaultage.auth-state.v1'
+const STATE_FORMAT = 'vaultage.auth-state.v2'
 const CREDENTIALS_FORMAT = 'vaultage.credentials.v1'
 const LEGACY_BACKUP_FORMAT = 'vaultage.backup.v1'
-const BACKUP_FORMAT = 'vaultage.backup.v2'
+const PRIOR_BACKUP_FORMAT = 'vaultage.backup.v2'
+const BACKUP_FORMAT = 'vaultage.backup.v3'
 const MAX_BACKUP_VAULT_BYTES = 20 * 1024 * 1024
 const MAX_BACKUP_METADATA_BYTES = 64 * 1024
-const MAX_BACKUP_MANIFEST_BYTES = 20 * 1024 * 1024
+const MAX_BACKUP_MANIFEST_BYTES = 64 * 1024 * 1024
+const MAX_VAULT_COLLECTION_RECORDS = 250_000
+const MAX_VAULT_COLLECTION_RECORD_BYTES = 256 * 1024 * 1024
+const MAX_VAULT_COLLECTION_MANIFEST_BYTES = VAULT_VALIDATION_LIMITS.maxJsonBytes
 const RECORD_BACKUP_DIR = 'records'
 const ATTACHMENT_BACKUP_DIR = 'attachments'
+const RECOVERY_BACKUP_FILE = 'recovery.json'
 const CONTENT_ID_RE = /^[0-9a-f]{64}$/
 
 let vaultOperationQueue = Promise.resolve()
@@ -63,10 +96,11 @@ let vaultOperationQueue = Promise.resolve()
 export type AuthStateStatus = 'missing' | 'ready' | 'incomplete'
 
 export interface VaultBackupSnapshot {
-  format?: typeof LEGACY_BACKUP_FORMAT | typeof BACKUP_FORMAT
+  format?: typeof LEGACY_BACKUP_FORMAT | typeof PRIOR_BACKUP_FORMAT | typeof BACKUP_FORMAT
   paramsRaw: string
   wrappedKey: Buffer
   vaultBlob: Buffer
+  recoveryEnvelope?: RecoveryKitEnvelope
   recordBlobs?: Map<string, Buffer>
   attachmentBlobs?: Map<string, Buffer>
 }
@@ -83,11 +117,38 @@ export interface VaultCommitOutcome<T> {
   value: T
 }
 
+export interface VaultCollectionMutationRequest {
+  operationId: string
+  expectedRevision: number
+  fingerprint: string
+}
+
+export interface VaultCollectionOperationOptions {
+  assertCurrent?: () => void
+  mutation?: VaultCollectionMutationRequest
+}
+
+interface VaultCollectionMutationPlan extends VaultCollectionMutationRequest {
+  type: VaultCollectionMutationType
+  targetVaultId: string
+}
+
+export interface VaultCollectionCommitSummary extends VaultCollectionSummary {
+  alreadyCommitted?: boolean
+}
+
+export class StaleVaultCollectionMutationError extends Error {
+  constructor(readonly currentCollection: VaultCollectionSummary) {
+    super('Vault collection revision is stale')
+  }
+}
+
 interface AuthStateManifest {
-  format: typeof STATE_FORMAT
+  format: typeof LEGACY_STATE_FORMAT | typeof STATE_FORMAT
   generation: string
   vaultFile: string
   credentialsFile: string
+  recoveryFile?: string
 }
 
 interface ActiveAuthState {
@@ -95,6 +156,7 @@ interface ActiveAuthState {
   vaultPath: string
   paramsRaw: string
   wrappedKey: Buffer
+  recoveryEnvelope: RecoveryKitEnvelope | null
 }
 
 interface LoadedVaultState {
@@ -104,11 +166,28 @@ interface LoadedVaultState {
   attachmentReferences: Map<string, VaultAttachmentReference>
   vaultBlob: Buffer
   legacy: boolean
+  collection: VaultCollectionManifest | null
+  vaultsById: Map<string, DecodedVaultEntry>
+  legacyRecordManifest: VaultRecordManifest | null
+}
+
+interface DecodedVaultEntry {
+  vault: Record<string, unknown>
+  persistedVault: Record<string, unknown>
+  recordIds: Set<string>
+  attachmentReferences: Map<string, VaultAttachmentReference>
 }
 
 interface PreparedVaultState {
   persistedVault: Record<string, unknown>
   manifest: VaultRecordManifest
+  recordIds: Set<string>
+  attachmentReferences: Map<string, VaultAttachmentReference>
+  vaultBlob: Buffer
+}
+
+interface PreparedVaultCollectionState {
+  collection: VaultCollectionManifest
   recordIds: Set<string>
   attachmentReferences: Map<string, VaultAttachmentReference>
   vaultBlob: Buffer
@@ -161,6 +240,11 @@ export async function readCredentials(): Promise<{ paramsRaw: string; wrappedKey
   return { paramsRaw: state.paramsRaw, wrappedKey: Buffer.from(state.wrappedKey) }
 }
 
+export async function readRecoveryEnvelope(): Promise<RecoveryKitEnvelope | null> {
+  const state = await resolveActiveState()
+  return state.recoveryEnvelope ? parseRecoveryEnvelope(state.recoveryEnvelope) : null
+}
+
 /**
  * Reads the credential half of an installation without requiring the active
  * vault ciphertext to be present. This is used only by the explicit backup
@@ -196,7 +280,13 @@ export async function readWrappedKey(): Promise<Buffer> {
 }
 
 export async function createVaultState(
-  input: { paramsRaw: string; wrappedKey: Buffer; vaultJson: string; vaultKey: Buffer },
+  input: {
+    paramsRaw: string
+    wrappedKey: Buffer
+    vaultJson: string
+    vaultKey: Buffer
+    recoveryEnvelope?: RecoveryKitEnvelope
+  },
   assertCurrent: () => void = () => undefined,
 ): Promise<void> {
   const keyLease = leaseVaultKey(input.vaultKey)
@@ -211,16 +301,31 @@ export async function createVaultState(
       keyLease.assertCurrent()
       validateParamsRaw(input.paramsRaw)
       const initialVault = validatePersistedVaultJson(input.vaultJson)
-      const prepared = await prepareVaultState(initialVault, keyLease.key)
+      const preparedVault = await prepareVaultState(initialVault, keyLease.key)
+      const initialVaultId = vaultRootId(preparedVault.persistedVault)
+      const prepared = await prepareVaultCollectionState(
+        createVaultCollectionManifest({
+          id: initialVaultId,
+          manifest: preparedVault.manifest,
+          now: new Date().toISOString(),
+        }),
+        preparedVault.recordIds,
+        preparedVault.attachmentReferences,
+        keyLease.key,
+      )
       assertCurrent()
       keyLease.assertCurrent()
       const generation = randomUUID()
       const vaultFile = `vault.${generation}.enc`
       const credentialsFile = `credentials.${generation}.json`
+      const recoveryEnvelope = input.recoveryEnvelope
+        ? parseRecoveryEnvelope(input.recoveryEnvelope)
+        : null
+      const recoveryFile = recoveryEnvelope ? `recovery.${generation}.json` : undefined
       const vaultPath = join(VAULT_DIR, vaultFile)
       const credentialsPath = join(VAULT_DIR, credentialsFile)
+      const recoveryPath = recoveryFile ? join(VAULT_DIR, recoveryFile) : null
       const credentialsRaw = serializeCredentials(input.paramsRaw, input.wrappedKey)
-      const manifest = serializeManifest({ generation, vaultFile, credentialsFile })
 
       try {
         await atomicWritePrivateFile(vaultPath, prepared.vaultBlob, {
@@ -230,12 +335,29 @@ export async function createVaultState(
           },
         })
         await atomicWritePrivateFile(credentialsPath, credentialsRaw, { beforeCommit: assertCurrent })
-        await atomicWritePrivateFile(AUTH_STATE_MANIFEST_FILE, manifest, { beforeCommit: assertCurrent })
-        await garbageCollectCommittedState(prepared)
+        if (recoveryEnvelope && recoveryPath) {
+          await atomicWritePrivateFile(
+            recoveryPath,
+            serializeRecoveryEnvelope(recoveryEnvelope),
+            { beforeCommit: assertCurrent },
+          )
+        }
+        await atomicWritePrivateFile(
+          AUTH_STATE_MANIFEST_FILE,
+          serializeManifest({
+            generation,
+            vaultFile,
+            credentialsFile,
+            ...(recoveryFile ? { recoveryFile } : {}),
+          }),
+          { beforeCommit: assertCurrent },
+        )
+        await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
       } catch (err) {
         await Promise.all([
           fs.rm(vaultPath, { force: true }),
           fs.rm(credentialsPath, { force: true }),
+          recoveryPath ? fs.rm(recoveryPath, { force: true }) : Promise.resolve(),
         ]).catch(() => undefined)
         throw err
       }
@@ -265,11 +387,18 @@ export async function commitAuthCredentials(
 
     const vaultFile = active.manifest?.vaultFile ?? basename(active.vaultPath)
     try {
+      const recoveryFile = active.manifest?.recoveryFile
       await atomicWritePrivateFile(
         AUTH_STATE_MANIFEST_FILE,
-        serializeManifest({ generation, vaultFile, credentialsFile }),
+        serializeManifest({
+          generation,
+          vaultFile,
+          credentialsFile,
+          ...(recoveryFile ? { recoveryFile } : {}),
+        }),
         { beforeCommit: assertCurrent },
       )
+      await garbageCollectAuthStateFiles({ vaultFile, credentialsFile, recoveryFile })
     } catch (err) {
       await fs.rm(credentialsPath, { force: true }).catch(() => undefined)
       throw err
@@ -277,25 +406,123 @@ export async function commitAuthCredentials(
   })
 }
 
-export async function readVault(key: Buffer): Promise<unknown> {
+export async function commitRecoveryEnvelope(
+  recoveryEnvelope: RecoveryKitEnvelope | null,
+  assertCurrent: () => void = () => undefined,
+): Promise<void> {
+  await enqueueVaultOperation(async () => {
+    await ensureVaultDir()
+    const active = await resolveActiveState()
+    assertCurrent()
+    const generation = randomUUID()
+    const credentialsFile = `credentials.${generation}.json`
+    const credentialsPath = join(VAULT_DIR, credentialsFile)
+    const recoveryFile = recoveryEnvelope ? `recovery.${generation}.json` : undefined
+    const recoveryPath = recoveryFile ? join(VAULT_DIR, recoveryFile) : null
+    const vaultFile = active.manifest?.vaultFile ?? basename(active.vaultPath)
+    try {
+      await atomicWritePrivateFile(
+        credentialsPath,
+        serializeCredentials(active.paramsRaw, active.wrappedKey),
+        { beforeCommit: assertCurrent },
+      )
+      if (recoveryEnvelope && recoveryPath) {
+        await atomicWritePrivateFile(
+          recoveryPath,
+          serializeRecoveryEnvelope(recoveryEnvelope),
+          { beforeCommit: assertCurrent },
+        )
+      }
+      await atomicWritePrivateFile(
+        AUTH_STATE_MANIFEST_FILE,
+        serializeManifest({
+          generation,
+          vaultFile,
+          credentialsFile,
+          ...(recoveryFile ? { recoveryFile } : {}),
+        }),
+        { beforeCommit: assertCurrent },
+      )
+      await garbageCollectAuthStateFiles({ vaultFile, credentialsFile, recoveryFile })
+    } catch (err) {
+      await Promise.all([
+        fs.rm(credentialsPath, { force: true }),
+        recoveryPath ? fs.rm(recoveryPath, { force: true }) : Promise.resolve(),
+      ]).catch(() => undefined)
+      throw err
+    }
+  })
+}
+
+export async function commitAuthAndRecoveryCredentials(
+  paramsRaw: string,
+  wrappedKey: Buffer,
+  recoveryEnvelope: RecoveryKitEnvelope,
+  assertCurrent: () => void = () => undefined,
+): Promise<void> {
+  await enqueueVaultOperation(async () => {
+    await ensureVaultDir()
+    const active = await resolveActiveState()
+    assertCurrent()
+    validateParamsRaw(paramsRaw)
+    const safeEnvelope = parseRecoveryEnvelope(recoveryEnvelope)
+    const generation = randomUUID()
+    const credentialsFile = `credentials.${generation}.json`
+    const recoveryFile = `recovery.${generation}.json`
+    const credentialsPath = join(VAULT_DIR, credentialsFile)
+    const recoveryPath = join(VAULT_DIR, recoveryFile)
+    const vaultFile = active.manifest?.vaultFile ?? basename(active.vaultPath)
+    try {
+      await atomicWritePrivateFile(credentialsPath, serializeCredentials(paramsRaw, wrappedKey), {
+        beforeCommit: assertCurrent,
+      })
+      await atomicWritePrivateFile(recoveryPath, serializeRecoveryEnvelope(safeEnvelope), {
+        beforeCommit: assertCurrent,
+      })
+      await atomicWritePrivateFile(
+        AUTH_STATE_MANIFEST_FILE,
+        serializeManifest({ generation, vaultFile, credentialsFile, recoveryFile }),
+        { beforeCommit: assertCurrent },
+      )
+      await garbageCollectAuthStateFiles({ vaultFile, credentialsFile, recoveryFile })
+    } catch (err) {
+      await Promise.all([
+        fs.rm(credentialsPath, { force: true }),
+        fs.rm(recoveryPath, { force: true }),
+      ]).catch(() => undefined)
+      throw err
+    }
+  })
+}
+
+export async function readVault(
+  key: Buffer,
+  options: { assertCurrent?: () => void; vaultId?: string } = {},
+): Promise<unknown> {
   const keyLease = leaseVaultKey(key)
+  const assertCurrent = () => {
+    keyLease.assertCurrent()
+    options.assertCurrent?.()
+  }
   try {
     return await enqueueVaultOperation(async () => {
-      keyLease.assertCurrent()
+      assertCurrent()
       const state = await resolveActiveState()
       const loaded = await readVaultFile(state.vaultPath, keyLease.key)
-      keyLease.assertCurrent()
+      assertCurrent()
+      requireActiveVaultId(loaded, options.vaultId)
 
-      // Legacy authenticated single-document vaults are migrated in place.
-      // Content-addressed blobs are committed first and the encrypted record
-      // manifest replaces vault.enc last, so interruption leaves the legacy
-      // ciphertext readable and only creates age-gated orphan blobs.
+      // Authenticated single-vault documents and record manifests are wrapped
+      // in one encrypted collection manifest. Record blobs are committed first
+      // and the encrypted collection replaces the old ciphertext last, so an
+      // interruption leaves the exact legacy state readable and may create
+      // only age-gated orphan blobs.
       if (loaded.legacy) {
-        const prepared = await prepareVaultState(loaded.vault, keyLease.key)
+        const prepared = await prepareLegacyVaultCollection(loaded, keyLease.key)
         await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, {
-          beforeCommit: keyLease.assertCurrent,
+          beforeCommit: assertCurrent,
         })
-        await garbageCollectCommittedState(prepared)
+        await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
       }
       return loaded.vault
     })
@@ -317,11 +544,11 @@ export async function writeVault(json: string, key: Buffer): Promise<void> {
       const state = await resolveActiveState()
       const current = await readVaultFile(state.vaultPath, keyLease.key)
       const vault = validatePersistedVaultJson(json)
-      const prepared = await prepareVaultState(vault, keyLease.key, current.recordIds)
+      const prepared = await prepareUpdatedActiveVault(current, vault, keyLease.key)
       await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, {
         beforeCommit: keyLease.assertCurrent,
       })
-      await garbageCollectCommittedState(prepared)
+      await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
     })
   } finally {
     keyLease.release()
@@ -331,7 +558,11 @@ export async function writeVault(json: string, key: Buffer): Promise<void> {
 export async function updateVault<T>(
   key: Buffer,
   updater: (vault: unknown) => { json: string; result: T } | Promise<{ json: string; result: T }>,
-  options: { assertCurrent?: () => void } = {},
+  options: {
+    assertCurrent?: () => void
+    assertCurrentAsync?: () => Promise<void>
+    vaultId?: string
+  } = {},
 ): Promise<T> {
   const outcome = await commitVaultUpdate(key, updater, options)
   return outcome.value
@@ -340,7 +571,11 @@ export async function updateVault<T>(
 export async function commitVaultUpdate<T>(
   key: Buffer,
   updater: (vault: unknown) => { json: string; result: T } | Promise<{ json: string; result: T }>,
-  options: { assertCurrent?: () => void } = {},
+  options: {
+    assertCurrent?: () => void
+    assertCurrentAsync?: () => Promise<void>
+    vaultId?: string
+  } = {},
 ): Promise<VaultCommitOutcome<T>> {
   const keyLease = leaseVaultKey(key)
   const assertCurrent = () => {
@@ -353,17 +588,342 @@ export async function commitVaultUpdate<T>(
       const state = await resolveActiveState()
       const current = await readVaultFile(state.vaultPath, keyLease.key)
       assertCurrent()
+      requireActiveVaultId(current, options.vaultId)
       const { json, result } = await updater(current.vault)
       assertCurrent()
       const vault = validatePersistedVaultJson(json)
-      const prepared = await prepareVaultState(vault, keyLease.key, current.recordIds)
+      const prepared = await prepareUpdatedActiveVault(current, vault, keyLease.key)
       assertCurrent()
-      await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, { beforeCommit: assertCurrent })
-      await garbageCollectCommittedState(prepared)
+      await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, {
+        beforeCommit: async () => {
+          assertCurrent()
+          await options.assertCurrentAsync?.()
+          assertCurrent()
+        },
+      })
+      await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
       return { status: 'committed', value: result }
     })
   } finally {
     keyLease.release()
+  }
+}
+
+export async function readVaultCollection(key: Buffer): Promise<VaultCollectionSummary> {
+  const keyLease = leaseVaultKey(key)
+  try {
+    return await enqueueVaultOperation(async () => {
+      keyLease.assertCurrent()
+      const state = await resolveActiveState()
+      const loaded = await readVaultFile(state.vaultPath, keyLease.key)
+      const prepared = loaded.collection
+        ? null
+        : await prepareLegacyVaultCollection(loaded, keyLease.key)
+      if (prepared) {
+        await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, {
+          beforeCommit: keyLease.assertCurrent,
+        })
+        await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
+      }
+      return summarizeVaultCollection(prepared?.collection ?? loaded.collection!)
+    })
+  } finally {
+    keyLease.release()
+  }
+}
+
+/**
+ * `includeArchived` is intentionally main-internal only. It lets authenticated
+ * audit reconciliation drain a durable receipt after the user archives its
+ * vault; renderer IPC never exposes that option.
+ */
+export async function readVaultById(
+  key: Buffer,
+  vaultIdValue: unknown,
+  options: { includeArchived?: boolean } = {},
+): Promise<unknown> {
+  const vaultId = validateExactVaultId(vaultIdValue)
+  const keyLease = leaseVaultKey(key)
+  try {
+    return await enqueueVaultOperation(async () => {
+      keyLease.assertCurrent()
+      const state = await resolveActiveState()
+      let loaded = await readVaultFile(state.vaultPath, keyLease.key)
+      if (!loaded.collection) {
+        const prepared = await prepareLegacyVaultCollection(loaded, keyLease.key)
+        await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, {
+          beforeCommit: keyLease.assertCurrent,
+        })
+        await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
+        loaded = await readVaultFile(state.vaultPath, keyLease.key)
+      }
+      const entry = requireVaultCollectionEntry(loaded.collection!, vaultId)
+      if (entry.archived && !options.includeArchived) throw new Error('Vault is archived')
+      const decoded = loaded.vaultsById.get(entry.id)
+      if (!decoded) throw new Error('Vault does not exist')
+      return entry.id === loaded.collection!.activeVaultId
+        ? loaded.vault
+        : hydratePersistedVault(decoded.persistedVault, keyLease.key)
+    })
+  } finally {
+    keyLease.release()
+  }
+}
+
+export async function createVault(
+  key: Buffer,
+  nameValue: unknown,
+  options: VaultCollectionOperationOptions & { id?: string; now?: string } = {},
+): Promise<VaultCollectionCommitSummary> {
+  const name = validateNewVaultName(nameValue)
+  const vaultId = validateExactVaultId(options.id ?? randomUUID())
+  return commitVaultCollectionChange(key, async (_loaded, base, assertCurrent) => {
+    if (base.collection.vaults.some(entry => entry.id === vaultId)) {
+      throw new Error('Vault already exists')
+    }
+    const now = options.now ?? new Date().toISOString()
+    const folders = DEFAULT_LOCAL_FOLDERS.map(folder => ({
+      id: `${vaultId}-${folder.slug}`,
+      name: folder.name,
+      children: [],
+      secrets: [],
+      itemOrder: [],
+    }))
+    const vault: Record<string, unknown> = {
+      version: 2,
+      revision: 1,
+      root: {
+        id: vaultId,
+        name,
+        children: folders,
+        secrets: [],
+        itemOrder: folders.map(folder => ({ kind: 'folder', id: folder.id })),
+      },
+      providers: [],
+      providerGroups: [],
+      envProjects: [],
+      preferences: { localDefaultFoldersCreated: true },
+    }
+    const preparedVault = await prepareVaultState(vault, key, base.recordIds)
+    assertCurrent()
+    const collection = validateVaultCollectionManifest({
+      ...base.collection,
+      revision: base.collection.revision + 1,
+      activeVaultId: vaultId,
+      vaults: [...base.collection.vaults, {
+        id: vaultId,
+        name,
+        createdAt: now,
+        updatedAt: now,
+        archived: false,
+        manifest: preparedVault.manifest,
+      }],
+    })
+    return prepareVaultCollectionState(
+      collection,
+      new Set([...base.recordIds, ...preparedVault.recordIds]),
+      new Map([...base.attachmentReferences, ...preparedVault.attachmentReferences]),
+      key,
+    )
+  }, collectionOperationOptions(options, 'create', vaultId))
+}
+
+export async function switchActiveVault(
+  key: Buffer,
+  vaultIdValue: unknown,
+  options: VaultCollectionOperationOptions = {},
+): Promise<VaultCollectionCommitSummary> {
+  const vaultId = validateExactVaultId(vaultIdValue)
+  return commitVaultCollectionChange(key, async (loaded, base) => {
+    const entry = requireVaultCollectionEntry(base.collection, vaultId)
+    if (entry.archived) throw new Error('Vault is archived')
+    if (base.collection.activeVaultId === vaultId) return base
+    const target = loaded.vaultsById.get(vaultId)
+    if (!target) throw new Error('Vault does not exist')
+    // Validate the complete target, including authenticated attachment blobs,
+    // before the durable active id changes. A broken inactive entry must never
+    // become the state that every subsequent read attempts to hydrate.
+    await hydratePersistedVault(target.persistedVault, key)
+    return prepareVaultCollectionState(
+      validateVaultCollectionManifest({
+        ...base.collection,
+        revision: base.collection.revision + 1,
+        activeVaultId: vaultId,
+      }),
+      base.recordIds,
+      base.attachmentReferences,
+      key,
+    )
+  }, collectionOperationOptions(options, 'switch', vaultId))
+}
+
+export async function renameVault(
+  key: Buffer,
+  vaultIdValue: unknown,
+  nameValue: unknown,
+  options: VaultCollectionOperationOptions & { now?: string } = {},
+): Promise<VaultCollectionCommitSummary> {
+  const vaultId = validateExactVaultId(vaultIdValue)
+  const name = validateNewVaultName(nameValue)
+  return commitVaultCollectionChange(key, async (_loaded, base) => {
+    requireVaultCollectionEntry(base.collection, vaultId)
+    const now = options.now ?? new Date().toISOString()
+    return prepareVaultCollectionState(
+      validateVaultCollectionManifest({
+        ...base.collection,
+        revision: base.collection.revision + 1,
+        vaults: base.collection.vaults.map(entry => entry.id === vaultId
+          ? { ...entry, name, updatedAt: now }
+          : entry),
+      }),
+      base.recordIds,
+      base.attachmentReferences,
+      key,
+    )
+  }, collectionOperationOptions(options, 'rename', vaultId))
+}
+
+export async function setVaultArchived(
+  key: Buffer,
+  vaultIdValue: unknown,
+  archived: boolean,
+  options: VaultCollectionOperationOptions & { now?: string } = {},
+): Promise<VaultCollectionCommitSummary> {
+  const vaultId = validateExactVaultId(vaultIdValue)
+  return commitVaultCollectionChange(key, async (_loaded, base) => {
+    const entry = requireVaultCollectionEntry(base.collection, vaultId)
+    if (archived && entry.id === base.collection.activeVaultId) {
+      throw new Error('Switch away from the active vault before archiving it')
+    }
+    if (archived && base.collection.vaults.filter(candidate => !candidate.archived).length <= 1) {
+      throw new Error('The final available vault cannot be archived')
+    }
+    if (entry.archived === archived) return base
+    const now = options.now ?? new Date().toISOString()
+    return prepareVaultCollectionState(
+      validateVaultCollectionManifest({
+        ...base.collection,
+        revision: base.collection.revision + 1,
+        vaults: base.collection.vaults.map(candidate => candidate.id === vaultId
+          ? { ...candidate, archived, updatedAt: now }
+          : candidate),
+      }),
+      base.recordIds,
+      base.attachmentReferences,
+      key,
+    )
+  }, collectionOperationOptions(options, 'archive', vaultId))
+}
+
+export async function deleteVault(
+  key: Buffer,
+  vaultIdValue: unknown,
+  options: VaultCollectionOperationOptions = {},
+): Promise<VaultCollectionCommitSummary> {
+  const vaultId = validateExactVaultId(vaultIdValue)
+  return commitVaultCollectionChange(key, async (loaded, base) => {
+    const entry = requireVaultCollectionEntry(base.collection, vaultId)
+    if (entry.id === base.collection.activeVaultId) throw new Error('The active vault cannot be deleted')
+    if (base.collection.vaults.length <= 1) throw new Error('The final vault cannot be deleted')
+    if (!entry.archived) throw new Error('Archive the vault before deleting it')
+    if (!loaded.vaultsById.has(vaultId)) throw new Error('Vault does not exist')
+    // Rebuild the retained union rather than subtracting the removed entry:
+    // content-addressed records and attachments may be shared byte-for-byte
+    // by more than one vault and must remain referenced by every survivor.
+    const recordIds = new Set<string>()
+    const attachmentReferences = new Map<string, VaultAttachmentReference>()
+    for (const [id, decoded] of loaded.vaultsById) {
+      if (id === vaultId) continue
+      for (const recordId of decoded.recordIds) recordIds.add(recordId)
+      for (const [referenceId, reference] of decoded.attachmentReferences) {
+        attachmentReferences.set(referenceId, reference)
+      }
+    }
+    return prepareVaultCollectionState(
+      validateVaultCollectionManifest({
+        ...base.collection,
+        revision: base.collection.revision + 1,
+        vaults: base.collection.vaults.filter(candidate => candidate.id !== vaultId),
+      }),
+      recordIds,
+      attachmentReferences,
+      key,
+    )
+  }, collectionOperationOptions(options, 'delete', vaultId))
+}
+
+async function commitVaultCollectionChange(
+  key: Buffer,
+  change: (
+    loaded: LoadedVaultState,
+    base: PreparedVaultCollectionState,
+    assertCurrent: () => void,
+  ) => Promise<PreparedVaultCollectionState>,
+  options: { assertCurrent?: () => void; mutation?: VaultCollectionMutationPlan },
+): Promise<VaultCollectionCommitSummary> {
+  const keyLease = leaseVaultKey(key)
+  const assertCurrent = () => {
+    keyLease.assertCurrent()
+    options.assertCurrent?.()
+  }
+  try {
+    return await enqueueVaultOperation(async () => {
+      assertCurrent()
+      const state = await resolveActiveState()
+      const loaded = await readVaultFile(state.vaultPath, keyLease.key)
+      const base = loaded.collection
+        ? await prepareVaultCollectionState(
+            loaded.collection,
+            new Set(loaded.recordIds),
+            new Map(loaded.attachmentReferences),
+            keyLease.key,
+          )
+        : await prepareLegacyVaultCollection(loaded, keyLease.key)
+      const mutation = options.mutation
+      if (mutation) {
+        const prior = findVaultCollectionMutationReceipt(base.collection, mutation)
+        if (prior) return { ...prior.result, alreadyCommitted: true }
+        if (mutation.expectedRevision !== base.collection.revision) {
+          throw new StaleVaultCollectionMutationError(summarizeVaultCollection(base.collection))
+        }
+      }
+      let prepared = await change(loaded, base, assertCurrent)
+      if (mutation) {
+        const received = withVaultCollectionMutationReceipt(prepared.collection, {
+          ...mutation,
+          type: mutation.type,
+          targetVaultId: mutation.targetVaultId,
+        })
+        prepared = await prepareVaultCollectionState(
+          received.collection,
+          prepared.recordIds,
+          prepared.attachmentReferences,
+          keyLease.key,
+        )
+      }
+      assertCurrent()
+      if (!prepared.vaultBlob.equals(loaded.vaultBlob)) {
+        await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, { beforeCommit: assertCurrent })
+        await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
+      }
+      return summarizeVaultCollection(prepared.collection)
+    })
+  } finally {
+    keyLease.release()
+  }
+}
+
+function collectionOperationOptions(
+  options: VaultCollectionOperationOptions,
+  type: VaultCollectionMutationType,
+  targetVaultId: string,
+): VaultCollectionOperationOptions & {
+  mutation?: VaultCollectionMutationPlan
+} {
+  if (!options.mutation) return { assertCurrent: options.assertCurrent }
+  return {
+    ...options,
+    mutation: { ...options.mutation, type, targetVaultId },
   }
 }
 
@@ -380,16 +940,21 @@ export async function createVaultBackupSnapshot(targetDir: string, key: Buffer):
       const state = await resolveActiveState()
       let loaded = await readVaultFile(state.vaultPath, keyLease.key)
       if (loaded.legacy) {
-        const prepared = await prepareVaultState(loaded.vault, keyLease.key)
+        const prepared = await prepareLegacyVaultCollection(loaded, keyLease.key)
         await atomicWritePrivateFile(state.vaultPath, prepared.vaultBlob, {
           beforeCommit: keyLease.assertCurrent,
         })
-        await garbageCollectCommittedState(prepared)
+        await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
         loaded = await readVaultFile(state.vaultPath, keyLease.key)
       }
       keyLease.assertCurrent()
 
-      const recordBlobs = await readVaultRecordBlobs(VAULT_RECORDS_DIR, loaded.recordIds)
+      const recordBlobs = await readVaultRecordBlobs(
+        VAULT_RECORDS_DIR,
+        loaded.recordIds,
+        MAX_VAULT_COLLECTION_RECORDS,
+        MAX_VAULT_COLLECTION_RECORD_BYTES,
+      )
       const attachmentBlobs = await attachmentStore().createBackupBlobMap(
         keyLease.key,
         loaded.attachmentReferences.values(),
@@ -406,30 +971,46 @@ export async function createVaultBackupSnapshot(targetDir: string, key: Buffer):
       await atomicWritePrivateFile(join(targetDir, 'params.json'), state.paramsRaw, {
         beforeCommit: keyLease.assertCurrent,
       })
+      const recoveryBuffer = state.recoveryEnvelope
+        ? Buffer.from(serializeRecoveryEnvelope(state.recoveryEnvelope), 'utf8')
+        : null
+      if (recoveryBuffer) {
+        await atomicWritePrivateFile(join(targetDir, RECOVERY_BACKUP_FILE), recoveryBuffer, {
+          beforeCommit: keyLease.assertCurrent,
+        })
+      }
       await writeVaultRecordBlobs(
         join(targetDir, RECORD_BACKUP_DIR),
         recordBlobs,
         keyLease.assertCurrent,
+        MAX_VAULT_COLLECTION_RECORDS,
+        MAX_VAULT_COLLECTION_RECORD_BYTES,
       )
       await writeBackupAttachmentBlobs(
         join(targetDir, ATTACHMENT_BACKUP_DIR),
         attachmentBlobs,
         keyLease.assertCurrent,
       )
+      const files: Record<string, string> = {
+        'vault.enc': sha256(loaded.vaultBlob),
+        'key.wrapped': sha256(state.wrappedKey),
+        'params.json': sha256(Buffer.from(state.paramsRaw, 'utf8')),
+      }
+      if (recoveryBuffer) files[RECOVERY_BACKUP_FILE] = sha256(recoveryBuffer)
       const manifest = {
         format: BACKUP_FORMAT,
         createdAt: new Date().toISOString(),
-        files: {
-          'vault.enc': sha256(loaded.vaultBlob),
-          'key.wrapped': sha256(state.wrappedKey),
-          'params.json': sha256(Buffer.from(state.paramsRaw, 'utf8')),
-        },
+        files,
         records: hashBlobMap(recordBlobs),
         attachments: hashBlobMap(attachmentBlobs),
       }
+      const manifestRaw = `${JSON.stringify(manifest, null, 2)}\n`
+      if (Buffer.byteLength(manifestRaw, 'utf8') > MAX_BACKUP_MANIFEST_BYTES) {
+        throw new Error('Vaultage backup manifest is too large')
+      }
       await atomicWritePrivateFile(
         join(targetDir, BACKUP_MANIFEST_FILE),
-        `${JSON.stringify(manifest, null, 2)}\n`,
+        manifestRaw,
         { beforeCommit: keyLease.assertCurrent },
       )
     })
@@ -450,7 +1031,11 @@ export async function readVaultBackupSnapshot(sourceDir: string): Promise<VaultB
     attachments?: Record<string, unknown>
   }
   if (
-    (manifest.format !== BACKUP_FORMAT && manifest.format !== LEGACY_BACKUP_FORMAT)
+    (
+      manifest.format !== BACKUP_FORMAT
+      && manifest.format !== PRIOR_BACKUP_FORMAT
+      && manifest.format !== LEGACY_BACKUP_FORMAT
+    )
     || !manifest.files
     || typeof manifest.files !== 'object'
     || Array.isArray(manifest.files)
@@ -478,27 +1063,49 @@ export async function readVaultBackupSnapshot(sourceDir: string): Promise<VaultB
   if (manifest.format === LEGACY_BACKUP_FORMAT) {
     return { format: LEGACY_BACKUP_FORMAT, paramsRaw, wrappedKey, vaultBlob }
   }
+  let recoveryEnvelope: RecoveryKitEnvelope | undefined
+  if (manifest.format === BACKUP_FORMAT && manifest.files[RECOVERY_BACKUP_FILE] !== undefined) {
+    const expectedHash = manifest.files[RECOVERY_BACKUP_FILE]
+    if (typeof expectedHash !== 'string' || !CONTENT_ID_RE.test(expectedHash)) {
+      throw new Error('Backup recovery-envelope hash is invalid')
+    }
+    const recoveryBuffer = await readRegularFile(
+      join(sourceDir, RECOVERY_BACKUP_FILE),
+      MAX_BACKUP_METADATA_BYTES,
+    )
+    if (sha256(recoveryBuffer) !== expectedHash) {
+      throw new Error(`Backup integrity check failed for ${RECOVERY_BACKUP_FILE}`)
+    }
+    recoveryEnvelope = parseRecoveryEnvelope(JSON.parse(recoveryBuffer.toString('utf8')))
+  }
   const recordBlobs = await readBackupBlobMap(
     join(sourceDir, RECORD_BACKUP_DIR),
     manifest.records,
-    VAULT_RECORD_FILE_EXTENSION,
-    maxVaultRecordCount(),
-    MAX_VAULT_RECORD_BLOB_BYTES,
-    'record',
+    {
+      extension: VAULT_RECORD_FILE_EXTENSION,
+      maxCount: MAX_VAULT_COLLECTION_RECORDS,
+      maxBlobBytes: MAX_VAULT_RECORD_BLOB_BYTES,
+      maxAggregateBytes: MAX_VAULT_COLLECTION_RECORD_BYTES,
+      label: 'record',
+    },
   )
   const attachmentBlobs = await readBackupBlobMap(
     join(sourceDir, ATTACHMENT_BACKUP_DIR),
     manifest.attachments,
-    VAULT_ATTACHMENT_FILE_EXTENSION,
-    VAULT_ATTACHMENT_LIMITS.maxCount,
-    VAULT_ATTACHMENT_LIMITS.maxEncryptedBlobBytes,
-    'attachment',
+    {
+      extension: VAULT_ATTACHMENT_FILE_EXTENSION,
+      maxCount: MAX_VAULT_COLLECTION_ATTACHMENTS,
+      maxBlobBytes: VAULT_ATTACHMENT_LIMITS.maxEncryptedBlobBytes,
+      maxAggregateBytes: MAX_VAULT_COLLECTION_ATTACHMENT_BYTES,
+      label: 'attachment',
+    },
   )
   return {
-    format: BACKUP_FORMAT,
+    format: manifest.format,
     paramsRaw,
     wrappedKey,
     vaultBlob,
+    ...(recoveryEnvelope ? { recoveryEnvelope } : {}),
     recordBlobs,
     attachmentBlobs,
   }
@@ -516,6 +1123,11 @@ export async function commitRestoredVaultState(
   snapshot: VaultBackupSnapshot,
   vaultKey: Buffer,
   assertCurrent: () => void = () => undefined,
+  replacement?: {
+    paramsRaw: string
+    wrappedKey: Buffer
+    recoveryEnvelope: RecoveryKitEnvelope
+  },
 ): Promise<void> {
   const keyLease = leaseVaultKey(vaultKey)
   const assertRestoreCurrent = () => {
@@ -526,17 +1138,26 @@ export async function commitRestoredVaultState(
     await enqueueVaultOperation(async () => {
       await ensureVaultDir()
       assertRestoreCurrent()
-      validateParamsRaw(snapshot.paramsRaw)
+      const committedParamsRaw = replacement?.paramsRaw ?? snapshot.paramsRaw
+      const committedWrappedKey = replacement?.wrappedKey ?? snapshot.wrappedKey
+      validateParamsRaw(committedParamsRaw)
+      validateWrappedKey(committedWrappedKey)
       const decoded = await decodeVaultBackupSnapshot(snapshot, keyLease.key)
       assertRestoreCurrent()
 
       let vaultBlob: Buffer
       let recordIds: Set<string>
       let attachmentReferences: Map<string, VaultAttachmentReference>
-      if (snapshot.format === BACKUP_FORMAT) {
+      if (snapshot.format === BACKUP_FORMAT || snapshot.format === PRIOR_BACKUP_FORMAT) {
         const recordBlobs = requireBackupBlobMap(snapshot.recordBlobs, 'record')
         const attachmentBlobs = requireBackupBlobMap(snapshot.attachmentBlobs, 'attachment')
-        await writeVaultRecordBlobs(VAULT_RECORDS_DIR, recordBlobs, assertRestoreCurrent)
+        await writeVaultRecordBlobs(
+          VAULT_RECORDS_DIR,
+          recordBlobs,
+          assertRestoreCurrent,
+          MAX_VAULT_COLLECTION_RECORDS,
+          MAX_VAULT_COLLECTION_RECORD_BYTES,
+        )
         await attachmentStore().restoreBackupBlobMap(
           keyLease.key,
           decoded.attachmentReferences.values(),
@@ -547,7 +1168,17 @@ export async function commitRestoredVaultState(
         recordIds = decoded.recordIds
         attachmentReferences = decoded.attachmentReferences
       } else {
-        const prepared = await prepareVaultState(decoded.vault, keyLease.key)
+        const preparedVault = await prepareVaultState(decoded.vault, keyLease.key)
+        const prepared = await prepareVaultCollectionState(
+          createVaultCollectionManifest({
+            id: vaultRootId(preparedVault.persistedVault),
+            manifest: preparedVault.manifest,
+            now: new Date().toISOString(),
+          }),
+          preparedVault.recordIds,
+          preparedVault.attachmentReferences,
+          keyLease.key,
+        )
         assertRestoreCurrent()
         vaultBlob = prepared.vaultBlob
         recordIds = prepared.recordIds
@@ -557,25 +1188,43 @@ export async function commitRestoredVaultState(
       const generation = randomUUID()
       const vaultFile = `vault.${generation}.enc`
       const credentialsFile = `credentials.${generation}.json`
+      const currentRecovery = replacement?.recoveryEnvelope ?? snapshot.recoveryEnvelope
+        ?? (await resolveActiveState().catch(() => null))?.recoveryEnvelope
+      const recoveryFile = currentRecovery ? `recovery.${generation}.json` : undefined
       const vaultPath = join(VAULT_DIR, vaultFile)
       const credentialsPath = join(VAULT_DIR, credentialsFile)
+      const recoveryPath = recoveryFile ? join(VAULT_DIR, recoveryFile) : null
       try {
         await atomicWritePrivateFile(vaultPath, vaultBlob, { beforeCommit: assertRestoreCurrent })
         await atomicWritePrivateFile(
           credentialsPath,
-          serializeCredentials(snapshot.paramsRaw, snapshot.wrappedKey),
+          serializeCredentials(committedParamsRaw, committedWrappedKey),
           { beforeCommit: assertRestoreCurrent },
         )
+        if (currentRecovery && recoveryPath) {
+          await atomicWritePrivateFile(
+            recoveryPath,
+            serializeRecoveryEnvelope(currentRecovery),
+            { beforeCommit: assertRestoreCurrent },
+          )
+        }
         await atomicWritePrivateFile(
           AUTH_STATE_MANIFEST_FILE,
-          serializeManifest({ generation, vaultFile, credentialsFile }),
+          serializeManifest({
+            generation,
+            vaultFile,
+            credentialsFile,
+            ...(recoveryFile ? { recoveryFile } : {}),
+          }),
           { beforeCommit: assertRestoreCurrent },
         )
+        await garbageCollectAuthStateFiles({ vaultFile, credentialsFile, recoveryFile })
         await garbageCollectCommittedReferences(recordIds, attachmentReferences)
       } catch (err) {
         await Promise.all([
           fs.rm(vaultPath, { force: true }),
           fs.rm(credentialsPath, { force: true }),
+          recoveryPath ? fs.rm(recoveryPath, { force: true }) : Promise.resolve(),
         ]).catch(() => undefined)
         throw err
       }
@@ -613,6 +1262,117 @@ async function prepareVaultState(
   }
 }
 
+async function prepareVaultCollectionState(
+  collectionValue: VaultCollectionManifest,
+  recordIds: Set<string>,
+  attachmentReferences: Map<string, VaultAttachmentReference>,
+  vaultKey: Buffer,
+): Promise<PreparedVaultCollectionState> {
+  const collection = validateVaultCollectionManifest(collectionValue)
+  const manifestJson = JSON.stringify(collection)
+  if (Buffer.byteLength(manifestJson, 'utf8') > MAX_VAULT_COLLECTION_MANIFEST_BYTES) {
+    throw new Error('Vault collection manifest is too large')
+  }
+  if (recordIds.size > MAX_VAULT_COLLECTION_RECORDS) {
+    throw new Error('Vault collection contains too many records')
+  }
+  await measureVaultRecordBlobBytes(
+    VAULT_RECORDS_DIR,
+    recordIds,
+    MAX_VAULT_COLLECTION_RECORDS,
+    MAX_VAULT_COLLECTION_RECORD_BYTES,
+  )
+  await measureVaultAttachmentBlobBytes(
+    VAULT_ATTACHMENTS_DIR,
+    attachmentReferences,
+    {
+      maxCount: MAX_VAULT_COLLECTION_ATTACHMENTS,
+      maxAggregateBytes: MAX_VAULT_COLLECTION_ATTACHMENT_BYTES,
+    },
+  )
+  return {
+    collection,
+    recordIds,
+    attachmentReferences,
+    vaultBlob: seal(Buffer.from(manifestJson, 'utf8'), vaultKey),
+  }
+}
+
+async function prepareLegacyVaultCollection(
+  loaded: LoadedVaultState,
+  vaultKey: Buffer,
+): Promise<PreparedVaultCollectionState> {
+  if (!loaded.legacy) throw new Error('Vault is already stored as a collection')
+  const legacyVaultId = vaultRootId(loaded.persistedVault)
+  const migratedVault = migrateLegacyVaultMutationReceipts(loaded.persistedVault, legacyVaultId)
+  const preparedVault = migratedVault === loaded.persistedVault && loaded.legacyRecordManifest
+    ? {
+        manifest: loaded.legacyRecordManifest,
+        recordIds: loaded.recordIds,
+        attachmentReferences: loaded.attachmentReferences,
+      }
+    : await prepareVaultState(migratedVault, vaultKey, loaded.recordIds)
+  return prepareVaultCollectionState(
+    createVaultCollectionManifest({
+      id: legacyVaultId,
+      manifest: preparedVault.manifest,
+      now: new Date().toISOString(),
+    }),
+    new Set(preparedVault.recordIds),
+    new Map(preparedVault.attachmentReferences),
+    vaultKey,
+  )
+}
+
+async function prepareUpdatedActiveVault(
+  current: LoadedVaultState,
+  nextVault: Record<string, unknown>,
+  vaultKey: Buffer,
+): Promise<PreparedVaultCollectionState> {
+  const activeVaultId = current.collection?.activeVaultId ?? vaultRootId(current.persistedVault)
+  if (vaultRootId(nextVault) !== activeVaultId) {
+    throw new Error('Vault root id cannot change during an update')
+  }
+  const preparedVault = await prepareVaultState(nextVault, vaultKey, current.recordIds)
+  const now = new Date().toISOString()
+  const collection = current.collection
+    ? validateVaultCollectionManifest({
+        ...current.collection,
+        revision: current.collection.revision + 1,
+        vaults: current.collection.vaults.map(entry => entry.id === activeVaultId
+          ? { ...entry, updatedAt: now, manifest: preparedVault.manifest }
+          : entry),
+      })
+    : createVaultCollectionManifest({
+        id: activeVaultId,
+        manifest: preparedVault.manifest,
+        now,
+      })
+  const recordIds = new Set(preparedVault.recordIds)
+  const attachmentReferences = new Map(preparedVault.attachmentReferences)
+  for (const [id, decoded] of current.vaultsById) {
+    if (id === activeVaultId) continue
+    for (const recordId of decoded.recordIds) recordIds.add(recordId)
+    for (const [referenceId, reference] of decoded.attachmentReferences) {
+      attachmentReferences.set(referenceId, reference)
+    }
+  }
+  return prepareVaultCollectionState(collection, recordIds, attachmentReferences, vaultKey)
+}
+
+function vaultRootId(vault: Record<string, unknown>): string {
+  const root = vault.root
+  if (!root || typeof root !== 'object' || Array.isArray(root)) throw new Error('Vault root is unavailable')
+  return validateExactVaultId((root as Record<string, unknown>).id)
+}
+
+function requireActiveVaultId(loaded: LoadedVaultState, expectedVaultId: string | undefined): void {
+  if (expectedVaultId === undefined) return
+  const vaultId = validateExactVaultId(expectedVaultId)
+  const activeVaultId = loaded.collection?.activeVaultId ?? vaultRootId(loaded.persistedVault)
+  if (activeVaultId !== vaultId) throw new Error('Vault selection changed')
+}
+
 async function decodeVaultBlob(
   blob: Buffer,
   vaultKey: Buffer,
@@ -639,56 +1399,136 @@ async function decodeVaultBlob(
     plaintext?.fill(0)
   }
 
+  if (isVaultCollectionManifest(parsed)) {
+    const collection = validateVaultCollectionManifest(parsed)
+    const vaultsById = new Map<string, DecodedVaultEntry>()
+    const recordIds = new Set<string>()
+    const attachmentReferences = new Map<string, VaultAttachmentReference>()
+    for (const entry of collection.vaults) {
+      const decoded = await decodeVaultCollectionEntry(entry.manifest, vaultKey, options)
+      if (vaultRootId(decoded.persistedVault) !== entry.id) {
+        throw new Error('Vault collection entry id does not match its vault root')
+      }
+      for (const id of decoded.recordIds) recordIds.add(id)
+      for (const [id, reference] of decoded.attachmentReferences) attachmentReferences.set(id, reference)
+      vaultsById.set(entry.id, decoded)
+    }
+    validateBackupReferences(recordIds, attachmentReferences, vaultKey, options)
+    const active = vaultsById.get(collection.activeVaultId)
+    if (!active) throw new Error('Vault collection active vault is unavailable')
+    const vault = options.hydrate === false
+      ? active.persistedVault
+      : await hydratePersistedVault(active.persistedVault, vaultKey)
+    vaultsById.set(collection.activeVaultId, { ...active, vault })
+    return {
+      vault,
+      persistedVault: active.persistedVault,
+      recordIds,
+      attachmentReferences,
+      vaultBlob: Buffer.from(blob),
+      legacy: false,
+      collection,
+      vaultsById,
+      legacyRecordManifest: null,
+    }
+  }
+
+  const recordManifest = isVaultRecordManifest(parsed)
+    ? validateVaultRecordManifest(parsed)
+    : null
   let persistedVault: Record<string, unknown>
   let recordIds = new Set<string>()
-  const legacy = !isVaultRecordManifest(parsed)
-  if (legacy) {
+  if (recordManifest) {
+    const decoded = await decodeVaultCollectionEntry(recordManifest, vaultKey, options)
+    persistedVault = decoded.persistedVault
+    recordIds = decoded.recordIds
+  } else {
     if (options.backup && (options.recordBlobs?.size || options.attachmentBlobs?.size)) {
       throw new Error('Legacy backup contains unexpected content-addressed blobs')
     }
     const upgraded = upgradeAuthenticatedLegacyVault(parsed)
     validateVaultRoot(upgraded, { boundary: 'persisted' })
     persistedVault = upgraded
-  } else {
-    const decoded = options.recordBlobs
-      ? await decodeVaultRecordStoreFromBlobs(parsed, vaultKey, options.recordBlobs)
-      : options.backup
-        ? (() => { throw new Error('Backup is missing its vault record map') })()
-        : await decodeVaultRecordStore(parsed, vaultKey, VAULT_RECORDS_DIR)
-    if (options.recordBlobs && decoded.recordIds.size !== options.recordBlobs.size) {
-      throw new Error('Backup contains unreferenced vault records')
-    }
-    persistedVault = decoded.vault
-    recordIds = decoded.recordIds
   }
 
   const attachmentReferences = collectVaultAttachmentRefs(persistedVault)
-  if (options.attachmentBlobs) {
-    verifyVaultAttachmentBackupBlobMap(
-      vaultKey,
-      attachmentReferences.values(),
-      options.attachmentBlobs,
-    )
-  } else if (options.backup && attachmentReferences.size > 0) {
-    throw new Error('Backup is missing its attachment blob map')
-  }
-
-  let vault = persistedVault
-  if (options.hydrate !== false) {
-    vault = await hydrateVaultImageAttachments(
-      persistedVault,
-      reference => attachmentStore().read(vaultKey, reference),
-    ) as Record<string, unknown>
-    validateVaultRoot(vault, { boundary: 'persisted' })
-  }
+  validateBackupReferences(recordIds, attachmentReferences, vaultKey, options)
+  const vault = options.hydrate === false
+    ? persistedVault
+    : await hydratePersistedVault(persistedVault, vaultKey)
+  const id = vaultRootId(persistedVault)
   return {
     vault,
     persistedVault,
     recordIds,
     attachmentReferences,
     vaultBlob: Buffer.from(blob),
-    legacy,
+    legacy: true,
+    collection: null,
+    vaultsById: new Map([[id, { vault, persistedVault, recordIds, attachmentReferences }]]),
+    legacyRecordManifest: recordManifest,
   }
+}
+
+async function decodeVaultCollectionEntry(
+  manifest: VaultRecordManifest,
+  vaultKey: Buffer,
+  options: {
+    recordBlobs?: ReadonlyMap<string, Buffer>
+    backup?: boolean
+  },
+): Promise<DecodedVaultEntry> {
+  const decoded = options.recordBlobs
+    ? await decodeVaultRecordStoreFromBlobs(manifest, vaultKey, options.recordBlobs)
+    : options.backup
+      ? (() => { throw new Error('Backup is missing its vault record map') })()
+      : await decodeVaultRecordStore(manifest, vaultKey, VAULT_RECORDS_DIR)
+  return {
+    vault: decoded.vault,
+    persistedVault: decoded.vault,
+    recordIds: decoded.recordIds,
+    attachmentReferences: collectVaultAttachmentRefs(decoded.vault),
+  }
+}
+
+function validateBackupReferences(
+  recordIds: ReadonlySet<string>,
+  attachmentReferences: ReadonlyMap<string, VaultAttachmentReference>,
+  vaultKey: Buffer,
+  options: {
+    recordBlobs?: ReadonlyMap<string, Buffer>
+    attachmentBlobs?: ReadonlyMap<string, Buffer>
+    backup?: boolean
+  },
+): void {
+  if (options.recordBlobs && recordIds.size !== options.recordBlobs.size) {
+    throw new Error('Backup contains unreferenced vault records')
+  }
+  if (options.attachmentBlobs) {
+    verifyVaultAttachmentBackupBlobMap(
+      vaultKey,
+      attachmentReferences.values(),
+      options.attachmentBlobs,
+      {
+        maxCount: MAX_VAULT_COLLECTION_ATTACHMENTS,
+        maxAggregateEncryptedBytes: MAX_VAULT_COLLECTION_ATTACHMENT_BYTES,
+      },
+    )
+  } else if (options.backup && attachmentReferences.size > 0) {
+    throw new Error('Backup is missing its attachment blob map')
+  }
+}
+
+async function hydratePersistedVault(
+  persistedVault: Record<string, unknown>,
+  vaultKey: Buffer,
+): Promise<Record<string, unknown>> {
+  const vault = await hydrateVaultImageAttachments(
+    persistedVault,
+    reference => attachmentStore().read(vaultKey, reference),
+  ) as Record<string, unknown>
+  validateVaultRoot(vault, { boundary: 'persisted' })
+  return vault
 }
 
 /**
@@ -701,6 +1541,10 @@ function upgradeAuthenticatedLegacyVault(value: unknown): unknown {
   const vault = mutableRecord(value)
   const root = mutableRecord(vault?.root)
   if (!root) return value
+
+  if (vault?.version === '1' || vault?.version === '2') {
+    vault.version = Number(vault.version)
+  }
 
   const secretIds = new Set<string>()
   const providerIds = collectEntityIds(vault?.providers)
@@ -784,7 +1628,7 @@ async function decodeVaultBackupSnapshot(
   if (!Buffer.isBuffer(snapshot.vaultBlob) || snapshot.vaultBlob.byteLength < 29) {
     throw new Error('Backup vault ciphertext is invalid')
   }
-  if (snapshot.format === BACKUP_FORMAT) {
+  if (snapshot.format === BACKUP_FORMAT || snapshot.format === PRIOR_BACKUP_FORMAT) {
     return decodeVaultBlob(snapshot.vaultBlob, vaultKey, {
       recordBlobs: requireBackupBlobMap(snapshot.recordBlobs, 'record'),
       attachmentBlobs: requireBackupBlobMap(snapshot.attachmentBlobs, 'attachment'),
@@ -798,8 +1642,34 @@ async function decodeVaultBackupSnapshot(
   return decodeVaultBlob(snapshot.vaultBlob, vaultKey, { backup: true, hydrate: false })
 }
 
-async function garbageCollectCommittedState(prepared: PreparedVaultState): Promise<void> {
-  await garbageCollectCommittedReferences(prepared.recordIds, prepared.attachmentReferences)
+async function garbageCollectAuthStateFiles(active: {
+  vaultFile: string
+  credentialsFile: string
+  recoveryFile?: string
+}): Promise<void> {
+  // A completed manifest rename is the durability boundary. Old credential
+  // and recovery wrappers are no longer needed after it and would otherwise
+  // undermine password rotation or recovery-kit revocation on the active
+  // installation. Cleanup remains best-effort so a deletion failure cannot
+  // turn a committed rotation into a caller-visible failure.
+  try {
+    const entries = await fs.readdir(VAULT_DIR, { withFileTypes: true })
+    const keep = new Set([
+      active.vaultFile,
+      active.credentialsFile,
+      ...(active.recoveryFile ? [active.recoveryFile] : []),
+    ])
+    await Promise.allSettled(entries
+      .filter(entry => entry.isFile())
+      .map(entry => entry.name)
+      .filter(name => (
+        /^credentials\.[A-Za-z0-9-]{1,80}\.json$/u.test(name)
+        || /^recovery\.[A-Za-z0-9-]{1,80}\.json$/u.test(name)
+      ) && !keep.has(name))
+      .map(name => fs.rm(join(VAULT_DIR, name), { force: true })))
+  } catch {
+    // Best-effort cleanup after the manifest has already committed.
+  }
 }
 
 async function garbageCollectCommittedReferences(
@@ -819,7 +1689,10 @@ function attachmentStore(): VaultAttachmentStore {
   // A fresh facade avoids stale in-memory usage accounting after an external
   // recovery/restore replaces the directory, while the storage-wide queue
   // continues to serialize every production operation.
-  return new VaultAttachmentStore(VAULT_ATTACHMENTS_DIR)
+  return new VaultAttachmentStore(VAULT_ATTACHMENTS_DIR, {
+    maxCount: MAX_VAULT_COLLECTION_ATTACHMENTS,
+    maxAggregateEncryptedBytes: MAX_VAULT_COLLECTION_ATTACHMENT_BYTES,
+  })
 }
 
 async function writeBackupAttachmentBlobs(
@@ -845,14 +1718,20 @@ function hashBlobMap(blobs: ReadonlyMap<string, Buffer>): Record<string, string>
   )
 }
 
+type BackupBlobMapLimits = {
+  readonly extension: string
+  readonly maxCount: number
+  readonly maxBlobBytes: number
+  readonly maxAggregateBytes: number
+  readonly label: string
+}
+
 async function readBackupBlobMap(
   directory: string,
   hashesValue: unknown,
-  extension: string,
-  maxCount: number,
-  maxBlobBytes: number,
-  label: string,
+  limits: BackupBlobMapLimits,
 ): Promise<Map<string, Buffer>> {
+  const { extension, maxCount, maxBlobBytes, maxAggregateBytes, label } = limits
   if (!hashesValue || typeof hashesValue !== 'object' || Array.isArray(hashesValue)) {
     throw new Error(`Backup ${label} map is invalid`)
   }
@@ -860,9 +1739,6 @@ async function readBackupBlobMap(
   if (hashes.length > maxCount) throw new Error(`Backup contains too many ${label} blobs`)
   const blobs = new Map<string, Buffer>()
   let aggregateBytes = 0
-  const aggregateLimit = label === 'attachment'
-    ? 16 * 1024 * 1024
-    : 64 * 1024 * 1024
   for (const [id, expectedHash] of hashes) {
     validateContentId(id, label)
     if (typeof expectedHash !== 'string' || !CONTENT_ID_RE.test(expectedHash)) {
@@ -870,7 +1746,7 @@ async function readBackupBlobMap(
     }
     const blob = await readRegularFile(join(directory, `${id}${extension}`), maxBlobBytes)
     aggregateBytes += blob.byteLength
-    if (aggregateBytes > aggregateLimit) throw new Error(`Backup ${label} blobs are too large`)
+    if (aggregateBytes > maxAggregateBytes) throw new Error(`Backup ${label} blobs are too large`)
     if (sha256(blob) !== expectedHash) throw new Error(`Backup integrity check failed for ${label} ${id}`)
     blobs.set(id, blob)
   }
@@ -923,15 +1799,19 @@ async function resolveActiveState(): Promise<ActiveAuthState> {
   ])
   validateParamsRaw(paramsRaw)
   validateWrappedKey(wrappedKey)
-  return { manifest: null, vaultPath: VAULT_FILE, paramsRaw, wrappedKey }
+  return { manifest: null, vaultPath: VAULT_FILE, paramsRaw, wrappedKey, recoveryEnvelope: null }
 }
 
 async function resolveManifestState(manifest: AuthStateManifest): Promise<ActiveAuthState> {
   const credentialsPath = safeStatePath(manifest.credentialsFile)
   const vaultPath = safeStatePath(manifest.vaultFile)
-  const [credentialsRaw] = await Promise.all([
+  const [credentialsRaw, , recoveryRaw] = await Promise.all([
     readRegularFile(credentialsPath, MAX_BACKUP_METADATA_BYTES).then(value => value.toString('utf8')),
     fs.access(vaultPath),
+    manifest.recoveryFile
+      ? readRegularFile(safeStatePath(manifest.recoveryFile), MAX_BACKUP_METADATA_BYTES)
+        .then(value => value.toString('utf8'))
+      : Promise.resolve(null),
   ])
   const credentials = parseCredentials(credentialsRaw)
   return {
@@ -939,6 +1819,7 @@ async function resolveManifestState(manifest: AuthStateManifest): Promise<Active
     vaultPath,
     paramsRaw: credentials.paramsRaw,
     wrappedKey: credentials.wrappedKey,
+    recoveryEnvelope: recoveryRaw ? parseRecoveryEnvelope(JSON.parse(recoveryRaw)) : null,
   }
 }
 
@@ -951,11 +1832,25 @@ async function readAuthStateManifest(): Promise<AuthStateManifest | null> {
     throw err
   }
   const parsed = JSON.parse(raw) as Record<string, unknown>
-  if (parsed.format !== STATE_FORMAT) throw new Error('Invalid auth-state manifest format')
+  if (parsed.format !== STATE_FORMAT && parsed.format !== LEGACY_STATE_FORMAT) {
+    throw new Error('Invalid auth-state manifest format')
+  }
   const generation = safeGeneration(parsed.generation)
   const vaultFile = safeStateFilename(parsed.vaultFile, 'vault')
   const credentialsFile = safeStateFilename(parsed.credentialsFile, 'credentials')
-  return { format: STATE_FORMAT, generation, vaultFile, credentialsFile }
+  const recoveryFile = parsed.recoveryFile === undefined
+    ? undefined
+    : safeStateFilename(parsed.recoveryFile, 'recovery')
+  if (parsed.format === LEGACY_STATE_FORMAT && recoveryFile) {
+    throw new Error('Legacy auth-state manifest cannot reference recovery data')
+  }
+  return {
+    format: parsed.format,
+    generation,
+    vaultFile,
+    credentialsFile,
+    ...(recoveryFile ? { recoveryFile } : {}),
+  }
 }
 
 function serializeManifest(input: Omit<AuthStateManifest, 'format'>): string {

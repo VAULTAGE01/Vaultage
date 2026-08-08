@@ -2,6 +2,10 @@ import {
   REDACTED_PROVIDER_CONFIG_VALUE,
   REDACTED_SECRET_VALUE,
 } from './vaultRedaction'
+import {
+  assertCertificateMetadata,
+  CertificateMetadataValidationError,
+} from './certificateMetadata'
 
 export const SUPPORTED_VAULT_VERSIONS = [1, 2] as const
 export const CURRENT_VAULT_VERSION = 2
@@ -13,6 +17,7 @@ export const SUPPORTED_SECRET_TYPES = [
   'secureNote',
   'custom',
   'image',
+  'certificate',
 ] as const
 export type SupportedSecretType = typeof SUPPORTED_SECRET_TYPES[number]
 
@@ -391,6 +396,15 @@ function validateSecret(value: unknown, path: string, state: ValidationState): s
   optionalBoolean(secret.revealAllowed, `${path}.revealAllowed`)
   optionalBoolean(secret.cliExportAllowed, `${path}.cliExportAllowed`)
 
+  if (secretType === 'certificate') {
+    if (secret.certificate === undefined) {
+      fail(`${path}.certificate`, 'required', 'is required for certificate secrets')
+    }
+    validateCertificateMetadataBoundary(secret.certificate, `${path}.certificate`)
+  } else if (secret.certificate !== undefined) {
+    fail(`${path}.certificate`, 'type_mismatch', 'is supported only for certificate secrets')
+  }
+
   if (secret.providerLink !== undefined) {
     const link = record(secret.providerLink, `${path}.providerLink`)
     const providerId = id(link.providerId, `${path}.providerLink.providerId`)
@@ -412,6 +426,17 @@ function validateSecret(value: unknown, path: string, state: ValidationState): s
   }
 
   return secretId
+}
+
+function validateCertificateMetadataBoundary(value: unknown, path: string): void {
+  try {
+    assertCertificateMetadata(value)
+  } catch (error) {
+    if (error instanceof CertificateMetadataValidationError) {
+      fail(error.field ? `${path}.${error.field}` : path, error.code, error.requirement)
+    }
+    throw error
+  }
 }
 
 function validateProvider(value: unknown, path: string, state: ValidationState): void {

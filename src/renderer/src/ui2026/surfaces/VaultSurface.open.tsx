@@ -1,5 +1,6 @@
 import { LockKeyhole, Plus, Upload } from 'lucide-react'
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -8,17 +9,22 @@ import {
   type ReactNode,
 } from 'react'
 import { useVault } from '../../vaultContext'
+import SecretDetail from '../../components/SecretDetail.open'
 import type { Ui2026Surface } from '../flags'
 import { EmptyFirst, Ui2026Shell } from '../primitives.open'
 import type { ActionSpec } from '../primitives.open'
 import { SurfaceCommandHeader } from '../referenceComposition'
 import { VaultDashboard } from './VaultDashboard.open'
+import { VaultDetailWorkspace } from './VaultDetailWorkspace.open'
 import { VaultReferenceRail } from './VaultReferenceRail.open'
 import { VaultSearchPanel } from './VaultSearchPanel.open'
 import {
   createVaultSurfaceActions,
+  type VaultDetailTarget,
   type VaultLegacyWorkspaceView,
+  type VaultWorkflow,
 } from './vaultSurfaceActions.open'
+import { VaultWorkflowDialogs } from './VaultWorkflowDialogs.open'
 import {
   buildVaultSurfaceModel,
   filterVaultSurfaceModel,
@@ -31,25 +37,39 @@ export type VaultSurfaceProps = {
   readonly rail?: ReactNode
   readonly embedded?: boolean
   readonly onOpenLegacyWorkspace?: (view: VaultLegacyWorkspaceView) => void
+  readonly renderSecretDetail?: () => ReactNode
 }
 
 export function VaultSurface({
   onSurfaceChange,
   onOpenLegacyWorkspace,
+  renderSecretDetail,
   rail: railOverride,
   embedded = false,
 }: VaultSurfaceProps): ReactElement {
   const { state, selectFolder, selectSecret } = useVault()
   const [query, setQuery] = useState('')
+  const [detailTarget, setDetailTarget] = useState<VaultDetailTarget | null>(null)
+  const [workflow, setWorkflow] = useState<VaultWorkflow | null>(null)
   const searchInput = useRef<HTMLInputElement>(null)
   const model = state.vault ? buildVaultSurfaceModel(state.vault) : null
+  const openDetail = useCallback((target: VaultDetailTarget): void => {
+    setQuery('')
+    setDetailTarget(target)
+  }, [])
+  const closeDetail = useCallback((): void => {
+    selectSecret(null)
+    setDetailTarget(null)
+  }, [selectSecret])
   const actions = useMemo(
     () => createVaultSurfaceActions({
       selectFolder,
       selectSecret,
+      onOpenDetail: openDetail,
+      onOpenWorkflow: setWorkflow,
       onOpenLegacyWorkspace,
     }),
-    [onOpenLegacyWorkspace, selectFolder, selectSecret],
+    [onOpenLegacyWorkspace, openDetail, selectFolder, selectSecret],
   )
   const workspaceAction: ActionSpec | undefined = onOpenLegacyWorkspace
     ? {
@@ -81,12 +101,12 @@ export function VaultSurface({
       actions={workspaceAction ? [
         {
           label: 'Add secret',
-          onActivate: actions.openWorkspace,
+          onActivate: actions.openAddSecret,
           icon: <Plus size={16} aria-hidden />,
         },
         {
           label: 'Import or export',
-          onActivate: actions.openWorkspace,
+          onActivate: actions.openImportOrExport,
           variant: 'secondary',
           icon: <Upload size={16} aria-hidden />,
         },
@@ -103,14 +123,7 @@ export function VaultSurface({
   )
   const rail = railOverride ?? referenceRail
 
-  if (!visible || visible.totalSecrets === 0) {
-    return (
-      <Ui2026Shell
-        surface='vault'
-        rail={rail}
-        header={commandHeader}
-        embedded={embedded}
-      >
+  const dashboardContent = !visible || visible.totalSecrets === 0 ? (
         <div className='ui26-vault-empty-layout'>
           <VaultSearchPanel
             query={query}
@@ -133,9 +146,27 @@ export function VaultSurface({
             ]}
           />
         </div>
-      </Ui2026Shell>
-    )
-  }
+  ) : (
+    <VaultDashboard
+      visible={visible}
+      query={query}
+      searchInput={searchInput}
+      searchResults={searchResults}
+      actions={actions}
+      onQueryChange={setQuery}
+      onSearchClose={() => setQuery('')}
+    />
+  )
+  const content = detailTarget ? (
+    <VaultDetailWorkspace
+      target={detailTarget}
+      onBack={closeDetail}
+      onOpenSecret={actions.openSecretSelection}
+      secretDetail={detailTarget.kind === 'secret'
+        ? renderSecretDetail?.() ?? <SecretDetail emptyState='folder' />
+        : null}
+    />
+  ) : dashboardContent
 
   return (
     <Ui2026Shell
@@ -144,15 +175,8 @@ export function VaultSurface({
       header={commandHeader}
       embedded={embedded}
     >
-      <VaultDashboard
-        visible={visible}
-        query={query}
-        searchInput={searchInput}
-        searchResults={searchResults}
-        actions={actions}
-        onQueryChange={setQuery}
-        onSearchClose={() => setQuery('')}
-      />
+      {content}
+      <VaultWorkflowDialogs workflow={workflow} onClose={() => setWorkflow(null)} />
     </Ui2026Shell>
   )
 }

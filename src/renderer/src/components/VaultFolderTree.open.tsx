@@ -6,52 +6,48 @@ import type { VaultFolder, VaultSecret, VaultTreeItemRef } from '../types'
 
 type Props = {
   root: VaultFolder
+  hideRoot?: boolean
   selectedFolderId: string | null
   selectedSecretId: string | null
+  draggedItem: VaultTreeItemRef | null
+  activeDropFolderId: string | null
   onOpenFolder: (id: string) => void
   onOpenSecret: (id: string) => void
-  onMoveItem: (item: VaultTreeItemRef, target: VaultTreeMoveTarget) => Promise<void>
+  onDragItem: (item: VaultTreeItemRef) => void
+  onDragEnd: () => void
+  onDropFolderHover: (folderId: string | null) => void
+  onDropItem: (target: VaultTreeMoveTarget) => void
 }
 
 export default function VaultFolderTree({
   root,
+  hideRoot = false,
   selectedFolderId,
   selectedSecretId,
+  draggedItem,
+  activeDropFolderId,
   onOpenFolder,
   onOpenSecret,
-  onMoveItem,
+  onDragItem,
+  onDragEnd,
+  onDropFolderHover,
+  onDropItem,
 }: Props) {
-  const [draggedItem, setDraggedItem] = useState<VaultTreeItemRef | null>(null)
-  const [activeDropFolderId, setActiveDropFolderId] = useState<string | null>(null)
-
-  const endDrag = () => {
-    setDraggedItem(null)
-    setActiveDropFolderId(null)
-  }
-
-  const dropItem = async (target: VaultTreeMoveTarget) => {
-    if (!draggedItem) return
-    try {
-      await onMoveItem(draggedItem, target)
-    } finally {
-      endDrag()
-    }
-  }
-
   return (
     <FolderNode
       folder={root}
       depth={0}
+      hideRoot={hideRoot}
       selectedFolderId={selectedFolderId}
       selectedSecretId={selectedSecretId}
       draggedItem={draggedItem}
       activeDropFolderId={activeDropFolderId}
       onOpenFolder={onOpenFolder}
       onOpenSecret={onOpenSecret}
-      onDragItem={setDraggedItem}
-      onDragEnd={endDrag}
-      onDropFolderHover={setActiveDropFolderId}
-      onDropItem={target => { void dropItem(target) }}
+      onDragItem={onDragItem}
+      onDragEnd={onDragEnd}
+      onDropFolderHover={onDropFolderHover}
+      onDropItem={onDropItem}
     />
   )
 }
@@ -72,8 +68,9 @@ type TreeInteractionProps = {
 function FolderNode({
   folder,
   depth,
+  hideRoot = false,
   ...interaction
-}: TreeInteractionProps & { folder: VaultFolder; depth: number }) {
+}: TreeInteractionProps & { folder: VaultFolder; depth: number; hideRoot?: boolean }) {
   const [open, setOpen] = useState(depth === 0)
   const ordered = orderedFolderItems(folder)
   const secrets = new Map(folder.secrets.map(secret => [secret.id, secret]))
@@ -81,6 +78,37 @@ function FolderNode({
   const hasChildren = ordered.length > 0
   const canAcceptDrop = interaction.draggedItem?.kind === 'secret'
   const dropInside = interaction.activeDropFolderId === folder.id
+  const renderChildren = (childDepth: number) => ordered.map(item => {
+    if (item.kind === 'folder') {
+      const child = folders.get(item.id)
+      return child ? (
+        <FolderNode
+          key={`folder:${child.id}`}
+          folder={child}
+          depth={childDepth}
+          {...interaction}
+        />
+      ) : null
+    }
+    const secret = secrets.get(item.id)
+    return secret ? (
+      <SecretRow
+        key={`secret:${secret.id}`}
+        secret={secret}
+        folderId={folder.id}
+        depth={childDepth}
+        selected={interaction.selectedSecretId === secret.id}
+        onOpen={() => interaction.onOpenSecret(secret.id)}
+        draggedItem={interaction.draggedItem}
+        onDragItem={interaction.onDragItem}
+        onDragEnd={interaction.onDragEnd}
+        onDropFolderHover={interaction.onDropFolderHover}
+        onDropItem={interaction.onDropItem}
+      />
+    ) : null
+  })
+
+  if (hideRoot) return <div data-vault-folder-root-hidden>{renderChildren(depth + 1)}</div>
 
   return (
     <div>
@@ -137,35 +165,7 @@ function FolderNode({
       </button>
       {open && (
         <div>
-          {ordered.map(item => {
-            if (item.kind === 'folder') {
-              const child = folders.get(item.id)
-              return child ? (
-                <FolderNode
-                  key={`folder:${child.id}`}
-                  folder={child}
-                  depth={depth + 1}
-                  {...interaction}
-                />
-              ) : null
-            }
-            const secret = secrets.get(item.id)
-            return secret ? (
-              <SecretRow
-                key={`secret:${secret.id}`}
-                secret={secret}
-                folderId={folder.id}
-                depth={depth + 1}
-                selected={interaction.selectedSecretId === secret.id}
-                onOpen={() => interaction.onOpenSecret(secret.id)}
-                draggedItem={interaction.draggedItem}
-                onDragItem={interaction.onDragItem}
-                onDragEnd={interaction.onDragEnd}
-                onDropFolderHover={interaction.onDropFolderHover}
-                onDropItem={interaction.onDropItem}
-              />
-            ) : null
-          })}
+          {renderChildren(depth + 1)}
         </div>
       )}
     </div>

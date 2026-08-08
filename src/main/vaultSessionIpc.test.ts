@@ -129,6 +129,40 @@ describe('vault session backup and restore IPC', () => {
     expect(restoreBackup).toHaveBeenCalledOnce()
   })
 
+  it('restores a clean installation with an Emergency Kit without restarting', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    const snapshot = {
+      format: 'vaultage.backup.v3',
+      paramsRaw: '{"version":2,"scrypt":{}}',
+      wrappedKey: Buffer.alloc(48),
+      vaultBlob: Buffer.alloc(64),
+      recoveryEnvelope: { format: 'vaultage.recovery-kit.v1' },
+    }
+    const restoreBackupWithKit = vi.fn().mockResolvedValue({
+      success: true,
+      data: { version: 2 },
+      recoveryKit: { recoveryCode: 'VLT1-REPLACEMENT' },
+    })
+    mocks.showOpenDialog.mockResolvedValue({ canceled: false, filePaths: [scratch] })
+    mocks.readVaultBackupSnapshot.mockResolvedValue(snapshot)
+    registerVaultSessionIpc(ipcMain, deps({ restoreBackupWithKit }))
+
+    await expect(handlers.get('vault:restore-backup-with-kit')?.({}, {
+      recoveryCode: 'VLT1-ORIGINAL',
+      newPassword: 'replacement master password',
+      confirmation: 'RESTORE VAULT',
+    })).resolves.toMatchObject({
+      success: true,
+      path: scratch,
+      data: { version: 2 },
+      recoveryKit: { recoveryCode: 'VLT1-REPLACEMENT' },
+    })
+    expect(restoreBackupWithKit).toHaveBeenCalledWith(snapshot, expect.objectContaining({
+      recoveryCode: 'VLT1-ORIGINAL',
+      newPassword: 'replacement master password',
+    }))
+  })
+
   it('rejects restore without explicit confirmation before opening a directory', async () => {
     const { handlers, ipcMain } = fakeIpcMain()
     registerVaultSessionIpc(ipcMain, deps())
@@ -161,6 +195,7 @@ describe('vault session backup and restore IPC', () => {
 function deps(overrides: {
   getVaultKey?: () => Buffer | null
   restoreBackup?: AuthController['restoreBackup']
+  restoreBackupWithKit?: AuthController['restoreBackupWithKit']
   forgetTouchID?: AuthController['forgetTouchID']
   lockVault?: VaultIpcDeps['lockVault']
   quitApp?: () => void
@@ -183,6 +218,7 @@ function deps(overrides: {
     authController: {
       forgetTouchID: overrides.forgetTouchID ?? (() => ({ success: true })),
       restoreBackup: overrides.restoreBackup ?? vi.fn(),
+      restoreBackupWithKit: overrides.restoreBackupWithKit ?? vi.fn(),
     } as unknown as AuthController,
     recordAudit: vi.fn(),
     recordAuditDurable: vi.fn(async () => undefined),

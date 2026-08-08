@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import { useVault, findFolder } from '../vaultContext'
+import { useVault, findFolder, type VaultTreeMoveTarget } from '../vaultContext'
+import type { VaultTreeItemRef } from '../types'
 import { useMode, type AppMode } from '../modeContext.open'
 import AddSecretModal from './AddSecretModal.open'
 import AuditLogModal from './AuditLogModal'
@@ -16,6 +17,7 @@ import { useCommunitySidebarShortcuts } from './useCommunitySidebarShortcuts.ope
 import { Button } from '@/components/ui/button'
 import { createFolderFromInput } from '@/lib/textInputRequests'
 import { useTextInputDialog } from './TextInputDialogProvider'
+import { VaultSelector } from '../ui2026/surfaces/VaultSelector'
 import {
   isPinnedTarget,
   togglePinnedTargetOrder,
@@ -43,6 +45,8 @@ export default function Sidebar({ view, onViewChange }: Props) {
   const [showSettings, setShowSettings] = useState(false)
   const [showChangePassword, setShowChangePassword] = useState(false)
   const [showShortcuts, setShowShortcuts] = useState(false)
+  const [draggedTreeItem, setDraggedTreeItem] = useState<VaultTreeItemRef | null>(null)
+  const [activeDropFolderId, setActiveDropFolderId] = useState<string | null>(null)
   const [projectModal, setProjectModal] = useState<{
     initialProjectId?: string | null
     startNew?: boolean
@@ -82,6 +86,19 @@ export default function Sidebar({ view, onViewChange }: Props) {
     selectSecret(null)
     onViewChange('dashboard')
     void setMode('projects')
+  }
+  const dropTreeItem = async (target: VaultTreeMoveTarget) => {
+    if (!draggedTreeItem) return
+    try {
+      await moveTreeItem(draggedTreeItem, target)
+    } finally {
+      setDraggedTreeItem(null)
+      setActiveDropFolderId(null)
+    }
+  }
+  const endTreeDrag = () => {
+    setDraggedTreeItem(null)
+    setActiveDropFolderId(null)
   }
   const togglePinnedProject = (projectId: string) => {
     void setPreferences({
@@ -193,13 +210,46 @@ export default function Sidebar({ view, onViewChange }: Props) {
 
           <div className="min-h-0 flex-1 overflow-y-auto px-2 py-3">
             {root ? (
-              <VaultFolderTree
-                root={root}
-                selectedFolderId={view === 'folders' ? state.selectedFolderId : null}
-                selectedSecretId={state.selectedSecretId}
-                onOpenFolder={openFolder}
-                onOpenSecret={openSecret}
-                onMoveItem={moveTreeItem}
+              <VaultSelector
+                activeVaultRoot={{
+                  canAcceptDrop: draggedTreeItem?.kind === 'secret',
+                  dropInside: activeDropFolderId === root.id,
+                  onOpen: () => openFolder(root.id),
+                  onDragEnter: event => {
+                    if (draggedTreeItem?.kind !== 'secret') return
+                    event.preventDefault()
+                    setActiveDropFolderId(root.id)
+                  },
+                  onDragOver: event => {
+                    if (draggedTreeItem?.kind !== 'secret') return
+                    event.preventDefault()
+                    event.dataTransfer.dropEffect = 'move'
+                    setActiveDropFolderId(root.id)
+                  },
+                  onDrop: event => {
+                    if (draggedTreeItem?.kind !== 'secret') return
+                    event.preventDefault()
+                    event.stopPropagation()
+                    void dropTreeItem({ folderId: root.id, position: 'inside' })
+                  },
+                }}
+                activeContent={(
+                  <VaultFolderTree
+                    key={root.id}
+                    root={root}
+                    hideRoot
+                    selectedFolderId={view === 'folders' ? state.selectedFolderId : null}
+                    selectedSecretId={state.selectedSecretId}
+                    draggedItem={draggedTreeItem}
+                    activeDropFolderId={activeDropFolderId}
+                    onOpenFolder={openFolder}
+                    onOpenSecret={openSecret}
+                    onDragItem={setDraggedTreeItem}
+                    onDragEnd={endTreeDrag}
+                    onDropFolderHover={setActiveDropFolderId}
+                    onDropItem={target => { void dropTreeItem(target) }}
+                  />
+                )}
               />
             ) : (
               <p className="px-3 py-4 text-xs text-muted">Unlock your vault to browse folders.</p>

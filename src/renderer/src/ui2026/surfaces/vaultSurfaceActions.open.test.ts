@@ -2,11 +2,13 @@ import { describe, expect, it } from 'vitest'
 import { createVaultSurfaceActions } from './vaultSurfaceActions.open'
 
 describe('Community Vault UI2026 actions', () => {
-  it('selects a secret before handing off to the folder workspace', () => {
+  it('selects a secret before opening its UI2026 detail', () => {
     const calls: string[] = []
     const actions = createVaultSurfaceActions({
       selectFolder: (id) => calls.push('folder:' + id),
       selectSecret: (id) => calls.push('secret:' + id),
+      onOpenDetail: target => calls.push('detail:' + target.kind + ':' + target.id),
+      onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
       onOpenLegacyWorkspace: (view) => calls.push('workspace:' + view),
     })
 
@@ -23,28 +25,55 @@ describe('Community Vault UI2026 actions', () => {
     expect(calls).toEqual([
       'folder:folder-1',
       'secret:secret-1',
-      'workspace:folders',
+      'detail:secret:secret-1',
     ])
   })
 
-  it('hands workspace actions to the dashboard without dropping selection semantics', () => {
+  it('routes every Vault quick action to its UI2026 workflow without opening the legacy workspace', () => {
     const calls: string[] = []
     const actions = createVaultSurfaceActions({
       selectFolder: () => undefined,
       selectSecret: () => undefined,
-      onOpenLegacyWorkspace: (view) => calls.push(view),
+      onOpenDetail: () => undefined,
+      onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
+      onOpenLegacyWorkspace: view => calls.push('workspace:' + view),
+    })
+
+    actions.openAddSecret()
+    actions.openImportOrExport()
+    actions.openNewCollection()
+    actions.openVaultSettings()
+
+    expect(calls).toEqual([
+      'workflow:add-secret',
+      'workflow:import-export',
+      'workflow:new-collection',
+      'workflow:settings',
+    ])
+  })
+
+  it('keeps the deliberately labelled existing-workspace escape hatch separate', () => {
+    const calls: string[] = []
+    const actions = createVaultSurfaceActions({
+      selectFolder: () => undefined,
+      selectSecret: () => undefined,
+      onOpenDetail: () => undefined,
+      onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
+      onOpenLegacyWorkspace: view => calls.push('workspace:' + view),
     })
 
     actions.openWorkspace()
 
-    expect(calls).toEqual(['dashboard'])
+    expect(calls).toEqual(['workspace:dashboard'])
   })
 
-  it('opens folder search results in the folder workspace', () => {
+  it('opens folder search results in UI2026 collection detail', () => {
     const calls: string[] = []
     const actions = createVaultSurfaceActions({
       selectFolder: (id) => calls.push('folder:' + id),
       selectSecret: (id) => calls.push('secret:' + id),
+      onOpenDetail: target => calls.push('detail:' + target.kind + ':' + target.id),
+      onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
       onOpenLegacyWorkspace: (view) => calls.push('workspace:' + view),
     })
 
@@ -58,7 +87,7 @@ describe('Community Vault UI2026 actions', () => {
     expect(calls).toEqual([
       'folder:archive',
       'secret:null',
-      'workspace:folders',
+      'detail:collection:archive',
     ])
   })
 })

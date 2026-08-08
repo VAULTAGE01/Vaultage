@@ -2,6 +2,26 @@ import { describe, expect, it } from 'vitest'
 import { VaultSessionChangedError, VaultSessionKeyring, leaseVaultKey } from './vaultSessionKey'
 
 describe('VaultSessionKeyring', () => {
+  it('rotates the authorization epoch without locking or changing key material', () => {
+    const session = new VaultSessionKeyring()
+    const setup = session.beginOperation()!
+    const source = Buffer.alloc(32, 7)
+    expect(session.installKey(source, setup.epoch)).toBe(true)
+    setup.release()
+    const staleOperation = session.beginOperation()!
+    const staleLease = session.leaseCurrentKey()!
+
+    expect(session.rotateScope()).toBe(true)
+
+    expect(session.isUnlocked()).toBe(true)
+    expect(session.currentKey()).toEqual(source)
+    expect(() => staleOperation.assertCurrent()).toThrow(VaultSessionChangedError)
+    expect(() => staleLease.assertCurrent()).toThrow(VaultSessionChangedError)
+    expect(session.beginOperation()!.epoch).toBeGreaterThan(staleOperation.epoch)
+    staleOperation.release()
+    staleLease.release()
+  })
+
   it('invalidates immediately without zeroing a leased key that is still in use', async () => {
     const session = new VaultSessionKeyring()
     const operation = session.beginOperation()

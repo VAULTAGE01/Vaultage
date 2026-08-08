@@ -44,6 +44,7 @@ describe('registerVaultDataIpc', () => {
     expect(recordAudit).toHaveBeenCalledWith('vault.secret.updated', expect.objectContaining({
       revision: 5,
       mutationId: 'mutation-update-secret',
+      vaultId: 'root',
       vaultItemIds: ['secret-a'],
     }))
     expect(JSON.stringify(recordAudit.mock.calls)).not.toContain('replacement-value')

@@ -28,6 +28,42 @@ describe('vaultRecordStore', () => {
     expect((await fs.readdir(RECORDS)).length).toBe(9)
   })
 
+  it('encrypts and round-trips certificate metadata with its private material', async () => {
+    const vault = sampleVault()
+    vault.root.secrets[0] = {
+      id: 'secret-a',
+      name: 'API client certificate',
+      type: 'certificate',
+      fields: [
+        { key: 'Certificate', value: 'certificate-material', sensitive: true },
+        { key: 'Private Key', value: 'private-key-material', sensitive: true },
+      ],
+      notes: '',
+      createdAt: '2026-08-06T00:00:00.000Z',
+      updatedAt: '2026-08-06T00:00:00.000Z',
+      certificate: {
+        format: 'PKCS12',
+        subject: 'CN=api.example.test',
+        issuer: 'CN=Example Internal CA',
+        serialNumber: '01A2B3C4',
+        notBefore: '2026-07-01T00:00:00.000Z',
+        notAfter: '2027-07-01T00:00:00.000Z',
+        algorithm: 'RSA-2048 with SHA-256',
+        sha256Fingerprint: 'a'.repeat(64),
+      },
+    }
+    vault.envProjects = []
+
+    const encoded = await encodeVaultRecordStore(vault, KEY, RECORDS)
+    const decoded = await decodeVaultRecordStore(encoded.manifest, KEY, RECORDS)
+    const recordBytes = await Promise.all(
+      (await fs.readdir(RECORDS)).map(file => fs.readFile(join(RECORDS, file))),
+    )
+
+    expect(decoded.vault).toEqual(vault)
+    expect(Buffer.concat(recordBytes).toString('utf8')).not.toContain('private-key-material')
+  })
+
   it('writes only a changed secret and its folder ancestry on the next commit', async () => {
     const first = await encodeVaultRecordStore(sampleVault(), KEY, RECORDS)
     const changed = sampleVault()

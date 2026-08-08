@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest'
+import { createHash } from 'crypto'
+import { describe, expect, it, vi } from 'vitest'
 import type { AuditEventType } from './audit'
 import { AuthController, type AuthCrypto, type AuthStorage } from './auth'
 import type { KeychainResult } from './keychain'
-import { currentScryptParams, type ScryptParams } from './vaultCrypto'
+import { currentScryptParams, openWithAad, sealWithAad, type ScryptParams } from './vaultCrypto'
 import { VaultSessionKeyring } from './vaultSessionKey'
+import { createRecoveryKit, type RecoveryKitCrypto, type RecoveryKitEnvelope } from './recoveryKit'
+import { UnsupportedMultiVaultCollectionError } from './vaultCollectionCompatibility'
 
 describe('AuthController', () => {
   it('sets up a new vault and unlocks it with the master password', async () => {
@@ -13,6 +16,7 @@ describe('AuthController', () => {
 
     const setup = await h.auth.setup('correct horse battery staple')
     if (!setup.success) throw new Error(setup.error)
+    expect(setup.recoveryKit?.recoveryCode).toMatch(/^VLT1-/u)
     expect(setup.data).toEqual({
       version: 2,
       root: {
@@ -40,7 +44,16 @@ describe('AuthController', () => {
     })
     expectBufferEquals(h.vaultKey, VAULT_KEY)
     expect(h.keychainStores).toEqual([VAULT_KEY.toString('hex')])
-    expect(h.auditEvents).toEqual([{ type: 'vault.setup', details: { method: 'password' } }])
+    expect(h.auditEvents).toEqual([
+      { type: 'vault.setup', details: { method: 'password' } },
+      {
+        type: 'vault.recovery-kit.created',
+        details: {
+          generation: 'recovery-generation-1',
+          vaultFingerprint: expect.any(String),
+        },
+      },
+    ])
     await expect(h.auth.status()).resolves.toEqual({ needsSetup: false })
 
     h.vaultKey = null
@@ -58,6 +71,31 @@ describe('AuthController', () => {
       type: 'vault.unlock',
       details: { method: 'password' },
     })
+  })
+
+  it('maps a low-level setup transport failure to a stable typed message without exposing process details', async () => {
+    const rawFailure = Object.assign(
+      new Error('Uncaught Exception: Error: write EPIPE at /Users/example/private-path'),
+      { code: 'EPIPE' },
+    )
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const h = makeHarness({
+      createVaultState: async () => { throw rawFailure },
+    })
+
+    try {
+      const result = await h.auth.setup('correct horse battery staple')
+
+      expect(result).toEqual({
+        success: false,
+        errorCode: 'setup_interrupted',
+        error: 'Vaultage could not finish setup safely. Reopen Vaultage to check the local vault, then try again if setup is still required.',
+      })
+      expect(JSON.stringify(consoleError.mock.calls)).toContain('EPIPE')
+      expect(JSON.stringify(consoleError.mock.calls)).not.toContain('private-path')
+    } finally {
+      consoleError.mockRestore()
+    }
   })
 
   it('forgets the Touch ID key so the next unlock requires the master password', async () => {
@@ -111,6 +149,136 @@ describe('AuthController', () => {
     })
     await expect(h.auth.verifyMasterPassword('correct horse battery staple')).resolves.toEqual({
       success: true,
+    })
+  })
+
+  it('creates, verifies, uses, rotates, and revokes an offline recovery kit', async () => {
+    let now = 10_000
+    const h = makeHarness({ nowMs: () => now })
+    await h.auth.setup('correct horse battery staple')
+
+    await expect(h.auth.createOrRotateRecoveryKit({ currentPassword: 'wrong password' }))
+      .resolves.toMatchObject({ success: false, wrongPassword: true })
+    const created = await h.auth.createOrRotateRecoveryKit({
+      currentPassword: 'correct horse battery staple',
+    })
+    if (!created.success || !created.data) throw new Error('Expected recovery material')
+    const originalCode = created.data.recoveryCode
+    await expect(h.auth.recoveryStatus()).resolves.toMatchObject({
+      success: true,
+      data: { configured: true, metadata: { generation: 'recovery-generation-2' } },
+    })
+
+    await expect(h.auth.verifyRecoveryKit('VLT1-WRONG')).resolves.toMatchObject({
+      success: false,
+      wrongRecoveryCode: true,
+      retryAfterMs: 1_000,
+    })
+    await expect(h.auth.verifyRecoveryKit(originalCode)).resolves.toMatchObject({
+      success: false,
+      retryAfterMs: 1_000,
+    })
+    now += 1_000
+    await expect(h.auth.verifyRecoveryKit(originalCode)).resolves.toMatchObject({
+      success: true,
+      data: { verifiedAt: expect.any(String) },
+    })
+
+    await h.lock()
+    const recovered = await h.auth.recoverWithKit({
+      recoveryCode: originalCode,
+      newPassword: 'replacement master password',
+    })
+    if (!recovered.success || !recovered.recoveryKit) throw new Error('Expected rotated recovery kit')
+    expect(recovered.recoveryKit.recoveryCode).not.toBe(originalCode)
+    await h.lock()
+    await expect(h.auth.recoverWithKit({
+      recoveryCode: originalCode,
+      newPassword: 'must not replace the password',
+    })).resolves.toMatchObject({ success: false, wrongRecoveryCode: true })
+    await expect(h.auth.unlockWithPassword('correct horse battery staple')).resolves.toMatchObject({
+      success: false,
+      wrongPassword: true,
+    })
+    await expect(h.auth.unlockWithPassword('replacement master password')).resolves.toMatchObject({
+      success: true,
+    })
+
+    await expect(h.auth.revokeRecoveryKit({ currentPassword: 'replacement master password' }))
+      .resolves.toEqual({ success: true })
+    await expect(h.auth.recoveryStatus()).resolves.toEqual({
+      success: true,
+      data: { configured: false },
+    })
+    await h.lock()
+    await expect(h.auth.recoverWithKit({
+      recoveryCode: recovered.recoveryKit.recoveryCode,
+      newPassword: 'must not recover after removal',
+    })).resolves.toMatchObject({
+      success: false,
+      error: 'No Emergency Kit is configured for this vault',
+    })
+  })
+
+  it('restores an Emergency Kit backup on a clean installation and replaces the used kit', async () => {
+    const source = makeHarness()
+    const setup = await source.auth.setup('original master password')
+    if (!setup.success || !setup.recoveryKit || !source.recoveryEnvelope || !source.params || !source.wrappedKey) {
+      throw new Error('Expected a complete source vault with recovery material')
+    }
+    const snapshot = {
+      format: 'vaultage.backup.v3' as const,
+      paramsRaw: source.params,
+      wrappedKey: Buffer.from(source.wrappedKey),
+      vaultBlob: fakeCrypto.seal(Buffer.from(JSON.stringify(restoredBackupVault())), VAULT_KEY),
+      recoveryEnvelope: structuredClone(source.recoveryEnvelope),
+    }
+    const clean = makeHarness({ recoverySeed: 20 })
+
+    const restored = await clean.auth.restoreBackupWithKit(snapshot, {
+      recoveryCode: setup.recoveryKit.recoveryCode,
+      newPassword: 'replacement master password',
+    })
+
+    expect(restored).toMatchObject({
+      success: true,
+      data: restoredBackupVault(),
+      recoveryKit: { recoveryCode: expect.stringMatching(/^VLT1-/u) },
+    })
+    if (!restored.success || !restored.recoveryKit) throw new Error('Expected replacement recovery material')
+    expect(restored.recoveryKit.recoveryCode).not.toBe(setup.recoveryKit.recoveryCode)
+    await clean.lock()
+    await expect(clean.auth.unlockWithPassword('replacement master password')).resolves.toMatchObject({ success: true })
+  })
+
+  it('reports a recovery commit failure without misclassifying a valid code', async () => {
+    const h = makeHarness({
+      commitAuthAndRecoveryCredentials: async () => {
+        throw new Error('injected recovery commit failure')
+      },
+    })
+    const setup = await h.auth.setup('original master password')
+    if (!setup.success || !setup.recoveryKit) throw new Error('Expected recovery material')
+    await h.lock()
+
+    await expect(h.auth.recoverWithKit({
+      recoveryCode: setup.recoveryKit.recoveryCode,
+      newPassword: 'replacement master password',
+    })).resolves.toEqual({
+      success: false,
+      error: 'injected recovery commit failure',
+    })
+  })
+
+  it('refuses to render a PDF for an envelope that does not match the open vault', async () => {
+    const h = makeHarness()
+    await h.auth.setup('original master password')
+    const foreign = await createRecoveryKit(Buffer.alloc(32, 0x72), deterministicRecoveryCrypto(30))
+    h.recoveryEnvelope = foreign.envelope
+
+    await expect(h.auth.recoveryMaterialForPdf(foreign.material.recoveryCode)).resolves.toMatchObject({
+      success: false,
+      wrongRecoveryCode: true,
     })
   })
 
@@ -183,6 +351,18 @@ describe('AuthController', () => {
     })
   })
 
+  it('requires biometric-only Keychain retrieval for an agent approval and forwards the exact prompt', async () => {
+    const h = makeHarness({ isMac: true })
+    await h.auth.setup('master password')
+    h.keychainResult = keychainResult(VAULT_KEY.toString('hex'))
+
+    expect(h.auth.confirmAgentApproval('Approve API_KEY for Codex · code ABCD-1234')).toEqual({ success: true })
+    expect(h.keychainRetrievals.at(-1)).toEqual({
+      prompt: 'Approve API_KEY for Codex · code ABCD-1234',
+      policy: 'biometric-only',
+    })
+  })
+
   it('clears stale Touch ID keys before falling back to master-password recovery', async () => {
     const h = makeHarness({ isMac: true })
     await h.auth.setup('master password')
@@ -195,6 +375,25 @@ describe('AuthController', () => {
       error: 'Touch ID key no longer opens this vault — use your master password',
     })
     expect(h.keychainRemoves).toBe(1)
+  })
+
+  it('preserves Touch ID state and directs multi-vault users to a compatible build', async () => {
+    const h = makeHarness({
+      isMac: true,
+      readVault: async () => { throw new UnsupportedMultiVaultCollectionError() },
+    })
+    await h.auth.setup('master password')
+    h.vaultKey = null
+    h.keychainResult = keychainResult(VAULT_KEY.toString('hex'))
+
+    const expected = {
+      success: false,
+      error: 'This vault contains multiple vaults created by a newer Vaultage build. Open it with a Vaultage version that supports multiple vaults; do not restore an older backup.',
+    }
+    await expect(h.auth.unlockWithTouchID()).resolves.toEqual(expected)
+    expect(h.keychainRemoves).toBe(0)
+    await expect(h.auth.unlockWithPassword('master password')).resolves.toEqual(expected)
+    expect(h.keychainRemoves).toBe(0)
   })
 
   it('requires typed plaintext export confirmation when Touch ID is unavailable', () => {
@@ -217,15 +416,18 @@ describe('AuthController', () => {
     })
   })
 
-  it('requires typed agent approval confirmation when Touch ID is unavailable', () => {
+  it('fails closed when native biometric approval is unavailable', () => {
     const h = makeHarness({ isMac: false })
 
     expect(h.auth.confirmAgentApproval('Approve agent request', 'nope')).toEqual({
       success: false,
-      error: 'Type APPROVE AGENT to approve agent secrets',
+      notFound: true,
+      error: 'Agent approval requires native biometric user presence',
     })
     expect(h.auth.confirmAgentApproval('Approve agent request', 'APPROVE AGENT')).toEqual({
-      success: true,
+      success: false,
+      notFound: true,
+      error: 'Agent approval requires native biometric user presence',
     })
   })
 
@@ -390,9 +592,38 @@ describe('AuthController', () => {
       error: expect.stringContaining('different vault'),
     })
   })
+
+  it('validates the complete backup snapshot before restoring it', async () => {
+    let validationCalls = 0
+    const h = makeHarness({
+      validateVaultBackupSnapshot: async (snapshot, vaultKey) => {
+        validationCalls += 1
+        expect(vaultKey.equals(VAULT_KEY)).toBe(true)
+        return JSON.parse(fakeCrypto.open(snapshot.vaultBlob, vaultKey).toString('utf8'))
+      },
+    })
+    await h.auth.setup('current master password')
+    const backupPassword = 'backup master password'
+    const backupParams = currentScryptParams()
+    const backupWrappingKey = await fakeCrypto.scrypt(backupPassword, SALT, backupParams)
+    const snapshot = {
+      paramsRaw: JSON.stringify({
+        version: 2,
+        scrypt: { ...backupParams, salt: SALT.toString('hex') },
+      }),
+      wrappedKey: fakeCrypto.seal(VAULT_KEY, backupWrappingKey),
+      vaultBlob: fakeCrypto.seal(Buffer.from(JSON.stringify(restoredBackupVault())), VAULT_KEY),
+    }
+
+    await expect(h.auth.restoreBackup(snapshot, {
+      currentPassword: 'current master password',
+      backupPassword,
+    })).resolves.toEqual({ success: true })
+    expect(validationCalls).toBe(1)
+  })
 })
 
-const VAULT_KEY = Buffer.from('vaultage-test-vault-key')
+const VAULT_KEY = Buffer.alloc(32, 0x31)
 const SALT = Buffer.from('auth-test-salt')
 
 function restoredBackupVault() {
@@ -409,13 +640,21 @@ function restoredBackupVault() {
 function makeHarness(opts: {
   isMac?: boolean
   beforeReadVault?: () => Promise<void>
+  readVault?: AuthStorage['readVault']
+  createVaultState?: AuthStorage['createVaultState']
   commitAuthCredentials?: AuthStorage['commitAuthCredentials']
+  commitAuthAndRecoveryCredentials?: AuthStorage['commitAuthAndRecoveryCredentials']
+  validateVaultBackupSnapshot?: AuthStorage['validateVaultBackupSnapshot']
+  nowMs?: () => number
+  recoverySeed?: number
 } = {}) {
   let params: string | null = null
   let wrappedKey: Buffer | null = null
   let vaultData: unknown = null
+  let recoveryEnvelope: RecoveryKitEnvelope | null = null
   let keychainResultValue = keychainResult(null, { notFound: true })
   const keychainStores: string[] = []
+  const keychainRetrievals: Array<{ prompt?: string; policy?: string }> = []
   let keychainRemoves = 0
   const auditEvents: { type: AuditEventType; details?: Record<string, unknown> }[] = []
   const session = new VaultSessionKeyring()
@@ -435,18 +674,25 @@ function makeHarness(opts: {
       if (!params || !wrappedKey) throw new Error('Missing recovery credentials')
       return { paramsRaw: params, wrappedKey: Buffer.from(wrappedKey) }
     },
+    readRecoveryEnvelope: async () => recoveryEnvelope,
     readVault: async (key) => {
       await opts.beforeReadVault?.()
+      if (opts.readVault) return opts.readVault(key)
       if (!vaultData) throw new Error('Missing vault')
       if (!key.equals(VAULT_KEY)) throw new Error('Wrong vault key')
       return vaultData
     },
     createVaultState: async (input, assertCurrent) => {
+      if (opts.createVaultState) {
+        await opts.createVaultState(input, assertCurrent)
+        return
+      }
       if (params || wrappedKey || vaultData) throw new Error('Vault is already initialized; setup cannot replace it')
       assertCurrent()
       params = input.paramsRaw
       wrappedKey = Buffer.from(input.wrappedKey)
       vaultData = JSON.parse(input.vaultJson)
+      recoveryEnvelope = input.recoveryEnvelope ? structuredClone(input.recoveryEnvelope) : null
     },
     commitAuthCredentials: async (paramsRaw, wrapped, assertCurrent) => {
       await opts.commitAuthCredentials?.(paramsRaw, wrapped, assertCurrent)
@@ -454,11 +700,31 @@ function makeHarness(opts: {
       params = paramsRaw
       wrappedKey = Buffer.from(wrapped)
     },
-    commitRestoredVaultState: async (snapshot, vaultKey, assertCurrent) => {
+    commitRecoveryEnvelope: async (next, assertCurrent) => {
       assertCurrent()
-      params = snapshot.paramsRaw
-      wrappedKey = Buffer.from(snapshot.wrappedKey)
+      recoveryEnvelope = next ? structuredClone(next) : null
+    },
+    commitAuthAndRecoveryCredentials: async (paramsRaw, wrapped, next, assertCurrent) => {
+      await opts.commitAuthAndRecoveryCredentials?.(paramsRaw, wrapped, next, assertCurrent)
+      assertCurrent()
+      params = paramsRaw
+      wrappedKey = Buffer.from(wrapped)
+      recoveryEnvelope = structuredClone(next)
+    },
+    validateVaultBackupSnapshot: async (snapshot, vaultKey) => {
+      if (opts.validateVaultBackupSnapshot) {
+        return opts.validateVaultBackupSnapshot(snapshot, vaultKey)
+      }
+      return JSON.parse(fakeCrypto.open(snapshot.vaultBlob, vaultKey).toString('utf8'))
+    },
+    commitRestoredVaultState: async (snapshot, vaultKey, assertCurrent, replacement) => {
+      assertCurrent()
+      params = replacement?.paramsRaw ?? snapshot.paramsRaw
+      wrappedKey = Buffer.from(replacement?.wrappedKey ?? snapshot.wrappedKey)
       vaultData = JSON.parse(fakeCrypto.open(snapshot.vaultBlob, vaultKey).toString('utf8'))
+      recoveryEnvelope = replacement?.recoveryEnvelope
+        ? structuredClone(replacement.recoveryEnvelope)
+        : snapshot.recoveryEnvelope ? structuredClone(snapshot.recoveryEnvelope) : null
     },
   }
 
@@ -466,7 +732,10 @@ function makeHarness(opts: {
     storage,
     keychain: {
       isMac: Boolean(opts.isMac),
-      retrieve: () => keychainResultValue,
+      retrieve: (prompt, policy) => {
+        keychainRetrievals.push({ prompt, policy })
+        return keychainResultValue
+      },
       store: (hexKey) => {
         keychainStores.push(hexKey)
         return true
@@ -480,12 +749,15 @@ function makeHarness(opts: {
     recordAudit: (type, details) => auditEvents.push({ type, details }),
     randomId: () => 'root-id',
     crypto: fakeCrypto,
+    recoveryCrypto: deterministicRecoveryCrypto(opts.recoverySeed),
+    nowMs: opts.nowMs,
   })
 
   return {
     auth,
     auditEvents,
     keychainStores,
+    keychainRetrievals,
     get keychainRemoves() { return keychainRemoves },
     get vaultData() { return vaultData },
     get vaultKey() { return session.currentKey() },
@@ -497,8 +769,27 @@ function makeHarness(opts: {
     set params(next: string | null) { params = next },
     get wrappedKey() { return wrappedKey },
     set wrappedKey(next: Buffer | null) { wrappedKey = next },
+    get recoveryEnvelope() { return recoveryEnvelope },
+    set recoveryEnvelope(next: RecoveryKitEnvelope | null) { recoveryEnvelope = next },
     set keychainResult(next: KeychainResult) { keychainResultValue = next },
     lock: () => session.invalidate(),
+  }
+}
+
+function deterministicRecoveryCrypto(seed = 0): RecoveryKitCrypto {
+  let randomCall = seed
+  let generation = 0
+  return {
+    randomBytes: (length) => Buffer.alloc(length, ++randomCall),
+    randomId: () => `recovery-generation-${++generation}`,
+    now: () => `2026-08-02T12:00:0${generation}.000Z`,
+    scrypt: async (secret, salt, params) => createHash('sha256')
+      .update(secret)
+      .update(salt)
+      .update(scryptKey(params))
+      .digest(),
+    sealWithAad,
+    openWithAad,
   }
 }
 

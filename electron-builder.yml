@@ -39,3 +39,17 @@ mac:
 dmg:
   sign: false
   title: vault-OC
+  background: build/dmg-background.png
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 130
+      y: 218
+      type: file
+    - x: 410
+      y: 218
+      type: link
+      path: /Applications
+  iconSize: 92
+  iconTextSize: 13

@@ -42,4 +42,12 @@ describe('Keychain identity migration source contract', () => {
     expect(retrieval).toContain('shouldRefreshProtectedItem = true')
     expect(retrieval).toContain('replaceStoredKey(data)')
   })
+
+  it('uses a no-fallback, zero-reuse biometric policy for Agent approval retrieval', () => {
+    expect(source).toContain('case "retrieve", "retrieve-biometric"')
+    expect(source).toContain('.deviceOwnerAuthenticationWithBiometrics')
+    expect(source).toContain('context.touchIDAuthenticationAllowableReuseDuration = 0')
+    expect(source).toContain('context.localizedFallbackTitle = ""')
+    expect(source).toContain('retrieveKey(prompt: suppliedPrompt, biometricOnly: args[1] == "retrieve-biometric")')
+  })
 })

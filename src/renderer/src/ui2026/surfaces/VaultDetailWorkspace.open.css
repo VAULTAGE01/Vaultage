@@ -1,0 +1,17 @@
+.ui26-vault-detail-workspace { display: grid; min-block-size: 0; grid-template-rows: auto minmax(0, 1fr); color: var(--ui26-text); }
+.ui26-vault-detail-toolbar { display: flex; align-items: center; gap: var(--ui26-space-4); padding: var(--ui26-space-3) var(--ui26-space-5); border-block-end: 1px solid var(--ui26-border); background: var(--ui26-glass-panel); }
+.ui26-vault-detail-toolbar button, .ui26-vault-detail-missing button { display: inline-flex; align-items: center; gap: var(--ui26-space-2); min-block-size: var(--ui26-control-sm); border: 0; border-radius: var(--ui26-radius-md); color: var(--ui26-text-secondary); background: transparent; font: inherit; }
+.ui26-vault-detail-toolbar button:hover, .ui26-vault-detail-missing button:hover { color: var(--ui26-text); background: var(--ui26-surface-hover); }
+.ui26-vault-detail-toolbar span, .ui26-vault-collection-items small { display: block; color: var(--ui26-text-muted); font-size: var(--ui26-type-caption); }
+.ui26-vault-detail-toolbar h1 { margin: 0; font-size: var(--ui26-type-label); }
+.ui26-vault-detail-body.is-collection { overflow: auto; }
+.ui26-vault-collection-detail { inline-size: min(100%, calc(var(--ui26-space-12) * 24)); margin-inline: auto; padding: var(--ui26-space-6) var(--ui26-space-5); }
+.ui26-vault-collection-hero { display: flex; gap: var(--ui26-space-4); padding: var(--ui26-space-5); border: 1px solid var(--ui26-border); border-radius: var(--ui26-radius-lg); background: var(--ui26-glass-panel); }
+.ui26-vault-collection-hero p, .ui26-vault-collection-hero h1 { margin: 0; }
+.ui26-vault-collection-items { display: grid; gap: var(--ui26-space-3); margin: var(--ui26-space-5) 0 0; padding: 0; list-style: none; }
+.ui26-vault-collection-items button { display: grid; inline-size: 100%; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--ui26-space-3); align-items: center; padding: var(--ui26-space-3); border: 1px solid var(--ui26-border); border-radius: var(--ui26-radius-md); color: var(--ui26-text); background: var(--ui26-glass-card); font: inherit; text-align: start; }
+.ui26-vault-collection-items button:hover { background: var(--ui26-surface-hover); }
+.ui26-vault-collection-items strong, .ui26-vault-collection-items em { display: block; }
+.ui26-vault-collection-items em { color: var(--ui26-text-muted); font-size: var(--ui26-type-caption); font-style: normal; }
+.ui26-vault-detail-empty, .ui26-vault-detail-missing { display: grid; place-items: center; gap: var(--ui26-space-2); padding: var(--ui26-space-8); color: var(--ui26-text-secondary); text-align: center; }
+@media (max-width: 620px) { .ui26-vault-detail-toolbar { align-items: flex-start; flex-direction: column; } .ui26-vault-collection-detail { padding: var(--ui26-space-4) var(--ui26-space-3); } .ui26-vault-collection-items em { display: none; } }

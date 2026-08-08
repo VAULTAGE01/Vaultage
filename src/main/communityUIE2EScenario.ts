@@ -13,6 +13,7 @@ import {
   closeCommunityUIE2E,
   createCommunityUIE2EResources,
   installProjectFolderDialog,
+  installRecoveryKitSaveDialog,
   launchCommunityUIE2E,
 } from './communityUIE2ERun'
 import {
@@ -26,6 +27,7 @@ import { verifyCommunityProjectPin } from './communityUIE2EProjectPin'
 
 const SCENARIO_NAMES = [
   'setup',
+  'multi-vault',
   'sidebar-drag-drop',
   'secret-context',
   'vault-controls',
@@ -117,7 +119,8 @@ async function unlockWithPassword(page: Page): Promise<void> {
   await passwordMode.click()
   await page.getByPlaceholder('Master password').fill(SYNTHETIC_PASSWORD)
   await page.getByRole('button', { name: 'Unlock', exact: true }).click()
-  await page.getByText('My Vault', { exact: true }).first().waitFor({ state: 'visible', timeout: 25_000 })
+  await page.locator('[data-vault-hierarchy="sidebar"] [data-vault-action="switch"][aria-current="true"]')
+    .waitFor({ state: 'visible', timeout: 25_000 })
 }
 
 async function createFirstSecret(page: Page): Promise<void> {
@@ -126,7 +129,9 @@ async function createFirstSecret(page: Page): Promise<void> {
   await page.getByPlaceholder(/At least \d+ characters/u).fill(SYNTHETIC_PASSWORD)
   await page.getByPlaceholder('Repeat your password').fill(SYNTHETIC_PASSWORD)
   await page.getByRole('button', { name: 'Create Vault', exact: true }).click()
-  await page.getByText('My Vault', { exact: true }).first().waitFor({ state: 'visible', timeout: 25_000 })
+  await page.locator('[data-vault-hierarchy="sidebar"] [data-vault-action="switch"][aria-current="true"]')
+    .waitFor({ state: 'visible', timeout: 25_000 })
+  await completeInitialRecoveryKit(page)
   await dismissResearchPrompt(page)
   await createFolderThroughDialog(page)
   await page.getByRole('button', { name: 'Secret', exact: true }).click()
@@ -138,6 +143,37 @@ async function createFirstSecret(page: Page): Promise<void> {
   await ensureSensitiveCheckboxChecked(dialog)
   await dialog.getByRole('button', { name: 'Save', exact: true }).click()
   await page.getByText(SYNTHETIC_SECRET_TITLE, { exact: true }).first().waitFor({ state: 'visible', timeout: 15_000 })
+}
+
+async function verifyMultiVaultHierarchy(page: Page): Promise<void> {
+  const navigation = page.locator('aside[aria-label="Application navigation"]')
+  await navigation.locator('[data-vault-action="create"]').click()
+  const dialog = page.getByRole('dialog', { name: 'New vault' })
+  await dialog.getByLabel('Vault name', { exact: true }).fill('Synthetic Secondary')
+  await dialog.getByRole('button', { name: 'Create vault', exact: true }).click()
+
+  const vaultRows = navigation.locator('[data-vault-hierarchy="sidebar"] [data-vault-action="switch"]')
+  await expect.poll(async () => await vaultRows.count(), { timeout: 15_000 }).toBe(2)
+  const secondary = navigation.locator('[data-vault-action="switch"]').filter({ hasText: 'Synthetic Secondary' })
+  await expect.poll(async () => await secondary.getAttribute('aria-current'), { timeout: 15_000 }).toBe('true')
+
+  const original = navigation.locator('[data-vault-action="switch"]').filter({ hasText: 'Default' })
+  await original.click()
+  await expect.poll(async () => await original.getAttribute('aria-current'), { timeout: 15_000 }).toBe('true')
+}
+
+async function completeInitialRecoveryKit(page: Page): Promise<void> {
+  const dialog = page.getByRole('dialog', { name: 'Vaultage Emergency Kit' })
+  await dialog.waitFor({ state: 'visible', timeout: 15_000 })
+  await dialog.getByText(/^VLT1-/u).waitFor({ state: 'visible', timeout: 10_000 })
+  const acknowledgement = dialog.getByRole('checkbox', {
+    name: 'I saved this recovery code somewhere safe and understand Vaultage cannot recreate it.',
+    exact: true,
+  })
+  await acknowledgement.click()
+  expect(await acknowledgement.getAttribute('aria-checked')).toBe('true')
+  await dialog.getByRole('button', { name: 'Continue', exact: true }).click()
+  await dialog.waitFor({ state: 'hidden', timeout: 10_000 })
 }
 
 async function createFolderThroughDialog(page: Page): Promise<void> {
@@ -280,9 +316,14 @@ export async function runCommunityUIE2EHappyPath(rawScenarios: string | undefine
   try {
     const started = Date.now()
     application = await launchCommunityUIE2E(resources)
+    await installRecoveryKitSaveDialog(application, resources.run.tmpDir)
     let page = await mainPage(application)
     checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'setup-before-mutation'))
     await createFirstSecret(page)
+    if (selected.has('multi-vault')) {
+      await verifyMultiVaultHierarchy(page)
+      checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'multi-vault-ready'))
+    }
     const setupMilliseconds = Date.now() - started
     await captureEvidence(page, 'VAULTAGE_COMMUNITY_E2E_VAULT_EVIDENCE')
     checkpoints.push(await assertCommunityUIE2ECheckpoint(application, page, resources, 'setup-complete'))
@@ -321,7 +362,7 @@ export async function runCommunityUIE2EHappyPath(rawScenarios: string | undefine
     }
     if (selected.has('project-mapping') && application) {
       await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
-      await page.getByText('Local Project Mappings', { exact: true }).waitFor({ state: 'visible' })
+      await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor({ state: 'visible' })
       await captureEvidence(page, 'VAULTAGE_COMMUNITY_E2E_PROJECTS_DASHBOARD_EVIDENCE')
       await installProjectFolderDialog(application, resources.run.projectDir)
       await createProjectMapping(page, PROJECT_MAPPING_FIXTURE)

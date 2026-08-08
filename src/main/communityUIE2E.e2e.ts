@@ -5,7 +5,7 @@ import { runCommunityUIE2EHappyPath } from './communityUIE2EScenario'
 import { selectCommunityUIE2EScenarios } from './communityUIE2ESelection'
 
 describe.sequential('Community hidden renderer/preload/IPC happy path', () => {
-  it('proves setup, sidebar drag/drop, encrypted restart, reveal, copy, and exact Project mapping', async () => {
+  it('proves setup, multi-vault hierarchy, sidebar drag/drop, encrypted restart, reveal, copy, and exact Project mapping', async () => {
     // Given / When
     const selected = selectCommunityUIE2EScenarios(
       process.env['VAULTAGE_COMMUNITY_E2E_SCENARIOS'],

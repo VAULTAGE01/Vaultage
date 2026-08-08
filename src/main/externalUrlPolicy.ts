@@ -34,6 +34,11 @@ const ALLOWED_EXTERNAL_URL_HOSTS = new Set([
   'www.twilio.com',
 ])
 
+const ALLOWED_EXACT_EXTERNAL_URLS = new Set([
+  'https://staging.vaultage.dev/account',
+  'https://staging.vaultage.dev/account?section=security',
+])
+
 export function resolveAllowedExternalUrl(input: unknown): string | null {
   if (typeof input !== 'string') return null
   const trimmed = input.trim()
@@ -48,7 +53,8 @@ export function resolveAllowedExternalUrl(input: unknown): string | null {
 
   if (url.protocol !== 'https:') return null
   if (url.username || url.password) return null
-  if (!ALLOWED_EXTERNAL_URL_HOSTS.has(url.hostname.toLowerCase())) return null
+  if (!ALLOWED_EXTERNAL_URL_HOSTS.has(url.hostname.toLowerCase())
+    && !ALLOWED_EXACT_EXTERNAL_URLS.has(url.toString())) return null
 
   return url.toString()
 }

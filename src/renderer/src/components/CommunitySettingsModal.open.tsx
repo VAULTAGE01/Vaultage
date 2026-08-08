@@ -3,6 +3,7 @@ import { toast } from 'sonner'
 import {
   Download,
   Eye,
+  FileKey2,
   FileUp,
   History,
   KeyRound,
@@ -12,6 +13,7 @@ import {
 import { useVault } from '../vaultContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { useRecoveryKit } from './RecoveryKitCenter'
 import {
   Dialog,
   DialogContent,
@@ -39,6 +41,7 @@ export default function CommunitySettingsModal({
   onOpenShortcuts,
   onOpenChangePassword,
 }: Props) {
+  const { openRecoveryKit } = useRecoveryKit()
   const { state, setRevealPin, clearRevealPin, signOut } = useVault()
   const [pin, setPin] = useState('')
   const [masterPassword, setMasterPassword] = useState('')
@@ -116,6 +119,7 @@ export default function CommunitySettingsModal({
 
           <SettingsGroup title="Security">
             <SettingsAction icon={KeyRound} title="Change master password" detail="Rotate the password that unwraps this vault." onClick={() => closeAndRun(onOpenChangePassword)} />
+            <SettingsAction icon={FileKey2} title="Emergency Kit" detail="Create, verify, replace, or remove offline recovery for this vault." onClick={() => closeAndRun(openRecoveryKit)} />
             <div className="px-4 py-4">
               <div className="flex items-center justify-between gap-3">
                 <div>

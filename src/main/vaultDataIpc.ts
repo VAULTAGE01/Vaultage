@@ -28,6 +28,7 @@ export function registerVaultDataIpc(ipcMain: IpcMain, deps: VaultIpcDeps): void
       const commandFingerprint = fingerprintVaultMutationCommand(payload.command)
       const committed = await commitVaultUpdate(vaultKey, async (currentVault) => {
         operation.assertCurrent()
+        const vaultId = vaultRootId(currentVault)
         const currentRevision = vaultRevisionFrom(currentVault, deps.getVaultRevision())
         const priorReceipt = findVaultMutationReceipt(
           currentVault,
@@ -35,6 +36,7 @@ export function registerVaultDataIpc(ipcMain: IpcMain, deps: VaultIpcDeps): void
           commandFingerprint,
         )
         if (priorReceipt) {
+          if (priorReceipt.vaultId !== vaultId) throw new Error('Vault mutation receipt scope does not match the active vault')
           const changedData = redactVaultForRenderer(currentVault)
           return {
             // The storage queue still owns this read/decision boundary. A
@@ -84,6 +86,7 @@ export function registerVaultDataIpc(ipcMain: IpcMain, deps: VaultIpcDeps): void
         const auditEntries = deriveVaultCrudAuditEntries(currentVault, next, nextRevision)
         const received = withVaultMutationReceipt(next, {
           id: payload.mutationId,
+          vaultId,
           revision: nextRevision,
           commandType: payload.command.type,
           commandFingerprint,
@@ -167,10 +170,20 @@ function publishCommittedMutation(
       revision: receipt.revision,
       data: changedData,
       source: 'renderer-command',
+      vaultId: receipt.vaultId,
     })
   } catch (err) {
     console.error('[vault] Could not publish committed mutation snapshot:', err)
   }
+}
+
+function vaultRootId(vault: unknown): string {
+  if (!vault || typeof vault !== 'object' || Array.isArray(vault)) throw new Error('Vault root is unavailable')
+  const root = (vault as { root?: unknown }).root
+  if (!root || typeof root !== 'object' || Array.isArray(root) || typeof (root as { id?: unknown }).id !== 'string') {
+    throw new Error('Vault root is unavailable')
+  }
+  return (root as { id: string }).id
 }
 
 function publishCommittedRevision(deps: VaultIpcDeps, revision: number): void {

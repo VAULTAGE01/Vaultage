@@ -504,9 +504,19 @@ func storeKey(_ hexKey: String) -> Int32 {
 // policy independently gates newly stored items.
 // Prints the hex key to stdout on success (no trailing newline).
 
-func retrieveKey() -> Int32 {
+func retrieveKey(prompt suppliedPrompt: String?, biometricOnly: Bool) -> Int32 {
     let appName = PRIMARY_SERVICE == COMMUNITY_PRIMARY_SERVICE ? "Vaultage Community Edition" : "Vaultage"
-    let prompt = "unlock \(appName)"
+    let normalizedPrompt = suppliedPrompt?
+        .components(separatedBy: .controlCharacters).joined(separator: " ")
+        .components(separatedBy: CharacterSet(charactersIn: "\u{202A}\u{202B}\u{202C}\u{202D}\u{202E}\u{2066}\u{2067}\u{2068}\u{2069}"))
+        .joined()
+        .split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    let prompt: String
+    if let normalizedPrompt, !normalizedPrompt.isEmpty {
+        prompt = String(normalizedPrompt.prefix(512))
+    } else {
+        prompt = "Unlock \(appName)"
+    }
     var foundService: String?
     var shouldRefreshProtectedItem = false
     for service in READ_SERVICES {
@@ -543,8 +553,15 @@ func retrieveKey() -> Int32 {
 
     let context = LAContext()
     context.localizedReason = prompt
+    context.touchIDAuthenticationAllowableReuseDuration = 0
+    if biometricOnly {
+        context.localizedFallbackTitle = ""
+    }
     var authError: NSError?
-    guard context.canEvaluatePolicy(.deviceOwnerAuthentication, error: &authError) else {
+    let policy: LAPolicy = biometricOnly
+        ? .deviceOwnerAuthenticationWithBiometrics
+        : .deviceOwnerAuthentication
+    guard context.canEvaluatePolicy(policy, error: &authError) else {
         fputs("vault-keychain: local authentication unavailable: \(authError?.localizedDescription ?? "?")\n", stderr)
         return EXIT_NOTFOUND
     }
@@ -552,7 +569,7 @@ func retrieveKey() -> Int32 {
     let semaphore = DispatchSemaphore(value: 0)
     var authSucceeded = false
     var authFailure: Error?
-    context.evaluatePolicy(.deviceOwnerAuthentication, localizedReason: prompt) { success, error in
+    context.evaluatePolicy(policy, localizedReason: prompt) { success, error in
         authSucceeded = success
         authFailure = error
         semaphore.signal()
@@ -681,12 +698,19 @@ case "store":
     }
     exit(storeKey(hexKey))
 
-case "retrieve":
+case "retrieve", "retrieve-biometric":
     guard args.count == 2 else {
-        fputs("usage: vault-keychain retrieve\n", stderr)
+        fputs("usage: send a bounded reason on stdin: vault-keychain retrieve|retrieve-biometric\n", stderr)
         exit(EXIT_ERR)
     }
-    exit(retrieveKey())
+    let input = FileHandle.standardInput.readDataToEndOfFile()
+    guard input.count <= 2048,
+          let suppliedPrompt = String(data: input, encoding: .utf8)
+    else {
+        fputs("vault-keychain: invalid prompt input\n", stderr)
+        exit(EXIT_ERR)
+    }
+    exit(retrieveKey(prompt: suppliedPrompt, biometricOnly: args[1] == "retrieve-biometric"))
 
 case "remove":
     guard args.count == 2 else {

@@ -38,8 +38,7 @@ export async function readVisibleProjectCreationError(error: VisibleProjectCreat
 }
 
 export async function createProjectMapping(page: Page, fixture: ProjectMappingFixture): Promise<void> {
-  await page.getByRole('button', { name: 'Projects', exact: true }).first().click()
-  await page.getByText('Local Project Mappings', { exact: true }).waitFor({ state: 'visible' })
+  await page.getByRole('heading', { name: 'Projects', exact: true }).waitFor({ state: 'visible' })
   await page.getByRole('button', { name: 'New Project', exact: true }).click()
   await page.getByText('Attach local folder', { exact: true }).click()
   await page.getByRole('button', { name: 'Choose Folder', exact: true }).click()

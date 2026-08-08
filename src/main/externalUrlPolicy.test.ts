@@ -33,6 +33,17 @@ describe('external URL policy', () => {
     }
   })
 
+  it('allows only the exact staging account-security destination', () => {
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account')).toBe('https://staging.vaultage.dev/account')
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account?section=security')).toBe('https://staging.vaultage.dev/account?section=security')
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/')).toBeNull()
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account?next=evil')).toBeNull()
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account?section=profile')).toBeNull()
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account?section=security&next=evil')).toBeNull()
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account?section=security#unexpected')).toBeNull()
+    expect(resolveAllowedExternalUrl('https://staging.vaultage.dev/account/other')).toBeNull()
+  })
+
   it.each([
     'https://developers.cloudflare.com/fundamentals/api/get-started/create-token/',
     'https://docs.railway.com/integrations/oauth',

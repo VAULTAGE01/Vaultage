@@ -30,6 +30,10 @@ The release checks reject private feature IPC from the Community package.
   permits up to 256 MiB for the derivation.
 - The derived key wraps the vault key. Changing the master password re-wraps
   that key rather than deriving the vault key from the password.
+- An optional Emergency Kit uses a separately generated 192-bit offline code,
+  scrypt with a distinct random salt, and AES-256-GCM authenticated metadata to
+  wrap the same vault key. The code is never stored by Vaultage; the encrypted
+  recovery envelope is included in version-3 backups for same-vault recovery.
 - Vault contents are encrypted with AES-256-GCM. Each write uses a fresh
   12-byte IV; the stored payload is `[IV][authentication tag][ciphertext]`.
 - On macOS, the vault key may be stored in the local Keychain with
@@ -39,6 +43,10 @@ The release checks reject private feature IPC from the Community package.
   local user presence.
 
 Vaultage does not claim that the vault key is held in the Secure Enclave.
+
+Emergency Kit recovery is local and account-independent. WorkOS sign-in,
+account recovery, MFA, support, and Services entitlements cannot decrypt or
+reset a vault. See [emergency-kit-recovery.md](./emergency-kit-recovery.md).
 
 ## Desktop hardening
 
@@ -75,6 +83,9 @@ service.
 - Vaultage cannot protect against malware already running with the user’s
   privileges, physical compromise of an unlocked session, or an unreviewed
   build.
+- Anyone holding both a kit and its encrypted vault files can reset that
+  vault's master password. Rotation cannot revoke envelopes preserved inside
+  offline backup copies.
 - Security properties apply to the released Community package, not to an
   arbitrary local source checkout or development environment.
 

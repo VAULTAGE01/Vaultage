@@ -48,6 +48,9 @@ export interface VaultMutationReceiptAuditEntry {
 
 export interface VaultMutationReceipt {
   id: string
+  vaultId: string
+  /** Marks a receipt scoped while migrating the only pre-collection vault. */
+  legacyAuditScope?: true
   revision: number
   commandType: VaultMutationType
   commandFingerprint: string
@@ -57,6 +60,7 @@ export interface VaultMutationReceipt {
 
 export interface CreateVaultMutationReceipt {
   id: string
+  vaultId: string
   revision: number
   commandType: VaultMutationType
   commandFingerprint: string
@@ -122,6 +126,7 @@ export function auditEntriesFromVaultMutationReceipt(
     details: {
       revision: receipt.revision,
       mutationId: receipt.id,
+      vaultId: receipt.vaultId,
       receiptAuditIndex,
       ...(entry.entityKind === undefined ? {} : { entityKind: entry.entityKind }),
       ...(entry.count === undefined ? {} : { count: entry.count }),
@@ -137,6 +142,38 @@ export function listVaultMutationReceipts(vault: unknown): VaultMutationReceipt[
 }
 
 /**
+ * Scope valid pre-collection receipts to the one vault that contained them.
+ * This is intentionally called only while converting a legacy single-vault
+ * document; current multi-vault documents never infer a missing vault id.
+ */
+export function migrateLegacyVaultMutationReceipts(
+  vault: Record<string, unknown>,
+  legacyVaultId: string,
+): Record<string, unknown> {
+  validateVaultId(legacyVaultId)
+  const internal = isRecord(vault[INTERNAL_STATE_KEY]) ? vault[INTERNAL_STATE_KEY] : null
+  const raw = internal?.[MUTATION_RECEIPTS_KEY]
+  if (!Array.isArray(raw)) return vault
+
+  let changed = false
+  const receipts = raw.map(value => {
+    if (!isRecord(value) || value.vaultId !== undefined) return value
+    const receipt = parseReceipt(value, legacyVaultId)
+    if (!receipt) return value
+    changed = true
+    return receipt
+  })
+  if (!changed) return vault
+  return {
+    ...vault,
+    [INTERNAL_STATE_KEY]: {
+      ...internal,
+      [MUTATION_RECEIPTS_KEY]: receipts,
+    },
+  }
+}
+
+/**
  * Rebuild only audit entries that are absent from the authenticated retained
  * history. This closes the crash window between ciphertext rename and audit
  * append without duplicating already-published receipt entries.
@@ -144,12 +181,31 @@ export function listVaultMutationReceipts(vault: unknown): VaultMutationReceipt[
 export function pendingAuditEntriesFromVaultMutationReceipts(
   vault: unknown,
   auditEvents: readonly AuditEvent[],
+  vaultId: string,
 ): VaultCrudAuditEntry[] {
+  validateVaultId(vaultId)
+  const receipts = listVaultMutationReceipts(vault)
+  const migratedLegacyReceiptIds = new Set(receipts
+    .filter(receipt => receipt.vaultId === vaultId && receipt.legacyAuditScope)
+    .map(receipt => receipt.id))
   const published = new Set<string>()
   const legacyPublished = new Set<string>()
   for (const event of auditEvents) {
     const mutationId = event.details.mutationId
     if (typeof mutationId !== 'string') continue
+    if (event.details.vaultId === undefined && migratedLegacyReceiptIds.has(mutationId)) {
+      // Before multi-vault scoping, there was exactly one enclosing vault.
+      // Preserve the old per-entry receipt index when it exists; only truly
+      // pre-index events represent an already-published whole receipt.
+      const index = event.details.receiptAuditIndex
+      if (typeof index === 'number' && Number.isSafeInteger(index) && index >= 0) {
+        published.add(`${mutationId}:${index}`)
+      } else {
+        legacyPublished.add(mutationId)
+      }
+      continue
+    }
+    if (event.details.vaultId !== vaultId) continue
     const index = event.details.receiptAuditIndex
     if (typeof index === 'number' && Number.isSafeInteger(index) && index >= 0) {
       published.add(`${mutationId}:${index}`)
@@ -160,7 +216,8 @@ export function pendingAuditEntriesFromVaultMutationReceipts(
     }
   }
 
-  return listVaultMutationReceipts(vault).flatMap((receipt) => {
+  return receipts.flatMap((receipt) => {
+    if (receipt.vaultId !== vaultId) return []
     if (legacyPublished.has(receipt.id)) return []
     return auditEntriesFromVaultMutationReceipt(receipt)
       .filter(entry => {
@@ -172,6 +229,7 @@ export function pendingAuditEntriesFromVaultMutationReceipts(
 
 function createReceipt(input: CreateVaultMutationReceipt): VaultMutationReceipt {
   validateMutationId(input.id)
+  validateVaultId(input.vaultId)
   validateRevision(input.revision)
   if (!MUTATION_TYPES.has(input.commandType)) throw new Error('Invalid vault mutation receipt command type')
   validateCommandFingerprint(input.commandFingerprint)
@@ -181,6 +239,7 @@ function createReceipt(input: CreateVaultMutationReceipt): VaultMutationReceipt 
   const commandResult = sanitiseCommandResult(input.commandType, input.commandResult)
   return {
     id: input.id,
+    vaultId: input.vaultId,
     revision: input.revision,
     commandType: input.commandType,
     commandFingerprint: input.commandFingerprint,
@@ -201,10 +260,14 @@ function readReceipts(vault: Record<string, unknown>): VaultMutationReceipt[] {
   return parsed
 }
 
-function parseReceipt(value: unknown): VaultMutationReceipt | null {
+function parseReceipt(value: unknown, legacyVaultId?: string): VaultMutationReceipt | null {
   if (!isRecord(value)) return null
-  const { id, revision, commandType, commandFingerprint, audit } = value
+  const { id, vaultId, revision, commandType, commandFingerprint, audit } = value
   if (typeof id !== 'string' || !isSafeId(id)) return null
+  const migratedLegacyScope = vaultId === undefined && legacyVaultId !== undefined
+  const scopedVaultId = migratedLegacyScope ? legacyVaultId : vaultId
+  if (typeof scopedVaultId !== 'string' || !isSafeId(scopedVaultId)) return null
+  if (value.legacyAuditScope !== undefined && value.legacyAuditScope !== true) return null
   if (!isPositiveSafeInteger(revision)) return null
   if (typeof commandType !== 'string' || !MUTATION_TYPES.has(commandType)) return null
   if (typeof commandFingerprint !== 'string' || !SHA256_RE.test(commandFingerprint)) return null
@@ -218,6 +281,8 @@ function parseReceipt(value: unknown): VaultMutationReceipt | null {
   const parsedResult = sanitiseCommandResult(commandType as VaultMutationType, value.commandResult)
   return {
     id,
+    vaultId: scopedVaultId,
+    ...((migratedLegacyScope || value.legacyAuditScope === true) ? { legacyAuditScope: true as const } : {}),
     revision,
     commandType: commandType as VaultMutationType,
     commandFingerprint,
@@ -325,6 +390,10 @@ function isSafeId(value: string): boolean {
 
 function validateMutationId(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !isSafeId(value)) throw new Error('Invalid vault mutation id')
+}
+
+function validateVaultId(value: unknown): asserts value is string {
+  if (typeof value !== 'string' || !isSafeId(value)) throw new Error('Invalid vault mutation receipt vault id')
 }
 
 function validateCommandFingerprint(value: unknown): asserts value is string {

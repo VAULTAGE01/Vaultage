@@ -1,5 +1,6 @@
 export const COMMUNITY_UI_E2E_HAPPY_SCENARIOS = [
   'setup',
+  'multi-vault',
   'sidebar-drag-drop',
   'secret-context',
   'vault-controls',

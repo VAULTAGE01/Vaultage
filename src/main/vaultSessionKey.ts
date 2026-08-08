@@ -103,6 +103,28 @@ export class VaultSessionKeyring {
     return true
   }
 
+  /**
+   * Invalidates every in-flight operation while preserving the unlocked key.
+   * Active-vault switches use this as a synchronous authorization boundary:
+   * work admitted for vault A cannot pass a later commit or plaintext-release
+   * assertion after vault B becomes the selected scope.
+   */
+  rotateScope(): boolean {
+    if (this.invalidating || !this.key) return false
+    const previous = this.key
+    this.epochValue += 1
+    const owned = Buffer.from(previous) as BoundBuffer
+    Object.defineProperty(owned, SESSION_KEY_BINDING, {
+      value: { owner: this, epoch: this.epochValue },
+      configurable: false,
+      enumerable: false,
+      writable: false,
+    })
+    this.key = owned
+    previous.fill(0)
+    return true
+  }
+
   async invalidate(): Promise<boolean> {
     if (this.invalidationPromise) return this.invalidationPromise
 

@@ -121,12 +121,14 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('scripts/check-browser-extension-pairing.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/services-ui-e2e.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/services-provider-flow-visual-qa.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/product-onboarding-visual-qa.mjs')).toBe(true)
   })
 
   it('keeps closed UI2026 product-flow composition artifacts private', () => {
     for (const path of [
       'scripts/product-flow-composition.test.ts',
       'src/renderer/src/components/CommercialAccountSettingsContent.tsx',
+      'src/renderer/src/components/MainLayout.ui2026LaunchTransitions.test.tsx',
     ]) {
       expect(isPrivateOverlaySourcePath(path), path).toBe(true)
     }
@@ -180,6 +182,10 @@ describe('Community source boundary configuration', () => {
       'src/renderer/src/ui2026/surfaces/VaultSurface.open.css',
       'src/renderer/src/ui2026/surfaces/VaultSurface.open.test.tsx',
       'src/renderer/src/ui2026/surfaces/VaultSurface.open.tsx',
+      'src/renderer/src/ui2026/surfaces/VaultDetailWorkspace.open.css',
+      'src/renderer/src/ui2026/surfaces/VaultDetailWorkspace.open.tsx',
+      'src/renderer/src/ui2026/surfaces/VaultWorkflowDialogs.open.tsx',
+      'src/renderer/src/ui2026/surfaces/VaultWorkflowDialogs.open.test.tsx',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.test.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.test.ts',
