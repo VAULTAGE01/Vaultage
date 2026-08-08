@@ -15,12 +15,25 @@ import { findFolder, findSecret, flatSecrets, orderedFolderItems } from './lib/v
 import { ensureProjectEnvironments } from './lib/projectEnvironments'
 import { DEFAULT_LOCAL_FOLDERS } from '../../shared/defaultLocalFolders'
 import { providerTypeCategory, serviceCategoryLabel } from '#service-categories'
-import type { VaultMutationCommand } from '../../shared/vaultIpcContracts'
+import type {
+  VaultCollectionSnapshot,
+  VaultIpcApi,
+  VaultMutationCommand,
+} from '../../shared/vaultIpcContracts'
+import {
+  AUTH_SETUP_INTERRUPTED_MESSAGE,
+  type AuthRecoveryKitMaterial,
+  type AuthUnlockResult,
+} from '../../shared/authIpcContracts'
 import { toast } from 'sonner'
 import { useTextInputDialog } from './components/TextInputDialogProvider'
 import { requestSecretRevealConfirmation } from './lib/textInputRequests'
 
 export { findFolder, findSecret, flatSecrets, orderedFolderItems } from './lib/vaultTree'
+
+export function authSetupFailureMessage(_reason: unknown): string {
+  return AUTH_SETUP_INTERRUPTED_MESSAGE
+}
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
@@ -29,22 +42,27 @@ type Screen = 'checking' | 'needs_setup' | 'recovery' | 'locked' | 'unlocked'
 interface State {
   screen:           Screen
   vault:            VaultRoot | null
+  vaultCollection: VaultCollectionSnapshot | null
   selectedFolderId: string | null
   selectedSecretId: string | null
   error:            string | null
   saving:           boolean
   justCompletedSetup: boolean
+  pendingRecoveryKit: AuthRecoveryKitMaterial | null
 }
 
 type Action =
   | { type: 'SET_SCREEN';    screen: Screen }
   | { type: 'SET_RECOVERY'; error: string }
-  | { type: 'UNLOCK';        vault: VaultRoot; justCompletedSetup?: boolean }
+  | { type: 'UNLOCK';        vault: VaultRoot; justCompletedSetup?: boolean; recoveryKit?: AuthRecoveryKitMaterial }
+  | { type: 'CLEAR_PENDING_RECOVERY_KIT' }
   | { type: 'LOCK' }
   | { type: 'SELECT_FOLDER'; id: string | null }
   | { type: 'SELECT_SECRET'; id: string | null }
   | { type: 'UPDATE_VAULT';  vault: VaultRoot }
   | { type: 'REMOTE_VAULT_CHANGED'; vault: VaultRoot; revision: number }
+  | { type: 'VAULT_SCOPE_CHANGED'; vault: VaultRoot; collection: VaultCollectionSnapshot }
+  | { type: 'SET_VAULT_COLLECTION'; collection: VaultCollectionSnapshot | null }
   | { type: 'TRACK_USAGE'; secretId: string; usedAt: string }
   | { type: 'SET_REVISION'; revision: number }
   | { type: 'SET_ERROR';     error: string | null }
@@ -88,12 +106,33 @@ export interface VaultTreeMoveTarget {
   target?: VaultTreeItemRef
 }
 
+class VaultCollectionOperationError extends Error {
+  readonly name = 'VaultCollectionOperationError'
+
+  constructor(message: string) {
+    super(message)
+  }
+}
+
+function collectionFromResult(
+  result: Awaited<ReturnType<VaultIpcApi['listVaults']>>,
+): VaultCollectionSnapshot {
+  if (!result.success) {
+    throw new VaultCollectionOperationError(result.error ?? 'Could not update vaults')
+  }
+  if (!result.collection) {
+    throw new VaultCollectionOperationError('Vault operation did not return the vault list')
+  }
+  return result.collection
+}
+
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case 'SET_SCREEN':    return { ...s, screen: a.screen, error: null }
-    case 'SET_RECOVERY':  return { ...s, screen: 'recovery', vault: null, error: a.error }
-    case 'UNLOCK':        return { ...s, screen: 'unlocked', vault: a.vault, selectedFolderId: a.vault.root.id, error: null, saving: false, justCompletedSetup: a.justCompletedSetup === true }
-    case 'LOCK':          return { ...s, screen: 'locked', vault: null, selectedFolderId: null, selectedSecretId: null, saving: false, justCompletedSetup: false }
+    case 'SET_RECOVERY':  return { ...s, screen: 'recovery', vault: null, vaultCollection: null, error: a.error }
+    case 'UNLOCK':        return { ...s, screen: 'unlocked', vault: a.vault, selectedFolderId: a.vault.root.id, error: null, saving: false, justCompletedSetup: a.justCompletedSetup === true, pendingRecoveryKit: a.recoveryKit ?? null }
+    case 'CLEAR_PENDING_RECOVERY_KIT': return { ...s, pendingRecoveryKit: null }
+    case 'LOCK':          return { ...s, screen: 'locked', vault: null, vaultCollection: null, selectedFolderId: null, selectedSecretId: null, saving: false, justCompletedSetup: false, pendingRecoveryKit: null }
     case 'SELECT_FOLDER': return { ...s, selectedFolderId: a.id, selectedSecretId: null }
     case 'SELECT_SECRET': return { ...s, selectedSecretId: a.id }
     case 'UPDATE_VAULT':  return { ...s, vault: a.vault, ...reconcileSnapshotSelection(s, a.vault) }
@@ -101,6 +140,18 @@ function reducer(s: State, a: Action): State {
       if (!s.vault || a.revision <= (s.vault.revision ?? 0)) return s
       return { ...s, vault: a.vault, error: null, ...reconcileSnapshotSelection(s, a.vault) }
     }
+    case 'VAULT_SCOPE_CHANGED': return {
+      ...s,
+      screen: 'unlocked',
+      vault: a.vault,
+      vaultCollection: a.collection,
+      selectedFolderId: a.vault.root.id,
+      selectedSecretId: null,
+      error: null,
+      saving: false,
+      justCompletedSetup: false,
+    }
+    case 'SET_VAULT_COLLECTION': return { ...s, vaultCollection: a.collection }
     case 'SET_REVISION': {
       if (!s.vault || a.revision <= (s.vault.revision ?? 0)) return s
       return { ...s, vault: { ...s.vault, revision: a.revision } }
@@ -154,6 +205,12 @@ export class RendererVaultSessionChangedError extends Error {
   }
 }
 
+/** A renderer response is only allowed to affect the vault it was authored in. */
+export interface RendererVaultScope {
+  readonly epoch: number
+  readonly vaultId: string
+}
+
 /**
  * Monotonic renderer-session witness shared by authentication, queued writes,
  * and late IPC responses. A session epoch is invalidated before lock/sign-out,
@@ -194,6 +251,15 @@ export class RendererVaultSessionGuard {
 
   isCurrent(epoch: number): boolean {
     return this.unlockedValue && epoch === this.epochValue
+  }
+
+  captureScope(vaultId: string): RendererVaultScope {
+    if (!this.isCurrent(this.epochValue)) throw new RendererVaultSessionChangedError()
+    return { epoch: this.epochValue, vaultId }
+  }
+
+  isScopeCurrent(scope: RendererVaultScope, vaultId: string | null): boolean {
+    return vaultId === scope.vaultId && this.isCurrent(scope.epoch)
   }
 }
 
@@ -382,12 +448,38 @@ interface Ctx {
   setup:           (password: string) => Promise<void>
   unlockTouchID:   () => Promise<{ notFound?: boolean; cancelled?: boolean; authFailed?: boolean; touchIdInvalid?: boolean }>
   unlockPassword:  (password: string) => Promise<{ success?: boolean; wrongPassword?: boolean; touchIdRestored?: boolean }>
+  recoverWithKit: (payload: { recoveryCode: string; newPassword: string }) => Promise<{
+    success?: boolean
+    wrongRecoveryCode?: boolean
+    retryAfterMs?: number
+    error?: string
+  }>
+  restoreBackupWithKit: (payload: {
+    recoveryCode: string
+    newPassword: string
+    confirmation: string
+  }) => Promise<{
+    success?: boolean
+    cancelled?: boolean
+    wrongRecoveryCode?: boolean
+    retryAfterMs?: number
+    error?: string
+  }>
+  clearPendingRecoveryKit: () => void
   lock:            () => Promise<void>
   signOut:         () => Promise<void>
 
   // Navigation
   selectFolder: (id: string | null) => void
   selectSecret: (id: string | null) => void
+
+  // Vault collection
+  listVaults: () => Promise<VaultCollectionSnapshot>
+  createVault: (name: string) => Promise<VaultCollectionSnapshot>
+  switchVault: (vaultId: string) => Promise<VaultCollectionSnapshot>
+  renameVault: (vaultId: string, name: string) => Promise<VaultCollectionSnapshot>
+  setVaultArchived: (vaultId: string, archived: boolean) => Promise<VaultCollectionSnapshot>
+  deleteVault: (vaultId: string, confirmation: string, masterPassword: string) => Promise<VaultCollectionSnapshot>
 
   // Folders
   addFolder:    (parentId: string, name: string) => Promise<void>
@@ -457,11 +549,14 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const requestTextInput = useTextInputDialog()
   const [state, dispatch] = useReducer(reducer, {
     screen: 'checking', vault: null,
+    vaultCollection: null,
     selectedFolderId: null, selectedSecretId: null,
     error: null, saving: false,
     justCompletedSetup: false,
+    pendingRecoveryKit: null,
   })
   const vaultRef = useRef<VaultRoot | null>(null)
+  const vaultCollectionRef = useRef<VaultCollectionSnapshot | null>(null)
   const sessionGuardRef = useRef(new RendererVaultSessionGuard())
   const mutationQueueRef = useRef(new RendererVaultMutationQueue())
 
@@ -471,6 +566,10 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       vaultRef.current = state.vault
     }
   }, [state.vault])
+
+  useEffect(() => {
+    vaultCollectionRef.current = state.vaultCollection
+  }, [state.vaultCollection])
 
   const installNewerSnapshot = useCallback((vault: VaultRoot, action: 'update' | 'remote'): VaultRoot => {
     const current = vaultRef.current
@@ -484,6 +583,69 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     }
     return vault
   }, [])
+
+  const captureVaultScope = useCallback((): RendererVaultScope => {
+    const vault = vaultRef.current
+    if (!vault) throw new RendererVaultSessionChangedError()
+    return sessionGuardRef.current.captureScope(vault.root.id)
+  }, [])
+
+  const assertVaultScope = useCallback((scope: RendererVaultScope): void => {
+    if (!sessionGuardRef.current.isScopeCurrent(scope, vaultRef.current?.root.id ?? null)) {
+      throw new RendererVaultSessionChangedError()
+    }
+  }, [])
+
+  const refreshVaultCollection = useCallback(async (
+    authoredScope = captureVaultScope(),
+  ): Promise<VaultCollectionSnapshot> => {
+    assertVaultScope(authoredScope)
+    const collection = collectionFromResult(await window.vault.listVaults())
+    assertVaultScope(authoredScope)
+    vaultCollectionRef.current = collection
+    dispatch({ type: 'SET_VAULT_COLLECTION', collection })
+    return collection
+  }, [assertVaultScope, captureVaultScope])
+
+  const installVaultScope = useCallback((
+    result: Awaited<ReturnType<VaultIpcApi['switchVault']>>,
+    authoredScope: RendererVaultScope,
+  ): VaultCollectionSnapshot => {
+    // Do this before inspecting or dispatching a late response. Lock and a
+    // later unlock deliberately advance the epoch, even for the same vault.
+    assertVaultScope(authoredScope)
+    const collection = collectionFromResult(result)
+    if (!result.data) {
+      const currentVault = vaultRef.current
+      if (
+        currentVault
+        && sessionGuardRef.current.unlocked
+        && currentVault.root.id === collection.activeVaultId
+      ) {
+        vaultCollectionRef.current = collection
+        dispatch({ type: 'SET_VAULT_COLLECTION', collection })
+        return collection
+      }
+      throw new VaultCollectionOperationError('Vault changed, but its new snapshot is unavailable. Reopen Vaultage.')
+    }
+    const vault = normaliseVault(result.data)
+    if (vault.root.id !== collection.activeVaultId) {
+      throw new VaultCollectionOperationError('Vault selection did not return the active vault')
+    }
+    assertVaultScope(authoredScope)
+    sessionGuardRef.current.begin()
+    mutationQueueRef.current.reset()
+    vaultRef.current = vault
+    vaultCollectionRef.current = collection
+    dispatch({ type: 'VAULT_SCOPE_CHANGED', vault, collection })
+    return collection
+  }, [assertVaultScope])
+
+  const refreshVaultCollectionAfterUnlock = useCallback((): void => {
+    void refreshVaultCollection().catch(error => {
+      console.error('[vault] Could not load vault collection after unlock:', error)
+    })
+  }, [refreshVaultCollection])
 
   useEffect(() => {
     window.vault.status()
@@ -507,11 +669,22 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     if (!change || typeof change.revision !== 'number' || !change.data) return
     try {
       const vault = normaliseVault(change.data)
+      const vaultId = typeof change.vaultId === 'string' ? change.vaultId : vault.root.id
+      if (vaultId !== vault.root.id) return
+      if (change.source === 'vault-switch') {
+        const authoredScope = captureVaultScope()
+        void refreshVaultCollection(authoredScope).then(collection => {
+          if (collection.activeVaultId !== vaultId) return
+          installVaultScope({ success: true, collection, data: vault }, authoredScope)
+        }).catch(error => console.error('[vault] Could not refresh vault collection:', error))
+        return
+      }
+      if (vaultRef.current && vaultId !== vaultRef.current.root.id) return
       installNewerSnapshot(vault, 'remote')
     } catch (err) {
       console.error('[vault] Rejected invalid vault-change event:', err)
     }
-  }), [installNewerSnapshot])
+  }), [captureVaultScope, installNewerSnapshot, installVaultScope, refreshVaultCollection])
 
   // ── Persistence ──────────────────────────────────────────────────────────────
 
@@ -600,17 +773,31 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   const setup = useCallback(async (password: string) => {
     const authEpoch = sessionGuardRef.current.captureAuthAttempt()
     dispatch({ type: 'SET_ERROR', error: null })
-    const res = await window.vault.setup(password)
+    let res: AuthUnlockResult
+    try {
+      res = await window.vault.setup(password)
+    } catch (reason) {
+      if (sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) {
+        dispatch({ type: 'SET_ERROR', error: authSetupFailureMessage(reason) })
+      }
+      return
+    }
     if (!sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) return
     if (res.success && res.data) {
       const prepared = prepareUnlockedVault(res.data)
       sessionGuardRef.current.begin()
       mutationQueueRef.current.reset()
       vaultRef.current = prepared.vault
-      dispatch({ type: 'UNLOCK', vault: prepared.vault, justCompletedSetup: true })
+      dispatch({
+        type: 'UNLOCK',
+        vault: prepared.vault,
+        justCompletedSetup: true,
+        recoveryKit: res.recoveryKit,
+      })
       persistDefaultFolders(prepared)
+      refreshVaultCollectionAfterUnlock()
     } else dispatch({ type: 'SET_ERROR', error: res.error ?? 'Setup failed' })
-  }, [persistDefaultFolders])
+  }, [persistDefaultFolders, refreshVaultCollectionAfterUnlock])
 
   const unlockTouchID = useCallback(async () => {
     const authEpoch = sessionGuardRef.current.captureAuthAttempt()
@@ -624,6 +811,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       vaultRef.current = prepared.vault
       dispatch({ type: 'UNLOCK', vault: prepared.vault })
       persistDefaultFolders(prepared)
+      refreshVaultCollectionAfterUnlock()
     } else if (!res.cancelled) dispatch({ type: 'SET_ERROR', error: res.error ?? 'Touch ID failed' })
     return {
       notFound: res.notFound,
@@ -631,7 +819,7 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       authFailed: res.authFailed,
       touchIdInvalid: res.touchIdInvalid,
     }
-  }, [persistDefaultFolders])
+  }, [persistDefaultFolders, refreshVaultCollectionAfterUnlock])
 
   const unlockPassword = useCallback(async (password: string) => {
     const authEpoch = sessionGuardRef.current.captureAuthAttempt()
@@ -645,9 +833,67 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
       vaultRef.current = prepared.vault
       dispatch({ type: 'UNLOCK', vault: prepared.vault })
       persistDefaultFolders(prepared)
+      refreshVaultCollectionAfterUnlock()
     } else dispatch({ type: 'SET_ERROR', error: res.error ?? 'Unlock failed' })
     return { success: res.success, wrongPassword: res.wrongPassword, touchIdRestored: res.touchIdRestored }
-  }, [persistDefaultFolders])
+  }, [persistDefaultFolders, refreshVaultCollectionAfterUnlock])
+
+  const recoverWithKit = useCallback(async (payload: { recoveryCode: string; newPassword: string }) => {
+    const authEpoch = sessionGuardRef.current.captureAuthAttempt()
+    dispatch({ type: 'SET_ERROR', error: null })
+    const res = await window.vault.recoverWithKit(payload)
+    if (!sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) return { success: false }
+    if (res.success && res.data) {
+      const prepared = prepareUnlockedVault(res.data)
+      sessionGuardRef.current.begin()
+      mutationQueueRef.current.reset()
+      vaultRef.current = prepared.vault
+      dispatch({ type: 'UNLOCK', vault: prepared.vault, recoveryKit: res.recoveryKit })
+      persistDefaultFolders(prepared)
+      refreshVaultCollectionAfterUnlock()
+    } else {
+      dispatch({ type: 'SET_ERROR', error: res.error ?? 'Emergency Kit recovery failed' })
+    }
+    return {
+      success: res.success,
+      wrongRecoveryCode: res.wrongRecoveryCode,
+      retryAfterMs: res.retryAfterMs,
+      error: res.error,
+    }
+  }, [persistDefaultFolders, refreshVaultCollectionAfterUnlock])
+
+  const restoreBackupWithKit = useCallback(async (payload: {
+    recoveryCode: string
+    newPassword: string
+    confirmation: string
+  }) => {
+    const authEpoch = sessionGuardRef.current.captureAuthAttempt()
+    dispatch({ type: 'SET_ERROR', error: null })
+    const res = await window.vault.restoreBackupWithKit(payload)
+    if (!sessionGuardRef.current.isAuthAttemptCurrent(authEpoch)) return { success: false }
+    if (res.success && res.data) {
+      const prepared = prepareUnlockedVault(res.data)
+      sessionGuardRef.current.begin()
+      mutationQueueRef.current.reset()
+      vaultRef.current = prepared.vault
+      dispatch({ type: 'UNLOCK', vault: prepared.vault, recoveryKit: res.recoveryKit })
+      persistDefaultFolders(prepared)
+      refreshVaultCollectionAfterUnlock()
+    } else if (!res.cancelled) {
+      dispatch({ type: 'SET_ERROR', error: res.error ?? 'Emergency Kit backup restore failed' })
+    }
+    return {
+      success: res.success,
+      cancelled: res.cancelled,
+      wrongRecoveryCode: res.wrongRecoveryCode,
+      retryAfterMs: res.retryAfterMs,
+      error: res.error,
+    }
+  }, [persistDefaultFolders, refreshVaultCollectionAfterUnlock])
+
+  const clearPendingRecoveryKit = useCallback(() => {
+    dispatch({ type: 'CLEAR_PENDING_RECOVERY_KIT' })
+  }, [])
 
   const lock = useCallback(async () => {
     sessionGuardRef.current.end()
@@ -695,6 +941,104 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
 
   const selectFolder = useCallback((id: string | null) => dispatch({ type: 'SELECT_FOLDER', id }), [])
   const selectSecret = useCallback((id: string | null) => dispatch({ type: 'SELECT_SECRET', id }), [])
+
+  // ── Vault collection ─────────────────────────────────────────────────────────
+
+  const listVaults = useCallback(async (): Promise<VaultCollectionSnapshot> => {
+    return refreshVaultCollection()
+  }, [refreshVaultCollection])
+
+  const captureVaultCollectionMutation = useCallback(async () => {
+    const scope = captureVaultScope()
+    const collection = await refreshVaultCollection(scope)
+    return {
+      scope,
+      mutation: {
+        operationId: crypto.randomUUID(),
+        expectedRevision: collection.revision,
+      },
+    }
+  }, [captureVaultScope, refreshVaultCollection])
+
+  const invokeVaultCollectionMutation = useCallback(async (
+    authoredScope: RendererVaultScope,
+    operation: () => Promise<Awaited<ReturnType<VaultIpcApi['listVaults']>>>,
+  ) => {
+    let result: Awaited<ReturnType<VaultIpcApi['listVaults']>>
+    try {
+      result = await operation()
+    } catch {
+      // A transport failure may happen after a durable collection receipt.
+      // Retry the same caller-generated operation id exactly once.
+      assertVaultScope(authoredScope)
+      result = await operation()
+    }
+    assertVaultScope(authoredScope)
+    if (!result.success) {
+      if (result.stale && result.collection) {
+        vaultCollectionRef.current = result.collection
+        dispatch({ type: 'SET_VAULT_COLLECTION', collection: result.collection })
+      }
+      throw new VaultCollectionOperationError(result.error ?? 'Could not update vaults')
+    }
+    const collection = collectionFromResult(result)
+    return { result, collection }
+  }, [assertVaultScope])
+
+  const createVault = useCallback(async (name: string): Promise<VaultCollectionSnapshot> => {
+    const { scope: authoredScope, mutation } = await captureVaultCollectionMutation()
+    const { result } = await invokeVaultCollectionMutation(
+      authoredScope,
+      () => window.vault.createVault({ ...mutation, name }),
+    )
+    return installVaultScope(result, authoredScope)
+  }, [captureVaultCollectionMutation, installVaultScope, invokeVaultCollectionMutation])
+
+  const switchVault = useCallback(async (vaultId: string): Promise<VaultCollectionSnapshot> => {
+    const { scope: authoredScope, mutation } = await captureVaultCollectionMutation()
+    const { result } = await invokeVaultCollectionMutation(
+      authoredScope,
+      () => window.vault.switchVault({ ...mutation, vaultId }),
+    )
+    return installVaultScope(result, authoredScope)
+  }, [captureVaultCollectionMutation, installVaultScope, invokeVaultCollectionMutation])
+
+  const updateVaultCollection = useCallback(async (
+    operation: (mutation: { operationId: string; expectedRevision: number }) => Promise<Awaited<ReturnType<VaultIpcApi['listVaults']>>>,
+  ): Promise<VaultCollectionSnapshot> => {
+    const { scope: authoredScope, mutation } = await captureVaultCollectionMutation()
+    const { collection } = await invokeVaultCollectionMutation(authoredScope, () => operation(mutation))
+    vaultCollectionRef.current = collection
+    dispatch({ type: 'SET_VAULT_COLLECTION', collection })
+    return collection
+  }, [captureVaultCollectionMutation, invokeVaultCollectionMutation])
+
+  const renameVault = useCallback(async (
+    vaultId: string,
+    name: string,
+  ): Promise<VaultCollectionSnapshot> => {
+    return updateVaultCollection(mutation => window.vault.renameVault({ ...mutation, vaultId, name }))
+  }, [updateVaultCollection])
+
+  const setVaultArchived = useCallback(async (
+    vaultId: string,
+    archived: boolean,
+  ): Promise<VaultCollectionSnapshot> => {
+    return updateVaultCollection(mutation => window.vault.setVaultArchived({ ...mutation, vaultId, archived }))
+  }, [updateVaultCollection])
+
+  const deleteVault = useCallback(async (
+    vaultId: string,
+    confirmation: string,
+    masterPassword: string,
+  ): Promise<VaultCollectionSnapshot> => {
+    return updateVaultCollection(mutation => window.vault.deleteVault({
+      ...mutation,
+      vaultId,
+      confirmation,
+      masterPassword,
+    }))
+  }, [updateVaultCollection])
 
   // ── Folders ──────────────────────────────────────────────────────────────────
 
@@ -1123,8 +1467,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
   }, [runVaultCommand])
 
   const value = useMemo<Ctx>(() => ({
-    state, setup, unlockTouchID, unlockPassword, lock, signOut,
+    state, setup, unlockTouchID, unlockPassword, recoverWithKit, restoreBackupWithKit, clearPendingRecoveryKit, lock, signOut,
     selectFolder, selectSecret,
+    listVaults, createVault, switchVault, renameVault, setVaultArchived, deleteVault,
     addFolder, renameFolder, deleteFolder, duplicateFolder, moveTreeItem, sortFolderItems, importFolderTree,
     addSecret, addSecrets, addSecretsToEnvProject, updateSecret, setSecretProviderLink, deleteSecret, trackUsage, copySecretField, copySecretImageField,
     revealSecretField, revealSecretImageField, revealSecretFields,
@@ -1135,8 +1480,9 @@ export function VaultProvider({ children }: { children: React.ReactNode }) {
     setPreferences,
   }), [
     state,
-    setup, unlockTouchID, unlockPassword, lock, signOut,
+    setup, unlockTouchID, unlockPassword, recoverWithKit, restoreBackupWithKit, clearPendingRecoveryKit, lock, signOut,
     selectFolder, selectSecret,
+    listVaults, createVault, switchVault, renameVault, setVaultArchived, deleteVault,
     addFolder, renameFolder, deleteFolder, duplicateFolder, moveTreeItem, sortFolderItems, importFolderTree,
     addSecret, addSecrets, addSecretsToEnvProject, updateSecret, setSecretProviderLink, deleteSecret, trackUsage, copySecretField, copySecretImageField,
     revealSecretField, revealSecretImageField, revealSecretFields,

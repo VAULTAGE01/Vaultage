@@ -56,9 +56,7 @@ function fixtureRoot({ community }) {
   roots.push(root)
   write(root, 'package.json', `${JSON.stringify({ name: community ? 'vaultage-open-local' : 'vaultage' })}\n`)
   write(root, '.github/workflows/ci.yml', community ? communitySourceCiWorkflow() : privateSourceCiWorkflow())
-  if (community) {
-    write(root, '.github/workflows/community-release.yml', 'name: protected Community release operator\n')
-  } else {
+  if (!community) {
     for (const workflow of ['extension-store-publish.yml', 'extension-store-upload.yml', 'release.yml']) {
       write(root, `.github/workflows/${workflow}`, 'name: protected operator\n')
     }

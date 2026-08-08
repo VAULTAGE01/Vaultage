@@ -30,4 +30,12 @@ describe('Community UI E2E scenario selection', () => {
       policy: [],
     })
   })
+
+  it('routes multi-vault hierarchy through the native happy path', () => {
+    expect(selectCommunityUIE2EScenarios('multi-vault')).toEqual({
+      adversarial: [],
+      happy: ['multi-vault'],
+      policy: [],
+    })
+  })
 })

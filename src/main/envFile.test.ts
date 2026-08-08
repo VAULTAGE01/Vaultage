@@ -162,4 +162,24 @@ describe('env file writer', () => {
       await rm(dir, { recursive: true, force: true })
     }
   })
+
+  it('does not commit plaintext when asynchronous authorization is revoked after staging', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vaultage-env-file-'))
+    let checks = 0
+    try {
+      await expect(writeProjectEnvFile({
+        projectPath: dir,
+        entries: [{ envKey: 'API_KEY', value: 'secret' }],
+        authorizeCommit: async () => {
+          checks += 1
+          return checks === 1
+        },
+      })).rejects.toThrow('locked before')
+      expect(checks).toBe(2)
+      await expect(readFile(join(dir, '.env'), 'utf8')).rejects.toThrow()
+      expect((await readdir(dir)).filter(name => name.includes('.vaultage-'))).toEqual([])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
 })

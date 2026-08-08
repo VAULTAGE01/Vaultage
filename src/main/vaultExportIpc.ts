@@ -241,6 +241,7 @@ export function registerVaultExportIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
       const commandFingerprint = fingerprintVaultMutationCommand(command)
       const committed = await commitVaultUpdate(vaultKey, async currentVault => {
         operation.assertCurrent()
+        const vaultId = vaultRootId(currentVault)
         const currentRevision = vaultRevisionFrom(currentVault, deps.getVaultRevision())
         if (currentRevision !== payload.expectedRevision) {
           throw new StaleVaultMutationError(
@@ -269,6 +270,7 @@ export function registerVaultExportIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
         const auditEntries = deriveVaultCrudAuditEntries(currentVault, next, nextRevision)
         const received = withVaultMutationReceipt(next, {
           id: mutationId,
+          vaultId,
           revision: nextRevision,
           commandType: command.type,
           commandFingerprint,
@@ -307,6 +309,7 @@ export function registerVaultExportIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
           revision: committed.value.revision,
           data: committed.value.changedData,
           source: 'encrypted-import',
+          vaultId: committed.value.receipt.vaultId,
         })
       } catch (err) {
         console.error('[vault] Could not publish encrypted import snapshot:', err)
@@ -343,6 +346,15 @@ export function registerVaultExportIpc(ipcMain: IpcMain, deps: VaultIpcDeps): vo
       operation.release()
     }
   })
+}
+
+function vaultRootId(vault: unknown): string {
+  if (!vault || typeof vault !== 'object' || Array.isArray(vault)) throw new Error('Vault root is unavailable')
+  const root = (vault as { root?: unknown }).root
+  if (!root || typeof root !== 'object' || Array.isArray(root) || typeof (root as { id?: unknown }).id !== 'string') {
+    throw new Error('Vault root is unavailable')
+  }
+  return (root as { id: string }).id
 }
 
 async function exportScopedVault(

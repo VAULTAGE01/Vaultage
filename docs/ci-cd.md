@@ -123,43 +123,6 @@ Publication, release tags, signing, destructive repository operations, and
 proceeding past failed or ambiguous evidence are human-gated. Green CI or an
 automation-authored merge never supplies that approval.
 
-The public `.github/workflows/community-release.yml` workflow is the only
-official Community binary publication lane. It is manually dispatched from the
-exact current `main` commit after a fresh matching tag already exists. An
-Ubuntu preflight reruns the complete Community gate, one protected macOS job
-builds and signs the universal app and DMG, then accepts the downloaded
-artifact; an Ubuntu job attests and publishes the accepted assets. The default
-`signed-evaluation` mode skips Apple notarization and labels the DMG and
-prerelease **SIGNED EVALUATION — NOT NOTARIZED**. The `notarized` mode retains
-explicit app/DMG notarization, stapling, and Gatekeeper checks. Publication uses
-the same-repository
-`GITHUB_TOKEN`; no cross-repository release token or maintainer PAT is used.
-
-Configure the public `community-release` environment with the accountable
-release reviewer and the mode-specific signing secrets documented in
-`release-operations.md`. Signed evaluation uses certificate signing only;
-notarized releases additionally require Apple account credentials. Configure the repository's tag
-rules for `v*`. Those protections live in GitHub settings and cannot be proved
-or weakened by this repository's YAML. Until those rules and GitHub immutable
-releases are enabled, maintainers must treat published tags and releases as
-append-only and never move, overwrite, or replace them. The protected workflow
-alone uses `electron-builder.signed-evaluation.yml` or
-`electron-builder.release.yml`; ordinary local packaging continues to use the
-unsigned, non-notarizing `electron-builder.yml` contract.
-
-Community `v0.x` releases use manual updates. The app does not check for or
-install updates, and the release does not publish updater metadata. Users
-download the next DMG from the official GitHub release and verify
-`SHA256SUMS` before replacing the prior app.
-
-Generated Vault + Projects parity syncs must preserve the public-owned release
-overlay: `.github/workflows/community-release.yml`,
-`electron-builder.signed-evaluation.yml`, `electron-builder.release.yml`, and
-the generic macOS artifact record/selection helpers under `scripts/`. These
-files govern publication in this repository;
-they are not commercial feature surfaces and must not be replaced by the
-private repository's release operator.
-
 - Do not add Agent, CLI, Services/provider, browser extension, cloud/account,
   signing identity, or paid overlay code to the public Community source surface
   unless a new written decision explicitly changes the boundary.
@@ -173,8 +136,7 @@ private repository's release operator.
 
 - Preserve unrelated user changes and avoid destructive Git cleanup.
 - Keep routine GitHub-hosted CI on Ubuntu; do not add hosted macOS, scheduled
-  CI, or duplicate trigger coverage. The manually dispatched, serialized
-  Community signing workflow is the sole hosted-macOS exception.
+  CI, duplicate trigger coverage, or workflows without stale-run cancellation.
 - Keep credentials, tokens, private keys, plaintext vault content, user project
   values, and private product/release evidence out of Git and logs.
 - Update tests, docs, schemas, boundary checks, and source scans with every

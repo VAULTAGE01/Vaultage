@@ -32,7 +32,14 @@ export interface VaultIpcDeps {
     command: VaultMutationCommand,
     context: { webContentsId: number },
   ) => VaultMutationCommand | Promise<VaultMutationCommand>
-  onVaultChanged?: (change: { revision: number; data: unknown; source?: string }) => void
+  /** Revokes active-session authority before an active-vault change commits. */
+  beforeVaultScopeChange?: () => void | Promise<void>
+  onVaultChanged?: (change: {
+    revision: number
+    data: unknown
+    source?: string
+    vaultId?: string
+  }) => void
   lockVault: (notifyRenderer?: boolean, reason?: string) => void | Promise<void>
   authController: AuthController
   recordAudit: (type: AuditEventType, details?: Record<string, unknown>) => void

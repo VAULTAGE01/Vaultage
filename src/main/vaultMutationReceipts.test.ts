@@ -6,6 +6,8 @@ import {
   auditEntriesFromVaultMutationReceipt,
   fingerprintVaultMutationCommand,
   findVaultMutationReceipt,
+  listVaultMutationReceipts,
+  migrateLegacyVaultMutationReceipts,
   pendingAuditEntriesFromVaultMutationReceipts,
   withVaultMutationReceipt,
 } from './vaultMutationReceipts'
@@ -28,6 +30,7 @@ describe('vault mutation receipts', () => {
     const command = { type: 'secret.update', secret: { value: sensitiveValue } }
     const { vault, receipt } = withVaultMutationReceipt(baseVault(), {
       id,
+      vaultId: 'root',
       revision: 7,
       commandType: 'secret.update',
       commandFingerprint: fingerprintVaultMutationCommand(command),
@@ -47,6 +50,7 @@ describe('vault mutation receipts', () => {
       details: {
         revision: 7,
         mutationId: id,
+        vaultId: 'root',
         receiptAuditIndex: 0,
         entityKind: 'secret',
         count: 25,
@@ -60,6 +64,7 @@ describe('vault mutation receipts', () => {
     const id = 'mutation-reconcile'
     const received = withVaultMutationReceipt(baseVault(), {
       id,
+      vaultId: 'root',
       revision: 9,
       commandType: 'secret.update',
       commandFingerprint: fingerprintVaultMutationCommand({ type: 'secret.update', id: 'secret-a' }),
@@ -75,14 +80,114 @@ describe('vault mutation receipts', () => {
       id: 'audit-1',
       timestamp: '2026-07-11T00:00:00.000Z',
       type: 'vault.secret.updated',
-      details: { mutationId: id, receiptAuditIndex: 0 },
+      details: { mutationId: id, vaultId: 'root', receiptAuditIndex: 0 },
       previousHash: null,
       hash: 'hash',
-    }])
+    }], 'root')
 
     expect(pending).toEqual([{
       type: 'vault.preferences.updated',
-      details: { revision: 9, mutationId: id, receiptAuditIndex: 1 },
+      details: { revision: 9, mutationId: id, vaultId: 'root', receiptAuditIndex: 1 },
+    }])
+  })
+
+  it('migrates a pending single-vault receipt only into its enclosing default vault scope', () => {
+    const id = 'legacy-pending-receipt'
+    const written = withVaultMutationReceipt(baseVault(), {
+      id,
+      vaultId: 'root',
+      revision: 6,
+      commandType: 'preferences.patch',
+      commandFingerprint: fingerprintVaultMutationCommand({ type: 'preferences.patch', patch: {} }),
+      auditEntries: [{ type: 'vault.preferences.updated', details: {} }],
+    }).vault
+    const legacy = withoutReceiptVaultId(written)
+
+    const migrated = migrateLegacyVaultMutationReceipts(legacy, 'root')
+    expect(listVaultMutationReceipts(migrated)).toMatchObject([{
+      id,
+      vaultId: 'root',
+      legacyAuditScope: true,
+    }])
+    expect(pendingAuditEntriesFromVaultMutationReceipts(migrated, [], 'root')).toEqual([{
+      type: 'vault.preferences.updated',
+      details: { revision: 6, mutationId: id, vaultId: 'root', receiptAuditIndex: 0 },
+    }])
+    expect(pendingAuditEntriesFromVaultMutationReceipts(migrated, [], 'other-vault')).toEqual([])
+  })
+
+  it('does not duplicate a published pre-vault-id audit event from the legacy default vault', () => {
+    const id = 'legacy-published-receipt'
+    const written = withVaultMutationReceipt(baseVault(), {
+      id,
+      vaultId: 'root',
+      revision: 7,
+      commandType: 'preferences.patch',
+      commandFingerprint: fingerprintVaultMutationCommand({ type: 'preferences.patch', patch: {} }),
+      auditEntries: [{ type: 'vault.preferences.updated', details: {} }],
+    }).vault
+    const migrated = migrateLegacyVaultMutationReceipts(withoutReceiptVaultId(written), 'root')
+
+    expect(pendingAuditEntriesFromVaultMutationReceipts(migrated, [{
+      id: 'legacy-audit-event',
+      timestamp: '2026-08-06T00:00:00.000Z',
+      type: 'vault.preferences.updated',
+      details: { mutationId: id, receiptAuditIndex: 0 },
+      previousHash: null,
+      hash: 'hash',
+    }], 'root')).toEqual([])
+  })
+
+  it('recovers an unindexed legacy receipt tail after an indexed pre-vault-id audit event', () => {
+    const id = 'legacy-partially-published-receipt'
+    const written = withVaultMutationReceipt(baseVault(), {
+      id,
+      vaultId: 'root',
+      revision: 8,
+      commandType: 'preferences.patch',
+      commandFingerprint: fingerprintVaultMutationCommand({ type: 'preferences.patch', patch: {} }),
+      auditEntries: [
+        { type: 'vault.preferences.updated', details: {} },
+        { type: 'vault.preferences.updated', details: {} },
+      ],
+    }).vault
+    const migrated = migrateLegacyVaultMutationReceipts(withoutReceiptVaultId(written), 'root')
+
+    expect(pendingAuditEntriesFromVaultMutationReceipts(migrated, [{
+      id: 'legacy-first-audit-event',
+      timestamp: '2026-08-06T00:00:00.000Z',
+      type: 'vault.preferences.updated',
+      details: { mutationId: id, receiptAuditIndex: 0 },
+      previousHash: null,
+      hash: 'hash',
+    }], 'root')).toEqual([{
+      type: 'vault.preferences.updated',
+      details: { revision: 8, mutationId: id, vaultId: 'root', receiptAuditIndex: 1 },
+    }])
+  })
+
+  it('keeps an inactive vault receipt independent when another vault reused its operation id', () => {
+    const id = 'shared-operation-id'
+    const received = withVaultMutationReceipt(baseVault(), {
+      id,
+      vaultId: 'vault-inactive',
+      revision: 4,
+      commandType: 'preferences.patch',
+      commandFingerprint: fingerprintVaultMutationCommand({ type: 'preferences.patch', patch: {} }),
+      auditEntries: [{ type: 'vault.preferences.updated', details: {} }],
+    })
+    const pending = pendingAuditEntriesFromVaultMutationReceipts(received.vault, [{
+      id: 'audit-from-active-vault',
+      timestamp: '2026-08-06T00:00:00.000Z',
+      type: 'vault.preferences.updated',
+      details: { mutationId: id, vaultId: 'vault-active', receiptAuditIndex: 0 },
+      previousHash: null,
+      hash: 'hash',
+    }], 'vault-inactive')
+
+    expect(pending).toEqual([{
+      type: 'vault.preferences.updated',
+      details: { revision: 4, mutationId: id, vaultId: 'vault-inactive', receiptAuditIndex: 0 },
     }])
   })
 
@@ -92,6 +197,7 @@ describe('vault mutation receipts', () => {
       const command = { type: 'folder.duplicate', folderId: `folder-${revision}` }
       vault = withVaultMutationReceipt(vault, {
         id: `opaque-mutation-${revision}`,
+        vaultId: 'root',
         revision,
         commandType: 'folder.duplicate',
         commandFingerprint: fingerprintVaultMutationCommand(command),
@@ -137,6 +243,7 @@ describe('vault mutation receipts', () => {
     const commandFingerprint = fingerprintVaultMutationCommand({ type: 'preferences.patch', patch: {} })
     const next = withVaultMutationReceipt(vault, {
       id,
+      vaultId: 'root',
       revision: 3,
       commandType: 'preferences.patch',
       commandFingerprint,
@@ -158,6 +265,7 @@ describe('vault mutation receipts', () => {
     const originalFingerprint = fingerprintVaultMutationCommand(original)
     const vault = withVaultMutationReceipt(baseVault(), {
       id,
+      vaultId: 'root',
       revision: 2,
       commandType: 'folder.rename',
       commandFingerprint: originalFingerprint,
@@ -180,4 +288,11 @@ function baseVault(): Record<string, any> {
     providerGroups: [],
     envProjects: [],
   }
+}
+
+function withoutReceiptVaultId(vault: Record<string, any>): Record<string, any> {
+  const clone = structuredClone(vault)
+  const receipts = clone._vaultage.recentMutationReceipts as Array<Record<string, unknown>>
+  clone._vaultage.recentMutationReceipts = receipts.map(({ vaultId: _vaultId, ...receipt }) => receipt)
+  return clone
 }

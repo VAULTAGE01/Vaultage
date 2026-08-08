@@ -1,4 +1,5 @@
 const MAX_URL_BYTES = 512
+const MAX_PENDING_RETURN_ARGS = 4
 const RETURN_URL_RE = /^vaultage:\/\/billing\/checkout\/(returned|cancelled)\?state=([0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/
 
 export interface HostedBillingReturn {
@@ -32,4 +33,11 @@ export function findHostedBillingReturnArg(argv: readonly string[]): HostedBilli
     if (billingReturn) return billingReturn
   }
   return null
+}
+
+/** Retains only canonical billing returns supplied to the primary cold launch. */
+export function collectHostedBillingReturnArgs(argv: readonly string[]): readonly string[] {
+  return argv
+    .filter(arg => parseHostedBillingReturnUrl(arg) !== null)
+    .slice(-MAX_PENDING_RETURN_ARGS)
 }

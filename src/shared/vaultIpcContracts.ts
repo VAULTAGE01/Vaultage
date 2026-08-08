@@ -1,5 +1,9 @@
 import type { VaultExportFormat, VaultExportScope } from './vaultExport'
 import {
+  assertCertificateMetadata,
+  CertificateMetadataValidationError,
+} from './certificateMetadata'
+import {
   SUPPORTED_PROVIDER_TYPES,
   SUPPORTED_SECRET_TYPES,
   VAULT_VALIDATION_LIMITS,
@@ -90,6 +94,45 @@ export type VaultRestoreBackupPayload = {
   backupPassword: string
   confirmation: string
 }
+export type VaultRestoreBackupWithKitPayload = {
+  recoveryCode: string
+  newPassword: string
+  confirmation: string
+}
+
+export interface VaultCollectionInfo {
+  id: string
+  name: string
+  createdAt: string
+  updatedAt: string
+  archived: boolean
+}
+
+export interface VaultCollectionSnapshot {
+  revision: number
+  activeVaultId: string
+  vaults: VaultCollectionInfo[]
+}
+
+export type VaultCollectionResult = VaultBaseResult & {
+  collection?: VaultCollectionSnapshot
+  data?: unknown
+  stale?: boolean
+  alreadyCommitted?: boolean
+}
+
+export type VaultCollectionMutationPayload = {
+  operationId: string
+  expectedRevision: number
+}
+export type VaultCollectionCreatePayload = VaultCollectionMutationPayload & { name: string }
+export type VaultCollectionIdPayload = VaultCollectionMutationPayload & { vaultId: string }
+export type VaultCollectionRenamePayload = VaultCollectionIdPayload & { name: string }
+export type VaultCollectionArchivePayload = VaultCollectionIdPayload & { archived: boolean }
+export type VaultCollectionDeletePayload = VaultCollectionIdPayload & {
+  confirmation: string
+  masterPassword: string
+}
 
 export type VaultBaseResult = BaseIpcResult
 export type VaultRevisionResult = VaultBaseResult & { revision?: number }
@@ -138,9 +181,20 @@ export type VaultCommitEncryptedImportResult = VaultMutationResult & {
   sessionExpired?: boolean
   stale?: boolean
 }
-export type VaultChangedEvent = { revision: number; data: unknown; source?: string }
+export type VaultChangedEvent = {
+  revision: number
+  data: unknown
+  source?: string
+  vaultId?: string
+}
 
 export interface VaultIpcApi {
+  listVaults(): Promise<VaultCollectionResult>
+  createVault(payload: VaultCollectionCreatePayload): Promise<VaultCollectionResult>
+  switchVault(payload: VaultCollectionIdPayload): Promise<VaultCollectionResult>
+  renameVault(payload: VaultCollectionRenamePayload): Promise<VaultCollectionResult>
+  setVaultArchived(payload: VaultCollectionArchivePayload): Promise<VaultCollectionResult>
+  deleteVault(payload: VaultCollectionDeletePayload): Promise<VaultCollectionResult>
   mutate(payload: VaultMutationPayload): Promise<VaultMutationResult>
   trackUsage(payload: VaultSecretIdPayload): Promise<VaultRevisionResult>
   copySecretField(payload: VaultCopySecretFieldPayload): Promise<VaultRevisionResult>
@@ -155,6 +209,13 @@ export interface VaultIpcApi {
   signOut(): Promise<VaultBaseResult>
   backup(): Promise<VaultBackupResult>
   restoreBackup(payload: VaultRestoreBackupPayload): Promise<VaultRestoreBackupResult>
+  restoreBackupWithKit(payload: VaultRestoreBackupWithKitPayload): Promise<VaultRestoreBackupResult & {
+    data?: unknown
+    recoveryKit?: import('./authIpcContracts').AuthRecoveryKitMaterial
+    touchIdRestored?: boolean
+    wrongRecoveryCode?: boolean
+    retryAfterMs?: number
+  }>
   exportJson(payload?: VaultExportJsonPayload): Promise<VaultExportResult>
   exportScope(payload: VaultExportScopePayload): Promise<VaultExportResult>
   saveImportTemplate(): Promise<VaultExportResult>
@@ -164,6 +225,27 @@ export interface VaultIpcApi {
 }
 
 export const vaultIpcContracts = {
+  listVaults: contract<VaultNoPayload, VaultCollectionResult>('vault:list-vaults', validateNoPayload),
+  createVault: contract<VaultCollectionCreatePayload, VaultCollectionResult>(
+    'vault:create-vault',
+    validateVaultCollectionCreatePayload,
+  ),
+  switchVault: contract<VaultCollectionIdPayload, VaultCollectionResult>(
+    'vault:switch-vault',
+    validateVaultCollectionIdPayload,
+  ),
+  renameVault: contract<VaultCollectionRenamePayload, VaultCollectionResult>(
+    'vault:rename-vault',
+    validateVaultCollectionRenamePayload,
+  ),
+  setVaultArchived: contract<VaultCollectionArchivePayload, VaultCollectionResult>(
+    'vault:set-vault-archived',
+    validateVaultCollectionArchivePayload,
+  ),
+  deleteVault: contract<VaultCollectionDeletePayload, VaultCollectionResult>(
+    'vault:delete-vault',
+    validateVaultCollectionDeletePayload,
+  ),
   mutate: contract<VaultMutationPayload, VaultMutationResult>('vault:mutate', validateVaultMutationPayload),
   trackUsage: contract<VaultSecretIdPayload, VaultRevisionResult>('vault:track-usage', validateSecretIdPayload),
   copySecretField: contract<VaultCopySecretFieldPayload, VaultRevisionResult>(
@@ -205,6 +287,10 @@ export const vaultIpcContracts = {
     'vault:restore-backup',
     validateRestoreBackupPayload,
   ),
+  restoreBackupWithKit: contract<VaultRestoreBackupWithKitPayload, VaultRestoreBackupResult>(
+    'vault:restore-backup-with-kit',
+    validateRestoreBackupWithKitPayload,
+  ),
   exportJson: contract<VaultExportJsonPayload, VaultExportResult>('vault:export-json', validateExportJsonPayload),
   exportScope: contract<VaultExportScopePayload, VaultExportResult>('vault:export-scope', validateExportScopePayload),
   saveImportTemplate: contract<VaultNoPayload, VaultExportResult>('vault:save-import-template', validateNoPayload),
@@ -226,6 +312,65 @@ export const vaultIpcEvents = {
   autoLock: 'vault:auto-lock',
   changed: 'vault:changed',
 } as const
+
+function validateVaultCollectionCreatePayload(payload: unknown): VaultCollectionCreatePayload {
+  const record = requireRecord(payload, 'vault creation payload')
+  requireExactKeys(record, ['operationId', 'expectedRevision', 'name'], [], 'vault creation payload')
+  return { ...collectionMutationPayload(record), name: boundedVaultName(record.name) }
+}
+
+function validateVaultCollectionIdPayload(payload: unknown): VaultCollectionIdPayload {
+  const record = requireRecord(payload, 'vault selection payload')
+  requireExactKeys(record, ['operationId', 'expectedRevision', 'vaultId'], [], 'vault selection payload')
+  return { ...collectionMutationPayload(record), vaultId: boundedId(record.vaultId, 'vault id') }
+}
+
+function validateVaultCollectionRenamePayload(payload: unknown): VaultCollectionRenamePayload {
+  const record = requireRecord(payload, 'vault rename payload')
+  requireExactKeys(record, ['operationId', 'expectedRevision', 'vaultId', 'name'], [], 'vault rename payload')
+  return {
+    ...collectionMutationPayload(record),
+    vaultId: boundedId(record.vaultId, 'vault id'),
+    name: boundedVaultName(record.name),
+  }
+}
+
+function validateVaultCollectionArchivePayload(payload: unknown): VaultCollectionArchivePayload {
+  const record = requireRecord(payload, 'vault archive payload')
+  requireExactKeys(record, ['operationId', 'expectedRevision', 'vaultId', 'archived'], [], 'vault archive payload')
+  if (typeof record.archived !== 'boolean') throw new Error('vault archive state must be a boolean')
+  return {
+    ...collectionMutationPayload(record),
+    vaultId: boundedId(record.vaultId, 'vault id'),
+    archived: record.archived,
+  }
+}
+
+function validateVaultCollectionDeletePayload(payload: unknown): VaultCollectionDeletePayload {
+  const record = requireRecord(payload, 'vault deletion payload')
+  requireExactKeys(record, ['operationId', 'expectedRevision', 'vaultId', 'confirmation', 'masterPassword'], [], 'vault deletion payload')
+  return {
+    ...collectionMutationPayload(record),
+    vaultId: boundedId(record.vaultId, 'vault id'),
+    confirmation: boundedText(record.confirmation, 'vault deletion confirmation', 512),
+    masterPassword: boundedText(record.masterPassword, 'master password', 1_024),
+  }
+}
+
+function collectionMutationPayload(record: Record<string, unknown>): VaultCollectionMutationPayload {
+  const operationId = boundedId(record.operationId, 'vault collection operation id')
+  const expectedRevision = record.expectedRevision
+  if (typeof expectedRevision !== 'number' || !Number.isSafeInteger(expectedRevision) || expectedRevision < 1) {
+    throw new Error('vault collection revision must be a positive integer')
+  }
+  return { operationId, expectedRevision }
+}
+
+function boundedVaultName(value: unknown): string {
+  const name = boundedText(value, 'vault name', VAULT_VALIDATION_LIMITS.maxNameChars)
+  if (name.trim() !== name || /[\u0000-\u001f\u007f]/u.test(name)) throw new Error('Invalid vault name')
+  return name
+}
 
 function validateVaultMutationPayload(payload: unknown): VaultMutationPayload {
   const record = requireRecord(payload, 'vault mutation payload')
@@ -499,7 +644,7 @@ function validateSecret(value: unknown, label: string): void {
   const secret = requireRecord(value, label)
   requireExactKeys(secret, ['id', 'name', 'type', 'fields', 'notes', 'createdAt', 'updatedAt'], [
     'description', 'scope', 'tags', 'expiresAt', 'usedIn', 'lastUsedAt', 'usageCount', 'providerLink', 'agentAvailable',
-    'browserExtensionAllowed', 'revealAllowed', 'cliExportAllowed',
+    'browserExtensionAllowed', 'revealAllowed', 'cliExportAllowed', 'certificate',
   ], label)
   boundedId(secret.id, `${label} id`)
   boundedText(secret.name, `${label} name`, VAULT_VALIDATION_LIMITS.maxNameChars)
@@ -521,6 +666,26 @@ function validateSecret(value: unknown, label: string): void {
   if (secret.revealAllowed !== undefined) boundedBoolean(secret.revealAllowed, `${label} reveal availability`)
   if (secret.cliExportAllowed !== undefined) boundedBoolean(secret.cliExportAllowed, `${label} CLI export availability`)
   if (secret.providerLink !== undefined) validateProviderLink(secret.providerLink, `${label} provider link`)
+  if (secret.type === 'certificate') {
+    if (secret.certificate === undefined) throw new Error(`${label} certificate is required for certificate secrets`)
+    validateCertificateMetadataBoundary(secret.certificate, `${label} certificate`)
+  } else if (secret.certificate !== undefined) {
+    throw new Error(`${label} certificate is supported only for certificate secrets`)
+  }
+}
+
+function validateCertificateMetadataBoundary(value: unknown, label: string): void {
+  try {
+    assertCertificateMetadata(value)
+  } catch (error) {
+    if (error instanceof CertificateMetadataValidationError) {
+      if (error.code === 'unsupported_property') {
+        throw new Error(`${label} contains unsupported property ${error.field}`)
+      }
+      throw new Error(`Invalid ${label}${error.field ? ` ${error.field}` : ''}: ${error.requirement}`)
+    }
+    throw error
+  }
 }
 
 function validateSecretField(value: unknown, label: string): void {
@@ -823,6 +988,17 @@ function validateRestoreBackupPayload(payload: unknown): VaultRestoreBackupPaylo
   return {
     currentPassword: requireString(record.currentPassword, 'current password'),
     backupPassword: requireString(record.backupPassword, 'backup password'),
+    confirmation,
+  }
+}
+
+function validateRestoreBackupWithKitPayload(payload: unknown): VaultRestoreBackupWithKitPayload {
+  const record = requireRecord(payload, 'Emergency Kit backup restore payload')
+  const confirmation = requireString(record.confirmation, 'restore confirmation')
+  if (confirmation !== 'RESTORE VAULT') throw new Error('Type RESTORE VAULT to confirm backup restore')
+  return {
+    recoveryCode: requireString(record.recoveryCode, 'recovery code'),
+    newPassword: requireString(record.newPassword, 'new password'),
     confirmation,
   }
 }

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { findHostedBillingReturnArg, parseHostedBillingReturnUrl } from './billingReturnHandoff'
+import {
+  collectHostedBillingReturnArgs,
+  findHostedBillingReturnArg,
+  parseHostedBillingReturnUrl,
+} from './billingReturnHandoff'
 
 const token = '123e4567-e89b-42d3-a456-426614174000'
 
@@ -20,6 +24,31 @@ describe('hosted billing return protocol', () => {
       returnUrl('returned'),
     ])).toMatchObject({ outcome: 'returned', returnToken: token })
     expect(findHostedBillingReturnArg(['vaultage://extension/open?mode=agent'])).toBeNull()
+  })
+
+  it('collects the bounded canonical startup arguments for a cold launch', () => {
+    // Given more valid billing returns than the startup queue may retain, plus
+    // unrelated and malformed arguments.
+    const returns = [
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      '33333333-3333-4333-8333-333333333333',
+      '44444444-4444-4444-8444-444444444444',
+      '55555555-5555-4555-8555-555555555555',
+    ].map(state => `vaultage://billing/checkout/returned?state=${state}`)
+
+    // When Electron supplies the initial process arguments.
+    const collected = collectHostedBillingReturnArgs([
+      'Vaultage',
+      returns[0] ?? '',
+      'vaultage://extension/open?mode=agent',
+      ...returns.slice(1),
+      'vaultage://billing/checkout/returned?state=malformed',
+    ])
+
+    // Then only the newest four canonical returns survive for later runtime
+    // reconciliation.
+    expect(collected).toEqual(returns.slice(-4))
   })
 
   it.each([

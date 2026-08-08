@@ -120,7 +120,10 @@ export function keychainRemove(): boolean {
   return result.status === 0
 }
 
-export function keychainRetrieve(_prompt?: string): KeychainResult {
+export function keychainRetrieve(
+  prompt?: string,
+  policy: 'standard' | 'biometric-only' = 'standard',
+): KeychainResult {
   if (!IS_MAC) {
     return { key: null, cancelled: false, authFailed: false, notFound: true }
   }
@@ -129,8 +132,9 @@ export function keychainRetrieve(_prompt?: string): KeychainResult {
   if (!executable) {
     return { key: null, cancelled: false, authFailed: true, notFound: false }
   }
-  const result = spawnSync(executable, ['retrieve'], {
+  const result = spawnSync(executable, [policy === 'biometric-only' ? 'retrieve-biometric' : 'retrieve'], {
     encoding: 'utf8',
+    input: normalizeKeychainPrompt(prompt),
     env: keychainHelperEnvironment(),
     timeout: 30_000,
   })
@@ -154,4 +158,14 @@ export function keychainRetrieve(_prompt?: string): KeychainResult {
     authFailed: result.status === 3 || helperFailed,
     notFound: result.status === 4,
   }
+}
+
+export function normalizeKeychainPrompt(prompt: string | undefined): string {
+  const normalized = (prompt ?? 'Unlock Vaultage')
+    .replace(/[\u0000-\u001f\u007f]/gu, ' ')
+    .replace(/[\u202a-\u202e\u2066-\u2069]/giu, '')
+    .replace(/\s+/gu, ' ')
+    .trim()
+    .slice(0, 512)
+  return normalized || 'Unlock Vaultage'
 }

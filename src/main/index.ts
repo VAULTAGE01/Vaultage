@@ -10,7 +10,7 @@ import {
   sendExtensionHandoff,
   type ExtensionHandoff,
 } from '#extension-handoff'
-import { parseHostedBillingReturnUrl } from './billingReturnHandoff'
+import { collectHostedBillingReturnArgs, parseHostedBillingReturnUrl } from './billingReturnHandoff'
 import { AuthController } from './auth'
 import { installRendererCsp } from './contentSecurityPolicy'
 import { shouldUseWindowContentProtection } from './contentProtectionPolicy'
@@ -49,14 +49,20 @@ import {
   AUDIT_LOG_FILE,
   VAULT_DIR,
   commitAuthCredentials,
+  commitAuthAndRecoveryCredentials,
+  commitRecoveryEnvelope,
   commitRestoredVaultState,
   createVaultState,
   ensureVaultDir,
   getAuthStateStatus,
   readCredentials,
   readRecoveryCredentials,
+  readRecoveryEnvelope,
   readVault,
+  readVaultById,
+  readVaultCollection,
   updateVault,
+  validateVaultBackupSnapshot,
 } from './vaultStorage'
 import { VaultSessionChangedError, VaultSessionKeyring } from './vaultSessionKey'
 import { validateVaultSaveJson, type AppMode } from './security'
@@ -85,7 +91,12 @@ let receiptAuditReconciliationQueue = Promise.resolve()
 const OPEN_CORE_BUILD = typeof __VAULTAGE_OPEN_CORE__ !== 'undefined' && __VAULTAGE_OPEN_CORE__
 const SCREENSHOT_REVIEW_BUILD = typeof __VAULTAGE_SCREENSHOT_REVIEW_BUILD__ !== 'undefined'
   && __VAULTAGE_SCREENSHOT_REVIEW_BUILD__
-const APP_DISPLAY_NAME = OPEN_CORE_BUILD ? 'Vaultage Community' : 'Vaultage'
+const APP_IDENTITY = {
+  name: 'Vaultage Community',
+  keychainNamespace: 'community',
+  bundleId: 'xyz.arcalab.vault-oc',
+} as const
+const APP_DISPLAY_NAME = APP_IDENTITY.name
 const USER_FACING_APP_NAME = OPEN_CORE_BUILD ? 'Vaultage Community' : 'Vaultage'
 const e2eHeadlessPolicy = createE2EHeadlessPolicy(
   app.isPackaged,
@@ -121,7 +132,7 @@ let idleAutoLock: IdleAutoLockController | null = null
 let vaultRevision = 0
 let pendingExtensionHandoff: ExtensionHandoff | null = null
 let pendingExtensionHandoffUrls: string[] = []
-let pendingHostedBillingReturnUrls: string[] = []
+let pendingHostedBillingReturnUrls = [...collectHostedBillingReturnArgs(process.argv)]
 let menuBar: MenuBarController | null = null
 let menuPanelWindow: BrowserWindow | null = null
 let quitPreparing = false
@@ -179,13 +190,29 @@ function syncMenuBar(): void {
 }
 
 function notifyVaultChanged(change: VaultChangedEvent): void {
+  const vaultId = typeof change.vaultId === 'string'
+    ? change.vaultId
+    : vaultIdFromSnapshot(change.data)
+  if (!vaultId) {
+    console.error('[vault] Refused to publish an unscoped vault-change event')
+    return
+  }
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(vaultIpcEvents.changed, {
       ...change,
+      vaultId,
       data: usageBatcher.decorateSnapshot(change.data),
     })
   }
   syncMenuBar()
+}
+
+function vaultIdFromSnapshot(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  const root = (value as { root?: unknown }).root
+  if (!root || typeof root !== 'object' || Array.isArray(root)) return null
+  const id = (root as { id?: unknown }).id
+  return typeof id === 'string' && id.length > 0 ? id : null
 }
 
 const usageBatcher = new VaultUsageBatcher({
@@ -228,11 +255,15 @@ const authController = new AuthController({
     readCredentials,
     readRecoveryCredentials,
     readVault,
+    validateVaultBackupSnapshot,
     createVaultState,
     commitAuthCredentials,
-    commitRestoredVaultState: async (snapshot, key, assertCurrent) => {
+    readRecoveryEnvelope,
+    commitRecoveryEnvelope,
+    commitAuthAndRecoveryCredentials,
+    commitRestoredVaultState: async (snapshot, key, assertCurrent, replacement) => {
       await agentComposition.clearStoredAccess()
-      await commitRestoredVaultState(snapshot, key, assertCurrent)
+      await commitRestoredVaultState(snapshot, key, assertCurrent, replacement)
     },
   },
   randomId: randomUUID,
@@ -241,6 +272,7 @@ const authController = new AuthController({
 
 const agentComposition = registerAgentComposition({
   ipcMain: mainWindowIpc,
+  applicationIdentity: `${APP_IDENTITY.bundleId}:${APP_IDENTITY.keychainNamespace}`,
   pairingDirectory: VAULT_DIR, onPairingPendingChanged: syncWindowContentProtection,
   getMode: () => appMode, hasVaultKey: () => vaultSession.isUnlocked(),
   beginSessionOperation: () => vaultSession.beginOperation(),
@@ -370,7 +402,7 @@ function scheduleMutationReceiptAuditReconciliation(): void {
       if (!lease) return
       let auditMacKey: Buffer | null = null
       try {
-        const vault = await readVault(lease.key)
+        const collection = await readVaultCollection(lease.key)
         lease.assertCurrent()
         // Include every append queued by the just-completed unlock before
         // comparing durable receipts with authenticated retained history.
@@ -379,8 +411,17 @@ function scheduleMutationReceiptAuditReconciliation(): void {
         auditMacKey = deriveAuditMacKey(lease.key)
         const verified = await readVerifiedAuditLog(AUDIT_LOG_FILE, auditMacKey)
         lease.assertCurrent()
-        for (const entry of pendingAuditEntriesFromVaultMutationReceipts(vault, verified.events)) {
-          recordAudit(entry.type, entry.details)
+        // Every vault owns a separate receipt namespace. Reading the complete
+        // collection (including archives) repairs an inactive receipt that
+        // was committed before the user switched away and archived its vault.
+        for (const item of collection.vaults) {
+          const vault = item.id === collection.activeVaultId
+            ? await readVault(lease.key)
+            : await readVaultById(lease.key, item.id, { includeArchived: true })
+          lease.assertCurrent()
+          for (const entry of pendingAuditEntriesFromVaultMutationReceipts(vault, verified.events, item.id)) {
+            recordAudit(entry.type, entry.details)
+          }
         }
       } catch (err) {
         if (err instanceof VaultSessionChangedError) return
@@ -417,6 +458,20 @@ registerVaultIpc(mainWindowIpc, {
   authorizeProjectPathMutation: (currentVault, command, context) => (
     authorizeProjectPathMutation(currentVault, command, context.webContentsId, projectPathCapabilities)
   ),
+  beforeVaultScopeChange: async () => {
+    try {
+      await usageBatcher.flush()
+    } catch (error) {
+      console.error('[vault-usage] Could not flush before active-vault change:', error)
+      usageBatcher.discard('active-vault-change-flush-failed')
+    }
+    if (!vaultSession.rotateScope()) throw new Error('Not authenticated')
+    projectPathCapabilities.revokeAll()
+    providerRuntime.clearSessionAuthorizations()
+    agentComposition.rotateSession()
+    agentServer.cancelPendingRequests('Active vault changed')
+    menuPanelWindow?.hide()
+  },
   onVaultChanged: notifyVaultChanged,
   lockVault,
   authController,
@@ -872,6 +927,7 @@ function flushHostedBillingReturnUrls(): void {
   pendingHostedBillingReturnUrls = []
   for (const rawUrl of urls) receiveHostedBillingReturnUrl(rawUrl)
 }
+
 
 async function flushExtensionHandoff(): Promise<void> {
   if (!mainWindow || !pendingExtensionHandoff) return

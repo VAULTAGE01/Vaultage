@@ -3,6 +3,9 @@ import type {
   SupportedProviderType,
   SupportedSecretType,
 } from '../../shared/vaultValidation'
+import type { CertificateMetadata } from '../../shared/certificateMetadata'
+
+export type { CertificateFormat, CertificateMetadata } from '../../shared/certificateMetadata'
 
 export type SecretType = SupportedSecretType
 
@@ -43,6 +46,8 @@ export interface VaultSecret {
   browserExtensionAllowed?: boolean
   revealAllowed?: boolean
   cliExportAllowed?: boolean
+  /** Value-free identity and validity data; key/material bytes stay in fields. */
+  certificate?: CertificateMetadata
 }
 
 export interface ProviderLink {
@@ -240,6 +245,11 @@ export const SECRET_TEMPLATES: Record<SecretType, SecretField[]> = {
   secureNote: [{ key: 'Content',  value: '', sensitive: true }],
   custom:     [],
   image:      [{ key: '__image__', value: '', sensitive: true }],
+  certificate: [
+    { key: 'Certificate', value: '', sensitive: true },
+    { key: 'Private Key', value: '', sensitive: true },
+    { key: 'Passphrase', value: '', sensitive: true },
+  ],
 }
 
 export const SECRET_TYPE_LABELS: Record<SecretType, string> = {
@@ -249,6 +259,7 @@ export const SECRET_TYPE_LABELS: Record<SecretType, string> = {
   secureNote: 'Secure Note',
   custom:     'Custom',
   image:      'Image',
+  certificate: 'Certificate',
 }
 
 const OPEN_CORE_BUILD =

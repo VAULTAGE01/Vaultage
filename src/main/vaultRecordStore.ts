@@ -65,6 +65,7 @@ export interface EncodedVaultRecordStore {
 export interface DecodedVaultRecordStore {
   vault: Record<string, unknown>
   recordIds: Set<string>
+  encryptedBytes: number
 }
 
 /**
@@ -204,6 +205,7 @@ async function decodeVaultRecordStoreWithReader(
 ): Promise<DecodedVaultRecordStore> {
   const manifest = validateVaultRecordManifest(manifestValue)
   const cache = new Map<string, Promise<StoredRecord>>()
+  let encryptedBytes = 0
 
   const load = (recordId: string, expectedKind: RecordKind): Promise<StoredRecord> => {
     const safeId = validateRecordId(recordId)
@@ -211,6 +213,7 @@ async function decodeVaultRecordStoreWithReader(
     if (!pending) {
       pending = (async () => {
         const blob = await readBlob(safeId)
+        encryptedBytes += blob.byteLength
         return verifyRecordBlob(safeId, blob, vaultKey)
       })()
       cache.set(safeId, pending)
@@ -256,7 +259,7 @@ async function decodeVaultRecordStoreWithReader(
   if (manifest.providerGroupsPresent) vault.providerGroups = providerGroups
   if (preferencesRecord) vault.preferences = preferencesRecord.value
   validateVaultRoot(vault, { boundary: 'persisted' })
-  return { vault, recordIds: new Set(cache.keys()) }
+  return { vault, recordIds: new Set(cache.keys()), encryptedBytes }
 }
 
 export function isVaultRecordManifest(value: unknown): value is VaultRecordManifest {
@@ -296,21 +299,58 @@ export function validateVaultRecordManifest(value: unknown): VaultRecordManifest
 export async function readVaultRecordBlobs(
   recordsDir: string,
   recordIdsToRead: ReadonlySet<string>,
+  maxCount = maxVaultRecordCount(),
+  maxBytes = Number.MAX_SAFE_INTEGER,
 ): Promise<Map<string, Buffer>> {
-  if (recordIdsToRead.size > maxVaultRecordCount()) throw new Error('Vault contains too many records')
+  if (!Number.isSafeInteger(maxCount) || maxCount < 1 || recordIdsToRead.size > maxCount) {
+    throw new Error('Vault contains too many records')
+  }
+  validateAggregateByteLimit(maxBytes)
   const result = new Map<string, Buffer>()
+  let totalBytes = 0
   await mapLimit([...recordIdsToRead], IO_CONCURRENCY, async recordId => {
-    result.set(recordId, await readRecordBlob(recordPath(recordsDir, recordId)))
+    const blob = await readRecordBlob(recordPath(recordsDir, recordId))
+    totalBytes += blob.byteLength
+    if (totalBytes > maxBytes) throw new Error('Vault records exceed the aggregate size limit')
+    result.set(recordId, blob)
   })
   return result
+}
+
+export async function measureVaultRecordBlobBytes(
+  recordsDir: string,
+  recordIdsToMeasure: ReadonlySet<string>,
+  maxCount = maxVaultRecordCount(),
+  maxBytes = Number.MAX_SAFE_INTEGER,
+): Promise<number> {
+  if (!Number.isSafeInteger(maxCount) || maxCount < 1 || recordIdsToMeasure.size > maxCount) {
+    throw new Error('Vault contains too many records')
+  }
+  validateAggregateByteLimit(maxBytes)
+  let totalBytes = 0
+  await mapLimit([...recordIdsToMeasure], IO_CONCURRENCY, async recordId => {
+    totalBytes += await readRecordBlobSize(recordPath(recordsDir, recordId))
+    if (totalBytes > maxBytes) throw new Error('Vault records exceed the aggregate size limit')
+  })
+  return totalBytes
 }
 
 export async function writeVaultRecordBlobs(
   recordsDir: string,
   blobs: ReadonlyMap<string, Buffer>,
   beforeCommit: () => void = () => undefined,
+  maxCount = maxVaultRecordCount(),
+  maxBytes = Number.MAX_SAFE_INTEGER,
 ): Promise<void> {
-  if (blobs.size > maxVaultRecordCount()) throw new Error('Backup contains too many vault records')
+  if (!Number.isSafeInteger(maxCount) || maxCount < 1 || blobs.size > maxCount) {
+    throw new Error('Backup contains too many vault records')
+  }
+  validateAggregateByteLimit(maxBytes)
+  let totalBytes = 0
+  for (const blob of blobs.values()) {
+    totalBytes += blob.byteLength
+    if (totalBytes > maxBytes) throw new Error('Backup vault records exceed the aggregate size limit')
+  }
   await ensurePrivateDir(recordsDir)
   await mapLimit([...blobs], IO_CONCURRENCY, async ([recordId, blob]) => {
     validateRecordId(recordId)
@@ -385,6 +425,25 @@ async function readRecordBlob(path: string): Promise<Buffer> {
   } finally {
     await handle?.close().catch(() => undefined)
   }
+}
+
+async function readRecordBlobSize(path: string): Promise<number> {
+  let handle: fs.FileHandle | null = null
+  try {
+    const noFollow = typeof fsConstants.O_NOFOLLOW === 'number' ? fsConstants.O_NOFOLLOW : 0
+    handle = await fs.open(path, fsConstants.O_RDONLY | noFollow)
+    const stat = await handle.stat()
+    if (!stat.isFile() || stat.size < 29 || stat.size > MAX_VAULT_RECORD_BLOB_BYTES) {
+      throw new Error(`Vault record entry has an invalid size: ${basename(path)}`)
+    }
+    return stat.size
+  } finally {
+    await handle?.close().catch(() => undefined)
+  }
+}
+
+function validateAggregateByteLimit(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 1) throw new Error('Invalid aggregate vault-record size limit')
 }
 
 function recordPath(recordsDir: string, recordId: string): string {

@@ -25,9 +25,9 @@ describe('Community UI2026 Projects surface', () => {
 
     expect(html).toContain('class="ui26-shell is-embedded"')
     expect(html).toContain('Projects')
-    expect(html).toContain('Scan or import a local project')
-    expect(html).toContain('Manage mappings')
-    expect(html).toContain('Export .env')
+    expect(html).toContain('Scan/import local project')
+    expect(html).toContain('Manage mapping')
+    expect(html).toContain('Link vault secrets')
     expect(html).toContain('API service')
     expect(html).not.toContain('ui26-projects-hero-shell')
     expect(html).not.toContain('Keep local projects and Vault mappings in sync')
@@ -48,7 +48,8 @@ describe('Community UI2026 Projects surface', () => {
 
     expect(html).toContain('No local projects yet')
     expect(html).toContain('Add your first project')
-    expect(html).toContain('Scan or import a local project')
+    expect(html).toContain('Scan/import local project')
+    expect(html).toContain('Link vault secrets')
     expect(html).not.toContain('overflow-y-auto')
   })
 })

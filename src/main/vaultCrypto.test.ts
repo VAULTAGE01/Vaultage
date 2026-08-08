@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { open, randomVaultKey, sameKey, seal } from './vaultCrypto'
+import { open, openWithAad, randomVaultKey, sameKey, seal, sealWithAad } from './vaultCrypto'
 
 describe('vault crypto envelope', () => {
   it('round-trips AES-GCM sealed payloads', () => {
@@ -20,6 +20,16 @@ describe('vault crypto envelope', () => {
 
     expect(() => open(tampered, key)).toThrow()
     expect(() => open(sealed, randomVaultKey())).toThrow()
+  })
+
+  it('authenticates recovery-envelope metadata as AES-GCM additional data', () => {
+    const key = randomVaultKey()
+    const aad = Buffer.from('vaultage.recovery-kit.v1\0generation-a\0fingerprint-a')
+    const sealed = sealWithAad(Buffer.from('wrapped-vault-key'), key, aad)
+
+    expect(openWithAad(sealed, key, aad)).toEqual(Buffer.from('wrapped-vault-key'))
+    expect(() => openWithAad(sealed, key, Buffer.from('different-generation'))).toThrow()
+    expect(() => open(sealed, key)).toThrow()
   })
 
   it('compares vault keys without accepting length mismatches', () => {

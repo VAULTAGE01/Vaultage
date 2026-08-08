@@ -122,27 +122,27 @@ export function VaultDashboard({
           <QuickActionCard
             icon={<KeyRound size={28} aria-hidden />}
             title='Add secret'
-            actionLabel='Open workspace'
+            actionLabel='Add secret'
             tone='primary'
-            onActivate={actions.openWorkspace}
+            onActivate={actions.openAddSecret}
           />
           <QuickActionCard
             icon={<Upload size={28} aria-hidden />}
             title='Import or export'
-            actionLabel='Open workspace'
-            onActivate={actions.openWorkspace}
+            actionLabel='Choose transfer flow'
+            onActivate={actions.openImportOrExport}
           />
           <QuickActionCard
             icon={<Folder size={28} aria-hidden />}
             title='New collection'
-            actionLabel='Open workspace'
-            onActivate={actions.openWorkspace}
+            actionLabel='Create collection'
+            onActivate={actions.openNewCollection}
           />
           <QuickActionCard
             icon={<Settings size={28} aria-hidden />}
             title='Vault settings'
-            actionLabel='Open workspace'
-            onActivate={actions.openWorkspace}
+            actionLabel='Open settings'
+            onActivate={actions.openVaultSettings}
           />
         </div>
       </section>

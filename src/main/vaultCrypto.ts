@@ -41,17 +41,28 @@ export function currentScryptParams(): Required<ScryptParams> {
 
 // AES-256-GCM: [12B IV][16B tag][...ciphertext]
 export function seal(plain: Buffer, key: Buffer): Buffer {
+  return sealWithAad(plain, key)
+}
+
+export function sealWithAad(plain: Buffer, key: Buffer, aad?: Buffer): Buffer {
   const iv = randomBytes(12)
   const cipher = createCipheriv('aes-256-gcm', key, iv)
+  if (aad) cipher.setAAD(aad)
   const body = Buffer.concat([cipher.update(plain), cipher.final()])
   return Buffer.concat([iv, cipher.getAuthTag(), body])
 }
 
 export function open(blob: Buffer, key: Buffer): Buffer {
+  return openWithAad(blob, key)
+}
+
+export function openWithAad(blob: Buffer, key: Buffer, aad?: Buffer): Buffer {
+  if (blob.length < 29) throw new Error('Invalid AES-GCM envelope')
   const iv = blob.subarray(0, 12)
   const tag = blob.subarray(12, 28)
   const body = blob.subarray(28)
   const decipher = createDecipheriv('aes-256-gcm', key, iv)
+  if (aad) decipher.setAAD(aad)
   decipher.setAuthTag(tag)
   return Buffer.concat([decipher.update(body), decipher.final()])
 }

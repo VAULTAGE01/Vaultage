@@ -21,29 +21,22 @@ leak checks.
 
 Public desktop builds should publish:
 
-- a Developer ID signed macOS artifact,
-- an explicit `SIGNED-EVALUATION-NOT-NOTARIZED` filename and release warning
-  when Apple notarization was skipped,
+- signed/notarized macOS artifact when available,
 - SHA-256 checksums,
+- updater metadata for official builds,
 - build provenance attestation where the hosting platform supports it,
 - CycloneDX dependency and packaged-app SBOMs.
 
-Community `v0.x` updates are manual. The app intentionally has no updater
-runtime, and releases do not publish updater metadata. Download the next DMG
-from the official GitHub release and verify it before replacing the prior app.
-
-Signed evaluation prereleases are **not notarized** and must not be presented as
-production-ready. macOS may require **right-click Open** on first launch.
+Unsigned pre-release builds must be labeled as such and must not be presented as
+production-ready.
 
 ## Verification
 
 Users should verify:
 
 - the download comes from an official Vaultage release channel,
-- the checksum matches `SHA256SUMS`,
-- the code signature identifies the expected signing identity,
-- Gatekeeper/stapler validation passes only when the release is labeled
-  notarized,
+- the checksum matches `SHASUMS256.txt`,
+- macOS Gatekeeper/notarization identifies the expected signing identity,
 - the source tag or commit matches the published release notes.
 
 ## Boundary Check

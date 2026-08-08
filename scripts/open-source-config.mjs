@@ -9,8 +9,10 @@ const privateOverlaySourcePatterns = [
   /^schemas\/agent-[^/]+\.schema\.json$/,
   /^scripts\/linear-roadmap(?:\/|$)/,
   /^scripts\/run-agent-user-presence-benchmark(?:\.test\.mjs|\.sh)$/,
+  /^scripts\/(?:build-commercial-beta\.sh|commercial-beta-release\.test\.mjs)$/,
   /^scripts\/services-ui-e2e\.mjs$/,
   /^scripts\/services-provider-flow-visual-qa\.mjs$/,
+  /^scripts\/product-onboarding-visual-qa\.mjs$/,
   /^scripts\/product-flow-composition\.test\.ts$/,
   /^scripts\/check-browser-extension-pairing(?:\.test)?\.mjs$/,
   /^scripts\/mcp-demo\.mjs$/,
@@ -34,6 +36,7 @@ const privateOverlaySourcePatterns = [
   /^src\/renderer\/.*\/(?:PaidBeta|paidBeta)[^/]*\.[cm]?[jt]sx?$/,
   /^src\/renderer\/src\/components\/SettingsModal\.tsx$/,
   /^src\/renderer\/src\/components\/ModalLayoutContracts\.test\.mjs$/,
+  /^src\/renderer\/src\/components\/MainLayout\.ui2026LaunchTransitions\.test\.tsx$/,
 ]
 
 // UI2026 .open files below are explicit manual ports of official Community
@@ -67,9 +70,16 @@ export const publicUi2026SourcePaths = new Set([
   'src/renderer/src/ui2026/surfaces/VaultDashboard.open.tsx',
   'src/renderer/src/ui2026/surfaces/VaultReferenceRail.open.tsx',
   'src/renderer/src/ui2026/surfaces/VaultSearchPanel.open.tsx',
+  'src/renderer/src/ui2026/surfaces/VaultSelector.test.tsx',
+  'src/renderer/src/ui2026/surfaces/VaultSelector.tsx',
+  'src/renderer/src/ui2026/surfaces/VaultSelectorList.tsx',
   'src/renderer/src/ui2026/surfaces/VaultSurface.open.css',
   'src/renderer/src/ui2026/surfaces/VaultSurface.open.test.tsx',
   'src/renderer/src/ui2026/surfaces/VaultSurface.open.tsx',
+  'src/renderer/src/ui2026/surfaces/VaultDetailWorkspace.open.css',
+  'src/renderer/src/ui2026/surfaces/VaultDetailWorkspace.open.tsx',
+  'src/renderer/src/ui2026/surfaces/VaultWorkflowDialogs.open.tsx',
+  'src/renderer/src/ui2026/surfaces/VaultWorkflowDialogs.open.test.tsx',
   'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.test.ts',
   'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
   'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.test.ts',
@@ -481,4 +491,18 @@ mac:
 dmg:
   sign: false
   title: vault-OC
+  background: build/dmg-background.png
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 130
+      y: 218
+      type: file
+    - x: 410
+      y: 218
+      type: link
+      path: /Applications
+  iconSize: 92
+  iconTextSize: 13
 `

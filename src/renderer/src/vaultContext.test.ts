@@ -15,6 +15,7 @@ import {
   reconcileSnapshotSelection,
   trackSecretUsage,
 } from './vaultContext'
+import * as vaultContextModule from './vaultContext'
 
 function vault(rootId: string, revision?: number): VaultRoot {
   return {
@@ -38,6 +39,17 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
+
+describe('setup transport failure presentation', () => {
+  it('maps a rejected Electron setup call to a stable user-safe message', () => {
+    const normaliseFailure = Reflect.get(vaultContextModule, 'authSetupFailureMessage')
+
+    expect(normaliseFailure).toBeTypeOf('function')
+    expect(normaliseFailure(new Error('Uncaught Exception: write EPIPE at /Users/example/private-path'))).toBe(
+      'Vaultage could not finish setup safely. Reopen Vaultage to check the local vault, then try again if setup is still required.',
+    )
+  })
+})
 
 describe('canInstallVaultSnapshot', () => {
   it('accepts the first snapshot when no vault is installed', () => {
@@ -151,6 +163,27 @@ describe('RendererVaultSessionGuard', () => {
     expect(newEpoch).toBeGreaterThan(oldEpoch)
     expect(guard.isCurrent(oldEpoch)).toBe(false)
     expect(guard.isCurrent(newEpoch)).toBe(true)
+  })
+
+  it('rejects a collection response after lock before it can install a vault scope', () => {
+    const guard = new RendererVaultSessionGuard()
+    guard.begin()
+    const responseScope = guard.captureScope('vault-a')
+
+    guard.end()
+
+    expect(guard.isScopeCurrent(responseScope, 'vault-a')).toBe(false)
+  })
+
+  it('rejects a collection response after lock and a later unlock of the same vault', () => {
+    const guard = new RendererVaultSessionGuard()
+    guard.begin()
+    const responseScope = guard.captureScope('vault-a')
+
+    guard.end()
+    guard.begin()
+
+    expect(guard.isScopeCurrent(responseScope, 'vault-a')).toBe(false)
   })
 })
 

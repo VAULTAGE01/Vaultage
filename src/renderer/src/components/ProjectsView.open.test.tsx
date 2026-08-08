@@ -25,7 +25,7 @@ describe('ProjectsView Community Projects surface', () => {
     const html = renderToStaticMarkup(<ProjectsView />)
 
     expect(html).toContain('class="ui26-shell is-embedded"')
-    expect(html).toContain('Scan or import a local project')
+    expect(html).toContain('Scan/import local project')
     expect(html).toContain('No local projects yet')
     expect(html).not.toContain('Turn a local folder into a reviewed .env export')
     expect(html).not.toMatch(/Services|Agent|provider|billing|cloud environment/i)

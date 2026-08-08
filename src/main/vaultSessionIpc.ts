@@ -55,7 +55,7 @@ export function registerVaultSessionIpc(ipcMain: IpcMain, deps: VaultIpcDeps): v
       stagingDir = null
       unpublishedBackupDir = backupDir
       operation.assertCurrent()
-      deps.recordAudit('vault.backup.created', { format: 'vaultage.backup.v2' })
+      deps.recordAudit('vault.backup.created', { format: 'vaultage.backup.v3' })
       unpublishedBackupDir = null
       return { success: true, path: backupDir }
     } catch (err) {
@@ -94,6 +94,29 @@ export function registerVaultSessionIpc(ipcMain: IpcMain, deps: VaultIpcDeps): v
         path: result.filePaths[0],
         restartRequired: true,
       }
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+  })
+
+  ipcMain.handle(vaultIpc.restoreBackupWithKit.channel, async (event, rawPayload: unknown) => {
+    let payload: ReturnType<typeof vaultIpc.restoreBackupWithKit.validate>
+    try {
+      payload = vaultIpc.restoreBackupWithKit.validate(rawPayload)
+    } catch (err) {
+      return { success: false, error: err instanceof Error ? err.message : String(err) }
+    }
+    const result = await showOpenDialogForSender(event, {
+      properties: ['openDirectory'],
+      title: 'Choose a Vaultage Emergency Kit backup folder',
+    })
+    if (result.canceled) return { success: false, cancelled: true }
+    try {
+      const snapshot = await readVaultBackupSnapshot(result.filePaths[0])
+      const restored = await deps.authController.restoreBackupWithKit(snapshot, payload)
+      if (!restored.success) return restored
+      deps.recordAudit('vault.backup.restored', { sameVault: true, method: 'emergency-kit' })
+      return { ...restored, path: result.filePaths[0] }
     } catch (err) {
       return { success: false, error: err instanceof Error ? err.message : String(err) }
     }

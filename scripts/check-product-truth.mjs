@@ -315,7 +315,6 @@ if (privateTree) {
   )
   for (const [path, source] of [
     ['src/renderer/src/components/MainLayout.tsx', mainLayout],
-    ['src/renderer/src/components/PaidBetaOnboarding.tsx', paidBetaOnboarding],
     ['src/renderer/src/components/SettingsModal.tsx', settingsModal],
     ['src/renderer/src/components/AddSecretModal.tsx', addSecretModal],
     ['src/renderer/src/components/SecretDetail.tsx', secretDetail],
@@ -362,8 +361,14 @@ if (privateTree) {
   requireMatch(
     'src/renderer/src/components/PaidBetaOnboarding.tsx',
     paidBetaOnboarding,
-    /STEPS\.filter\(candidate => candidate !== 'extension'\)/u,
-    'must remove the extension onboarding step while the extension is deferred',
+    /productStartDestinations\(commercialCapabilities\.services\)/u,
+    'must expose Services in product onboarding only from the released entitlement decision',
+  )
+  forbid(
+    'src/renderer/src/components/PaidBetaOnboarding.tsx',
+    paidBetaOnboarding,
+    /browser extension|paid beta|demo setup/iu,
+    'must not present deferred extension or stale beta/demo framing in product onboarding',
   )
   forbid(
     'src/renderer/src/components/SecretDetail.tsx',
@@ -558,8 +563,8 @@ if (privateTree) {
     'must state that official Community binaries are not released',
   )
   for (const [value, description] of [
-    ['$5.99', 'monthly Pro price'],
-    ['$47.88', 'annual Pro price'],
+    ['$3.99', 'monthly Pro price'],
+    ['$31.12', 'annual Pro price'],
     ['30-day', 'trial duration'],
     ['no card', 'no-card trial promise'],
   ]) {

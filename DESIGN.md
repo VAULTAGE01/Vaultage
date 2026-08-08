@@ -39,6 +39,115 @@ the bounded grid and scroll ownership declared by .ui26-shell,
 
 ## 5. Components
 
+### Marketing hero
+
+- Structure: an informational left column and a dimensional secure-object media
+  frame on wide screens; the same elements become a single readable vertical
+  sequence below the `lg` breakpoint. Primary account and download actions
+  remain visible before the media on compact screens.
+- Tokens: `--marketing-hero-accent-*` defines the restrained violet-to-cyan
+  emphasis; `--marketing-hero-media-radius`, `--marketing-hero-media-shadow`,
+  and `--marketing-hero-media-glow` define the one elevated media treatment.
+  `--marketing-hero-content-*`, `--marketing-hero-section-*`,
+  `--marketing-hero-gap-*`, `--marketing-hero-heading-*`,
+  `--marketing-hero-copy-*`, `--marketing-hero-grid-*`, and
+  `--marketing-hero-media-glow-*` define the responsive 4:3 composition,
+  spacing, type scale, and media lighting. These are declared in
+  `marketing-web/src/index.css`; new hero code uses the corresponding
+  `marketing-hero-*` classes rather than one-off values.
+- Motion: the media video is the only decorative motion. It is muted, looping,
+  inline, and has no native controls. `prefers-reduced-motion` renders the
+  static poster instead; the frame itself has no entrance animation.
+- Accessibility: media has an accessible label and an SR-only caption; the
+  poster preserves the same 4:3 geometry to prevent layout shift.
+
+### Web account management shell
+
+- Structure: a full-height `AccountConsole` with a persistent product rail, a
+  compact utility header, and one independently scrolling main region. At
+  compact widths the rail becomes a top identity row and the section controls
+  become a horizontally scrollable navigation strip.
+- Sections: home, profile, security, sessions, billing, and devices/data. Home owns setup
+  guidance, the optional MFA recommendation, and desktop product handoffs; WorkOS widgets own identity, factor,
+  password, and hosted-session mutations; billing loads authoritative Control
+  account state and opens Stripe-hosted Checkout or the customer portal from
+  the signed-in website.
+- React primitives: `AccountSectionNav`, `AccountOverview`,
+  `AccountProductCard`, `AccountBilling`, `BillingStatePanel`, and
+  `AccountBoundaryNote`. Billing choices use a two-card intrinsic grid, while
+  loading, provider-error, and recent-auth states retain the shared console
+  surface and action hierarchy. CSS layout primitives
+  `account-console`, `account-console-sidebar`, `account-utility-bar`, and
+  `account-content-section` share the account-console surface, border, type,
+  focus, and action tokens.
+- Theme tokens: `--account-canvas`, `--account-sidebar`, `--account-surface`,
+  `--account-surface-raised`, `--account-surface-hover`, `--account-border`,
+  `--account-border-strong`, `--account-text`, `--account-text-secondary`,
+  `--account-text-muted`, `--account-accent`, `--account-accent-strong`, and
+  `--account-focus`. Dark is the default; light is an explicit persisted user
+  preference. Both modes preserve the same hierarchy and semantic status
+  colors.
+- Scale tokens: `--account-space-1` through `--account-space-8`,
+  `--account-radius-sm` through `--account-radius-xl`,
+  `--account-type-caption` through `--account-type-label`, and
+  `--account-motion-fast` / `--account-motion-standard` provide the reusable
+  spacing, shape, typography, and interaction cadence for account primitives.
+- Scroll ownership: `AccountConsole__workspace` is bounded to `100dvh`; only
+  `AccountConsole__main` owns vertical scrolling on wide screens. The compact
+  layout returns scrolling to the document and never nests primary scrollbars.
+- States: loading, signed out, signed in, active section, keyboard focus,
+  provider error, desktop download temporarily unavailable, long display
+  name/email, dark/light theme, and compact single-column reflow. An unavailable
+  customer binary is plain status text or a disabled native action, never a
+  retained download link styled as available.
+- Optional MFA state: authenticated Vaultage surfaces may recommend MFA and
+  deep-link to Account Security. Until WorkOS exposes the factor state through
+  the existing browser widget, the dashboard and desktop must describe status
+  as available for review rather than claim enabled or disabled. Signup never
+  contains an MFA prerequisite owned by Vaultage.
+- Boundary: the website may manage WorkOS identity, hosted sessions, and
+  subscription billing. It sends only a WorkOS access token plus symbolic
+  monthly/annual intent to Control; Stripe keys, Price IDs, customer IDs, and
+  subscription IDs never enter browser code. Production Checkout returns use
+  the canonical non-www `/billing/success` and `/billing/cancel` routes, and
+  portal sessions return to `/account`; Checkout and portal destinations are
+  accepted only on exact Stripe-hosted origins. Billing mutations that require
+  recent authentication use the AuthKit-generated PKCE URL with exact
+  `max_age=0`, then restore the Billing section through a fixed, same-origin
+  return state. Vaultage device, export, and deletion
+  actions remain desktop-owned because they require the enrolled device and
+  local confirmation; desktop billing settings remain a fallback for refreshing
+  local Services access, not the primary billing surface.
+- Accessibility: semantic header/nav/main landmarks, `aria-current` on the
+  selected section, descriptive action labels, visible focus, and status text
+  that never relies on color alone.
+
+### Documentation shell
+
+- Structure: a compact product header, persistent grouped documentation rail,
+  one readable article column, and a sticky in-page table of contents. Mobile
+  collapses both navigation columns into native disclosure panels before the
+  article; the document remains the only scrolling owner.
+- Primitives: `DocsHeader`, `DocsSidebar`, `DocsBreadcrumbs`, `DocsArticle`,
+  `DocsTableOfContents`, `DocsSearch`, `DocsStatus`, and `DocsPager`. Every docs
+  route is rendered from typed, searchable page metadata rather than bespoke
+  page markup.
+- Tokens: docs CSS aliases the marketing system's `--color-bg`,
+  `--color-surface`, `--color-border`, `--color-ink*`, and `--color-primary*`
+  tokens. Spacing remains on the shared 4px rhythm; article measure is bounded
+  for scanning and long-form readability.
+- States: current navigation/page, search idle/results/no-match, open/closed
+  mobile navigation, Available/Coming soon status, keyboard focus, code overflow,
+  and previous/next destinations.
+- Motion: only interactive color, opacity, and disclosure-state feedback; the
+  documentation canvas has no decorative motion.
+- Accessibility: header/nav/main/aside landmarks, skip link, labelled search,
+  `aria-current`, visible focus, semantic lists/tables/code, heading anchors,
+  and status text that never relies on color alone.
+- Boundary: the public docs describe only current product contracts and name
+  unavailable work explicitly. Provider availability is always projected to
+  exactly Available or Coming soon.
+
 ### UI2026 shell
 
 - Structure: skip link, optional context rail, bounded workspace, optional command header, main landmark.
@@ -49,7 +158,9 @@ the bounded grid and scroll ownership declared by .ui26-shell,
 ### Surface navigation
 
 - Structure: semantic nav containing roving surface buttons.
-- Variants: available Vault/Projects surfaces; optional closed-only Services availability.
+- Variants: available Vault/Projects surfaces; optional closed-only Services
+  availability, with saved connections still visible/actionable when lifecycle
+  creation is gated.
 - States: current, unavailable, focused.
 - Accessibility: aria-current page, arrow-key navigation, stable control IDs, and focus restoration after remount.
 

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import BackupRestoreScreen from './BackupRestoreScreen'
+import EmergencyRecoveryScreen from './EmergencyRecoveryScreen'
 
 type Mode = 'touchid' | 'password'
 
@@ -46,6 +47,7 @@ export default function AuthScreen() {
   const [hint,    setHint]    = useState<string | null>(null)
   const [mounted, setMounted] = useState(false)
   const [showRestore, setShowRestore] = useState(false)
+  const [showEmergencyRecovery, setShowEmergencyRecovery] = useState(false)
 
   useEffect(() => { setMounted(true); triggerTouchID() }, []) // eslint-disable-line
 
@@ -90,6 +92,7 @@ export default function AuthScreen() {
   const isRecoveryHint = hint === TOUCH_ID_RECOVERY_HINT || hint === TOUCH_ID_REFRESH_HINT
 
   if (showRestore) return <BackupRestoreScreen onCancel={() => setShowRestore(false)} />
+  if (showEmergencyRecovery) return <EmergencyRecoveryScreen onCancel={() => setShowEmergencyRecovery(false)} />
 
   return (
     <div
@@ -281,6 +284,14 @@ export default function AuthScreen() {
 	                  className="text-xs text-muted hover:text-text-secondary"
                 >
                   Use Touch ID instead
+                </Button>
+                <Button
+                  variant="link"
+                  size="sm"
+                  onClick={() => setShowEmergencyRecovery(true)}
+                  className="block w-full text-xs text-muted hover:text-text-secondary"
+                >
+                  Forgot password? Use Emergency Kit
                 </Button>
               </div>
             </div>

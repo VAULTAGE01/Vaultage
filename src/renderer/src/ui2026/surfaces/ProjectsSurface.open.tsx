@@ -1,5 +1,5 @@
-import { AlertCircle, CheckCircle2, FolderKanban, FolderSearch, Plus, Search, Settings2, Upload, Zap } from 'lucide-react'
-import { useMemo, useState, type ReactElement } from 'react'
+import { AlertCircle, CheckCircle2, FolderKanban, FolderSearch, Link2, Plus, Search, Settings2, Upload, Zap } from 'lucide-react'
+import { useMemo, useState, type ReactElement, type ReactNode } from 'react'
 import {
   CompactRow,
   QuickActionCard,
@@ -18,14 +18,18 @@ import './projectsSurface.open.css'
 
 export type ProjectsSurfaceProps = {
   readonly projects: readonly EnvProject[]
+  readonly additionalQuickAction?: ProjectQuickAction
   readonly onOpenExistingWorkspace: (projectId?: string) => void
   readonly onOpenNewProject: () => void
   readonly onOpenMappings: (projectId?: string | null) => void
   readonly onOpenExport: (projectId?: string | null) => void
 }
 
+export type ProjectQuickAction = { readonly icon: ReactNode; readonly title: string; readonly actionLabel: string; readonly onActivate: () => void }
+
 export function ProjectsSurface({
   projects,
+  additionalQuickAction,
   onOpenExistingWorkspace,
   onOpenNewProject,
   onOpenMappings,
@@ -39,6 +43,10 @@ export function ProjectsSurface({
     [projects, searchQuery],
   )
   const selectedProject = model.projects[0]?.id
+  const openProjectWorkspace = (): void => {
+    if (selectedProject) onOpenExistingWorkspace(selectedProject)
+    else onOpenNewProject()
+  }
   const openMappings = (): void => onOpenMappings(selectedProject)
   const openExport = (): void => onOpenExport(selectedProject)
   const openProject = (projectId: string): void => {
@@ -68,10 +76,10 @@ export function ProjectsSurface({
         <section className='ui26-projects-action-section' aria-labelledby='projects-quick-actions'>
           <SurfaceSectionHeader id='projects-quick-actions' title='Quick actions' icon={<Zap size={18} />} />
           <div className='ui26-projects-actions'>
-            <QuickActionCard icon={<FolderSearch size={24} />} title='Scan or import a local project' actionLabel='Open scanner' onActivate={onOpenNewProject} tone='primary' />
-            <QuickActionCard icon={<Settings2 size={24} />} title='Manage mappings' actionLabel='Review keys' onActivate={openMappings} />
-            <QuickActionCard icon={<Search size={24} />} title='Search projects' actionLabel='Find a project' onActivate={() => setSearchOpen(true)} />
-            <QuickActionCard icon={<Upload size={24} />} title='Export .env' actionLabel='Review export' onActivate={openExport} disabledReason={model.projectCount === 0 ? 'Add a project before exporting.' : undefined} tone='warning' />
+            <QuickActionCard icon={<FolderSearch size={24} />} title='Scan/import local project' actionLabel='Open scanner' onActivate={onOpenNewProject} tone='primary' />
+            {additionalQuickAction ? <QuickActionCard icon={additionalQuickAction.icon} title={additionalQuickAction.title} actionLabel={additionalQuickAction.actionLabel} onActivate={additionalQuickAction.onActivate} /> : null}
+            <QuickActionCard icon={<Settings2 size={24} />} title='Manage mapping' actionLabel='Open project' onActivate={openProjectWorkspace} />
+            <QuickActionCard icon={<Link2 size={24} />} title='Link vault secrets' actionLabel='Choose secrets' onActivate={openMappings} />
           </div>
         </section>
 
