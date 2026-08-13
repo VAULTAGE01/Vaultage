@@ -1,4 +1,4 @@
-import { useState, type ReactElement } from 'react'
+import { useState, type ComponentType, type ReactElement } from 'react'
 import { Folder, KeyRound, LockKeyhole, Upload } from 'lucide-react'
 import { useVault } from '../../vaultContext'
 import AddSecretModal from '../../components/AddSecretModal.open'
@@ -13,9 +13,14 @@ import type { VaultWorkflow } from './vaultSurfaceActions.open'
 type VaultWorkflowDialogsProps = {
   readonly workflow: VaultWorkflow | null
   readonly onClose: () => void
+  readonly addSecretModal?: ComponentType<{ readonly folderId: string, readonly onClose: () => void }>
 }
 
-export function VaultWorkflowDialogs({ workflow, onClose }: VaultWorkflowDialogsProps): ReactElement | null {
+export function VaultWorkflowDialogs({
+  workflow,
+  onClose,
+  addSecretModal: AddSecretModalComponent = AddSecretModal,
+}: VaultWorkflowDialogsProps): ReactElement | null {
   const { state, addFolder, lock } = useVault()
   const [transferStep, setTransferStep] = useState<'choose' | 'import' | 'export'>('choose')
   const [collectionName, setCollectionName] = useState('')
@@ -42,7 +47,7 @@ export function VaultWorkflowDialogs({ workflow, onClose }: VaultWorkflowDialogs
   }
 
   if (workflow === 'add-secret') {
-    return <AddSecretModal folderId={state.selectedFolderId ?? state.vault?.root.id ?? 'root'} onClose={close} />
+    return <AddSecretModalComponent folderId={state.selectedFolderId ?? state.vault?.root.id ?? 'root'} onClose={close} />
   }
   if (workflow === 'import-export') {
     if (transferStep === 'import') return <ImportModal initialFolderId={state.vault?.root.id ?? 'root'} onClose={close} />

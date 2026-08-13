@@ -39,6 +39,9 @@ function rendererChunk(id: string): string | undefined {
 
 export function resolveRendererCompositionAliases(openCore: boolean): Record<string, string> {
   return {
+    '#commercial-setup-account': openCore
+      ? resolve('src/renderer/src/commercialSetupAccount.disabled.ts')
+      : resolve('src/renderer/src/commercialSetupAccount.ts'),
     '#main-layout': openCore
       ? resolve('src/renderer/src/components/MainLayout.open.tsx')
       : resolve('src/renderer/src/components/MainLayout.tsx'),

@@ -2,6 +2,8 @@ import type { VaultExportFormat, VaultExportScope } from './vaultExport'
 import {
   assertCertificateMetadata,
   CertificateMetadataValidationError,
+  type CertificateFormat,
+  type CertificateMetadata,
 } from './certificateMetadata'
 import {
   SUPPORTED_PROVIDER_TYPES,
@@ -64,6 +66,10 @@ export type VaultCopySecretImageFieldPayload = VaultSecretFieldPayload & {
   confirmationPhrase?: string
 }
 export type VaultSaveSecretImageFieldPayload = VaultSecretFieldPayload & { plaintextConfirmation?: string }
+export type VaultPreviewCertificateMetadataPayload = {
+  format: CertificateFormat
+  certificateBase64: string
+}
 export type VaultRevealSecretFieldPayload = VaultSecretFieldPayload & {
   confirmationPhrase?: string
   pin?: string
@@ -161,6 +167,10 @@ export type VaultRestoreBackupResult = VaultBackupResult & {
   sessionChanged?: boolean
 }
 export type VaultExportResult = VaultBackupResult & { committed?: boolean }
+export type VaultPreviewCertificateMetadataResult = VaultBaseResult & {
+  certificate?: CertificateMetadata
+  code?: 'empty' | 'too_large' | 'unsupported_format' | 'multiple_certificates' | 'invalid_certificate'
+}
 export interface VaultEncryptedImportPreviewItem {
   selectionId: string
   name: string
@@ -200,6 +210,9 @@ export interface VaultIpcApi {
   copySecretField(payload: VaultCopySecretFieldPayload): Promise<VaultRevisionResult>
   copySecretImageField(payload: VaultCopySecretImageFieldPayload): Promise<VaultRevisionResult>
   saveSecretImageField(payload: VaultSaveSecretImageFieldPayload): Promise<VaultExportResult>
+  previewCertificateMetadata(
+    payload: VaultPreviewCertificateMetadataPayload,
+  ): Promise<VaultPreviewCertificateMetadataResult>
   revealSecretField(payload: VaultRevealSecretFieldPayload): Promise<VaultRevealSecretFieldResult>
   revealSecretImageField(payload: VaultRevealSecretFieldPayload): Promise<VaultRevealSecretFieldResult>
   revealSecretFields(payload: VaultRevealSecretFieldsPayload): Promise<VaultRevealSecretFieldsResult>
@@ -260,6 +273,10 @@ export const vaultIpcContracts = {
     'vault:save-secret-image-field',
     validateSaveSecretImageFieldPayload,
   ),
+  previewCertificateMetadata: contract<
+    VaultPreviewCertificateMetadataPayload,
+    VaultPreviewCertificateMetadataResult
+  >('vault:preview-certificate-metadata', validatePreviewCertificateMetadataPayload),
   revealSecretField: contract<VaultRevealSecretFieldPayload, VaultRevealSecretFieldResult>(
     'vault:reveal-secret-field',
     validateRevealSecretFieldPayload,
@@ -1055,6 +1072,24 @@ function validateSaveSecretImageFieldPayload(payload: unknown): VaultSaveSecretI
     fieldId: optionalBoundedId(record.fieldId, 'secret field id'),
     plaintextConfirmation: optionalString(record.plaintextConfirmation, 'confirmation phrase'),
   }
+}
+
+const MAX_CERTIFICATE_IMPORT_BASE64_CHARS = 1_333_336
+const BASE64_RE = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u
+
+function validatePreviewCertificateMetadataPayload(payload: unknown): VaultPreviewCertificateMetadataPayload {
+  const record = requireRecord(payload, 'certificate metadata preview payload')
+  requireExactKeys(record, ['format', 'certificateBase64'], [], 'certificate metadata preview payload')
+  const format = record.format
+  if (format !== 'PEM' && format !== 'DER' && format !== 'PKCS12') {
+    throw new Error('certificate format must be PEM, DER, or PKCS12')
+  }
+  const certificateBase64 = requireString(record.certificateBase64, 'certificate data')
+  if (certificateBase64.length > MAX_CERTIFICATE_IMPORT_BASE64_CHARS) {
+    throw new Error('certificate data is too large')
+  }
+  if (!BASE64_RE.test(certificateBase64)) throw new Error('certificate data must use base64 encoding')
+  return { format, certificateBase64 }
 }
 
 function validateRevealSecretFieldPayload(payload: unknown): VaultRevealSecretFieldPayload {

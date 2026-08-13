@@ -17,7 +17,7 @@ export const RENDERER_CSP = [
 
 export const DEVELOPMENT_RENDERER_CSP = [
   ...BASE_RENDERER_CSP,
-  "connect-src 'self' ws://localhost:* ws://127.0.0.1:* ws://[::1]:*",
+  "connect-src 'self' ws://localhost:* ws://127.0.0.1:*",
 ].join('; ')
 
 export function installRendererCsp(

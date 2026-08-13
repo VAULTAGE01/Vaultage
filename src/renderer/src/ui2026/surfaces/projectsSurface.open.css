@@ -3,31 +3,47 @@
   height: 100%;
   min-height: 0;
   align-content: start;
-  gap: var(--ui26-space-4);
+  gap: var(--ui26-space-5);
+  overflow-x: hidden;
   overflow-y: auto;
   padding-right: var(--ui26-space-1);
 }
 
 .ui26-projects-actions {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--ui26-space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr));
+  gap: var(--ui26-space-4);
 }
 
 .ui26-projects-actions .ui26-quick-action {
   min-height: 116px;
 }
 
-.ui26-projects-panels {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  min-height: 190px;
-  gap: var(--ui26-space-3);
+.ui26-projects-actions .ui26-quick-action-primary {
+  --ui26-project-action-accent: var(--ui26-category-violet);
+  --ui26-project-action-wash: var(--ui26-category-violet-wash);
+  border-color: color-mix(in srgb, var(--ui26-project-action-accent) 42%, var(--ui26-border));
+  background: radial-gradient(circle at 50% 0%, var(--ui26-project-action-wash), transparent 62%), var(--ui26-surface);
+}
+
+.ui26-projects-actions .ui26-quick-action-warning {
+  --ui26-project-action-accent: var(--ui26-category-amber);
+  --ui26-project-action-wash: var(--ui26-category-amber-wash);
+  border-color: color-mix(in srgb, var(--ui26-warning) 48%, var(--ui26-border));
+  background: radial-gradient(circle at 50% 0%, var(--ui26-project-action-wash), transparent 62%), var(--ui26-surface);
+}
+
+.ui26-projects-actions .ui26-quick-action > .ui26-icon,
+.ui26-projects-actions .ui26-quick-action > .ui26-surface-action-card-icon {
+  color: var(--ui26-project-action-accent, var(--ui26-accent));
+  border-color: color-mix(in srgb, var(--ui26-project-action-accent, var(--ui26-accent)) 40%, transparent);
+  background: radial-gradient(circle at 50% 20%, var(--ui26-project-action-wash, var(--ui26-accent-wash)), transparent 74%), var(--ui26-surface-raised);
+  filter: drop-shadow(0 0 14px var(--ui26-project-action-wash, var(--ui26-accent-wash)));
 }
 
 .ui26-projects-module {
   min-width: 0;
-  padding: var(--ui26-space-3);
+  padding: var(--ui26-space-5);
   border: 1px solid var(--ui26-border);
   border-radius: var(--ui26-radius-lg);
   background: var(--ui26-glass-workspace-base);
@@ -52,7 +68,7 @@
 
 .ui26-projects-module > header > span,
 .ui26-projects-empty span,
-.ui26-projects-summary {
+.ui26-projects-empty-line {
   color: var(--ui26-text-muted);
   font-size: var(--ui26-type-caption);
 }
@@ -67,43 +83,25 @@
   font-size: var(--ui26-type-body);
 }
 
-.ui26-projects-summary {
-  margin: var(--ui26-space-4) var(--ui26-space-2);
-  line-height: var(--ui26-leading-copy);
+.ui26-projects-empty-line {
+  margin: var(--ui26-space-3) 0;
 }
 
-.ui26-projects-module-action {
-  width: 100%;
-  min-height: var(--ui26-control-dense);
-  margin-top: var(--ui26-space-3);
-  padding: var(--ui26-space-2) var(--ui26-space-3);
-  border: 1px solid var(--ui26-border-strong);
-  border-radius: var(--ui26-radius-sm);
-  color: var(--ui26-accent-text);
-  background: transparent;
-  font: inherit;
+.ui26-projects-module .ui26-row {
+  min-height: 32px;
   font-size: var(--ui26-type-small);
-  font-weight: var(--ui26-weight-semibold);
 }
 
-.ui26-projects-module-action:hover:not(:disabled),
-.ui26-projects-module-action:focus-visible {
-  background: var(--ui26-surface-hover);
+.ui26-projects-module .ui26-row-copy small {
+  display: none;
 }
 
-.ui26-projects-module-action:disabled {
-  color: var(--ui26-text-muted);
-  cursor: not-allowed;
-  opacity: 0.55;
-}
-
-.ui26-projects-readiness {
-  display: flex;
-  align-items: center;
-  gap: var(--ui26-space-1);
-  margin: var(--ui26-space-3) var(--ui26-space-2) 0;
-  color: var(--ui26-success);
-  font-size: var(--ui26-type-caption);
+.ui26-dashboard-issues-slot .ui26-projects-module,
+.ui26-dashboard-activity-slot .ui26-projects-module {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .ui26-projects-search-backdrop {
@@ -194,16 +192,26 @@
   font-style: normal;
 }
 
+@media (min-width: 1180px) and (min-height: 700px) {
+  .ui26-projects-actions {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .ui26-projects-actions .ui26-quick-action {
+    min-height: 0;
+    padding-block: var(--ui26-space-3);
+  }
+}
+
 @media (max-width: 980px) {
-  .ui26-projects-actions,
-  .ui26-projects-panels {
+  .ui26-projects-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
 @media (max-width: 680px) {
-  .ui26-projects-actions,
-  .ui26-projects-panels {
+  .ui26-projects-actions {
     grid-template-columns: 1fr;
   }
 }

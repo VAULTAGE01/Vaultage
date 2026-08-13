@@ -38,4 +38,25 @@ describe('Community Vault UI2026 workflow dialogs', () => {
     expect(html).toContain('Import secrets')
     expect(html).toContain('Export secrets')
   })
+
+  it('uses the refined seven-option secret-type selector in the live Vault workflow', () => {
+    const html = renderToStaticMarkup(<VaultWorkflowDialogs workflow='add-secret' onClose={() => undefined} />)
+
+    expect(html).toContain('role="radiogroup"')
+    expect(html.match(/role="radio"/g)).toHaveLength(7)
+    expect(html).toContain('Certificate')
+  })
+
+  it('allows the closed Vault adapter to supply its production secret workflow', () => {
+    const html = renderToStaticMarkup(
+      <VaultWorkflowDialogs
+        workflow='add-secret'
+        onClose={() => undefined}
+        addSecretModal={({ folderId }) => <p data-testid="closed-secret-workflow">{folderId}</p>}
+      />,
+    )
+
+    expect(html).toContain('data-testid="closed-secret-workflow"')
+    expect(html).toContain('root')
+  })
 })

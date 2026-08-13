@@ -42,6 +42,7 @@ const vaultDataApi: VaultIpcApi = {
   copySecretField: (payload) => ipcRenderer.invoke(vaultIpc.copySecretField.channel, payload),
   copySecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.copySecretImageField.channel, payload),
   saveSecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.saveSecretImageField.channel, payload),
+  previewCertificateMetadata: (payload) => ipcRenderer.invoke(vaultIpc.previewCertificateMetadata.channel, payload),
   revealSecretField: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretField.channel, payload),
   revealSecretImageField: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretImageField.channel, payload),
   revealSecretFields: (payload) => ipcRenderer.invoke(vaultIpc.revealSecretFields.channel, payload),

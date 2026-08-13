@@ -50,6 +50,9 @@ Vaultage is designed around a local-first trust boundary:
 - Plaintext export paths require explicit confirmation and must be treated as sensitive.
 - Trial/Pro Services credentials are stored inside the encrypted vault and provider API calls run behind a worker-thread RPC boundary. ADR-024 keeps Agent and provider workflows out of the Community surface.
 - Sensitive main-process events are recorded in a redacted hash-chained local audit log foundation.
+- Agent setup copy is credential-free. Main alone installs scoped credentials
+  into private Codex/Claude Code config, and authenticated credential echoes in
+  request metadata are rejected with redacted rotation guidance.
 - Optional paid-beta accounts add a metadata-only cloud control plane for
   identity, device authorization, billing state, signed entitlements, account
   export, deletion, and recovery notifications. It does not receive vault
@@ -97,6 +100,9 @@ A public release must not happen until:
 - Private/Pro Local Agent API browser-origin exfiltration paths are closed.
 - Sensitive IPC surfaces have runtime validation.
 - Plaintext export and Agent approval flows require explicit user presence.
+- Agent client config targets reject symlinks, non-regular files, malformed
+  config, and path swaps; rotation keeps a persisted valid overlap until the
+  prior credential is revoked.
 - Electron is on a patched supported line.
 - A security contact and disclosure process exist.
 - The free/open and paid/closed code boundaries are documented.

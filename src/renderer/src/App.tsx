@@ -1,7 +1,7 @@
-import React from 'react'
+import React, { useState } from 'react'
 import { useVault }      from './vaultContext'
 import { ModeProvider } from '#mode-context'
-import SetupScreen      from './components/SetupScreen'
+import SetupScreen, { type SetupDestination } from './components/SetupScreen'
 import AuthScreen       from './components/AuthScreen'
 import BackupRestoreScreen from './components/BackupRestoreScreen'
 import MainLayout       from '#main-layout'
@@ -45,13 +45,16 @@ class AppErrorBoundary extends React.Component<
 
 function AppInner() {
   const { state } = useVault()
+  const [setupDestination, setSetupDestination] = useState<SetupDestination>('vault')
 
   if (state.screen === 'checking')    return (
     <div className="liquid-shell flex h-screen items-center justify-center text-sm text-muted">
       Checking vault integrity…
     </div>
   )
-  if (state.screen === 'needs_setup') return <SetupScreen />
+  if (state.screen === 'needs_setup') return (
+    <SetupScreen onSetupDestination={setSetupDestination} />
+  )
   if (state.screen === 'recovery')    return <BackupRestoreScreen recoveryError={state.error} />
   if (state.screen === 'locked')      return <AuthScreen />
   return (
@@ -60,15 +63,13 @@ function AppInner() {
     // root changes, so equal project/provider ids cannot cross vaults.
     <VaultScopeBoundary vaultId={state.vault?.root.id ?? 'unavailable'}>
       <ModeProvider>
-        <CommercialAccountProvider>
-          <RecoveryKitProvider>
-            <AppErrorBoundary>
-              <MainLayout />
-            </AppErrorBoundary>
-            <Toaster position="bottom-right" />
-            <CommercialReadiness />
-          </RecoveryKitProvider>
-        </CommercialAccountProvider>
+        <RecoveryKitProvider>
+          <AppErrorBoundary>
+            <MainLayout initialSetupDestination={setupDestination} />
+          </AppErrorBoundary>
+          <Toaster position="bottom-right" />
+          <CommercialReadiness />
+        </RecoveryKitProvider>
       </ModeProvider>
     </VaultScopeBoundary>
   )
@@ -79,5 +80,9 @@ export default function App() {
     return <MenuBarPanel />
   }
 
-  return <AppInner />
+  return (
+    <CommercialAccountProvider>
+      <AppInner />
+    </CommercialAccountProvider>
+  )
 }

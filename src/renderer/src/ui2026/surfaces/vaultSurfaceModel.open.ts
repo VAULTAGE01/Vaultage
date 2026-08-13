@@ -1,5 +1,10 @@
 import { findFolder, flatSecrets } from '@/lib/vaultTree'
 import { isPinnedSecret } from '@/lib/pinning'
+import {
+  CERTIFICATE_EXPIRY_REMINDER_DAYS,
+  CertificateProjectionError,
+  projectCertificateExpiry,
+} from '../../../../shared/certificateMetadata'
 import type { Environment } from '../primitives.open'
 import type { VaultFolder, VaultRoot, VaultSecret } from '../../types'
 
@@ -11,6 +16,7 @@ export type VaultSurfaceSecret = {
   readonly type: string
   readonly environment: Environment
   readonly timestamp: string
+  readonly reminderDueAt?: string
 }
 
 export type VaultSurfaceCollection = {
@@ -90,6 +96,24 @@ const environmentForScope = (scope?: string): Environment => {
 const secretTimestamp = (secret: VaultSecret): string =>
   secret.lastUsedAt ?? secret.updatedAt
 
+function reminderDueAt(secret: VaultSecret, now: number): string | undefined {
+  if (secret.type === 'certificate' && secret.certificate?.notBefore && secret.certificate.notAfter) {
+    try {
+      const projection = projectCertificateExpiry(secret.certificate, now)
+      return projection.status === 'valid' || projection.status === 'not-yet-valid'
+        ? undefined
+        : projection.expiresAt
+    } catch (error) {
+      if (error instanceof CertificateProjectionError) return undefined
+      throw error
+    }
+  }
+  const expiryMs = typeof secret.expiresAt === 'string' ? Date.parse(secret.expiresAt) : Number.NaN
+  return Number.isFinite(expiryMs) && expiryMs <= now + CERTIFICATE_EXPIRY_REMINDER_DAYS * 86_400_000
+    ? secret.expiresAt
+    : undefined
+}
+
 function countCollections(folder: VaultFolder): number {
   return folder.children.reduce((count, child) => count + 1 + countCollections(child), 0)
 }
@@ -120,6 +144,7 @@ export function buildVaultSurfaceModel(
     timestamp: secretTimestamp(secret),
     pinned: isPinnedSecret(secret),
     expiresAt: secret.expiresAt,
+    reminderDueAt: reminderDueAt(secret, now),
   }))
   const typeGroups = new Map<string, Map<Environment, number>>()
   for (const secret of secrets) {
@@ -154,10 +179,8 @@ export function buildVaultSurfaceModel(
       .slice(0, 5)
       .map(toSurfaceSecret),
     reminders: secrets
-      .filter((secret) =>
-        secret.expiresAt
-        && new Date(secret.expiresAt).getTime() <= now + 30 * 86_400_000)
-      .sort((a, b) => (a.expiresAt ?? '').localeCompare(b.expiresAt ?? ''))
+      .filter((secret) => secret.reminderDueAt !== undefined)
+      .sort((a, b) => (a.reminderDueAt ?? '').localeCompare(b.reminderDueAt ?? ''))
       .slice(0, 3)
       .map(toSurfaceSecret),
     collections: collections.slice(0, 5),

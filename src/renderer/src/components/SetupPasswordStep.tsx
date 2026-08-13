@@ -3,7 +3,6 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { cn } from '@/lib/utils'
 import {
   MIN_MASTER_PASSWORD_LENGTH,
   masterPasswordPolicyError,
@@ -12,16 +11,17 @@ import {
 import { useVault } from '../vaultContext'
 import { VaultageLogoWordmark } from './VaultageLogo'
 import { SetupSecurityModel } from './SetupSecurityModel'
-import { openSetupPanelClassName } from './setupScreenStyles'
+import type { SetupDestination } from './SetupScreen'
 
-function strength(password: string): { score: number; label: string; color: string } {
+type PasswordStrengthTone = 'neutral' | 'danger' | 'warning' | 'info' | 'success'
+
+function strength(password: string): { score: number; label: string; tone: PasswordStrengthTone } {
   const { score, label } = masterPasswordStrength(password)
-  if (!password) return { score: 0, label: '', color: '#282828' }
-  if (score <= 1) return { score, label: 'Very weak', color: '#f43f5e' }
-  if (score <= 2) return { score, label: 'Weak', color: '#f97316' }
-  if (score <= 3) return { score, label: 'Fair', color: '#eab308' }
-  if (score <= 4) return { score, label: 'Strong', color: '#3b82f6' }
-  return { score, label: label || 'Very strong', color: '#00FF7F' }
+  if (!password) return { score: 0, label: '', tone: 'neutral' }
+  if (score <= 1) return { score, label: 'Very weak', tone: 'danger' }
+  if (score <= 3) return { score, label: score === 2 ? 'Weak' : 'Fair', tone: 'warning' }
+  if (score <= 4) return { score, label: 'Strong', tone: 'info' }
+  return { score, label: label || 'Very strong', tone: 'success' }
 }
 
 function EyeIcon({ open }: { open: boolean }) {
@@ -37,15 +37,32 @@ function EyeIcon({ open }: { open: boolean }) {
   )
 }
 
-function StrengthBar({ score, color }: { score: number; color: string }) {
+function StrengthBar({ score, label, tone }: { score: number; label: string; tone: PasswordStrengthTone }) {
   return (
-    <div className="relative h-1 w-full overflow-hidden rounded-full border border-border/50 bg-surface">
-      <div className="h-full rounded-full transition-[width,background-color] duration-500 motion-reduce:transition-none" style={{ width: `${(score / 5) * 100}%`, background: color }} />
-    </div>
+    <>
+      <progress
+        aria-label={`Password strength: ${label}`}
+        className="ui26-onboarding-strength-native"
+        data-ui26-strength-tone={tone}
+        max={5}
+        value={score}
+      />
+      <div aria-hidden="true" className="ui26-onboarding-strength-meter" data-ui26-strength-tone={tone}>
+        {[1, 2, 3, 4, 5].map(level => (
+          <span data-filled={level <= score} key={level} />
+        ))}
+      </div>
+    </>
   )
 }
 
-export function SetupPasswordStep({ onBack }: { onBack: () => void }) {
+export function SetupPasswordStep({
+  destination,
+  onBack,
+}: {
+  readonly destination: SetupDestination
+  readonly onBack: () => void
+}) {
   const { setup, state } = useVault()
   const [pw, setPw] = useState('')
   const [confirm, setConfirm] = useState('')
@@ -55,7 +72,11 @@ export function SetupPasswordStep({ onBack }: { onBack: () => void }) {
   const passwordStrength = strength(pw)
   const mismatch = confirm.length > 0 && pw !== confirm
   const policyError = pw.length > 0 ? masterPasswordPolicyError(pw, 'Master password') : null
-  const ready    = pw.length > 0 && !policyError && pw === confirm && !loading
+  const ready = pw.length > 0 && !policyError && pw === confirm && !loading
+  const passwordDescription = [
+    pw.length > 0 ? 'setup-password-strength' : null,
+    policyError ? 'setup-password-policy-error' : null,
+  ].filter((value): value is string => Boolean(value)).join(' ') || undefined
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -76,50 +97,56 @@ export function SetupPasswordStep({ onBack }: { onBack: () => void }) {
   }
 
   return (
-    <div className={cn(
-      'no-drag w-[520px] max-w-[calc(100vw-32px)] animate-scale-in relative z-10',
-      'motion-reduce:animate-none',
-      __VAULTAGE_OPEN_CORE__ && openSetupPanelClassName,
-    )}>
-      <div className="relative mb-4 flex flex-col items-center text-center">
+    <div className="no-drag ui26-onboarding-frame ui26-onboarding-frame--password" data-onboarding-step="password">
+      <header className="ui26-onboarding-header ui26-onboarding-header--with-back">
         <button
           aria-label="Back"
-          className="absolute left-0 top-1 rounded-lg p-1.5 text-text-secondary transition-colors hover:bg-white/5 hover:text-text"
+          className="ui26-onboarding-icon-button ui26-onboarding-back-button"
+          data-onboarding-action="back"
           onClick={onBack}
           title="Go back to onboarding choices. Shortcut: Esc"
           type="button"
         >
-          <svg aria-hidden="true" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 19.5 8.25 12l7.5-7.5" />
           </svg>
         </button>
 
-        <VaultageLogoWordmark className="mb-1 h-10 w-40 text-white" />
-        <h1 className="text-lg font-semibold tracking-tight text-text">Create your master password</h1>
-        <p className="mt-0.5 text-sm text-text-secondary">This protects the key to your local vault</p>
-      </div>
+        <VaultageLogoWordmark className="ui26-onboarding-wordmark ui26-onboarding-wordmark--form" />
+        <h1 className="ui26-onboarding-title">Create your master password</h1>
+        <p
+          className="ui26-onboarding-subtitle"
+          data-onboarding-next={destination}
+        >
+          {destination === 'account'
+            ? 'This protects the key to your local vault. Account & Plan opens after you save the Emergency Kit.'
+            : 'This protects the key to your local vault.'}
+        </p>
+      </header>
 
       <SetupSecurityModel />
 
-      <div className="space-y-3 rounded-3xl border border-border bg-card/80 p-5 shadow-xl backdrop-blur-xl">
-        <div>
-          <Label className="mb-1.5 block" htmlFor="setup-master-password">Master password</Label>
-          <div className="relative">
+      <div className="ui26-onboarding-form-panel" aria-busy={loading}>
+        <div className="ui26-onboarding-field">
+          <Label htmlFor="setup-master-password">Master password</Label>
+          <div className="ui26-onboarding-input-wrap">
             <Input
+              aria-describedby={passwordDescription}
+              aria-invalid={Boolean(policyError)}
               autoFocus
-              className="h-auto w-full rounded-xl py-2.5 pr-10 text-sm"
+              className="ui26-onboarding-input ui26-onboarding-input--with-action"
               data-secure-input="true"
               id="setup-master-password"
               onChange={event => setPw(event.target.value)}
-              onKeyDown={event => event.key === 'Enter' && handleCreate()}
+              onKeyDown={event => event.key === 'Enter' && void handleCreate()}
               placeholder={`At least ${MIN_MASTER_PASSWORD_LENGTH} characters`}
               type={show ? 'text' : 'password'}
               value={pw}
             />
             <button
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-text-secondary hover:text-text"
               aria-label={`${show ? 'Hide' : 'Show'} master password fields`}
               aria-pressed={show}
+              className="ui26-onboarding-field-action"
               onClick={() => setShow(current => !current)}
               title={`${show ? 'Hide' : 'Show'} master password fields. Shortcut: Enter`}
               type="button"
@@ -130,35 +157,51 @@ export function SetupPasswordStep({ onBack }: { onBack: () => void }) {
         </div>
 
         {pw.length > 0 && (
-          <div className="animate-fade-in motion-reduce:animate-none">
-            <StrengthBar score={passwordStrength.score} color={passwordStrength.color} />
-            <div className="mt-1.5 flex items-center justify-between">
-              <p className="text-[11px]" style={{ color: passwordStrength.color }}>{passwordStrength.label}</p>
-              <p className="text-[11px] text-text-secondary">{passwordStrength.score}/5</p>
+          <div className="ui26-onboarding-strength" id="setup-password-strength">
+            <StrengthBar
+              label={passwordStrength.label}
+              score={passwordStrength.score}
+              tone={passwordStrength.tone}
+            />
+            <div className="ui26-onboarding-strength-status">
+              <p data-ui26-strength-tone={passwordStrength.tone}>{passwordStrength.label}</p>
+              <p>{passwordStrength.score}/5</p>
             </div>
-            {policyError && <p className="mt-1.5 animate-fade-in text-[11px] text-danger motion-reduce:animate-none">{policyError}</p>}
+            {policyError && (
+              <p className="ui26-onboarding-validation" id="setup-password-policy-error">
+                {policyError}
+              </p>
+            )}
           </div>
         )}
 
-        <div>
-          <Label className="mb-1.5 block" htmlFor="setup-confirm-password">Confirm password</Label>
+        <div className="ui26-onboarding-field">
+          <Label htmlFor="setup-confirm-password">Confirm password</Label>
           <Input
-            className="h-auto w-full rounded-xl py-2.5 text-sm"
+            aria-describedby={mismatch ? 'setup-password-mismatch-error' : undefined}
+            aria-invalid={mismatch}
+            className="ui26-onboarding-input"
             data-secure-input="true"
             id="setup-confirm-password"
             onChange={event => setConfirm(event.target.value)}
-            onKeyDown={event => event.key === 'Enter' && handleCreate()}
+            onKeyDown={event => event.key === 'Enter' && void handleCreate()}
             placeholder="Repeat your password"
             type={show ? 'text' : 'password'}
             value={confirm}
           />
-          {mismatch && <p className="mt-1.5 animate-fade-in text-[11px] text-danger motion-reduce:animate-none">Passwords don't match</p>}
+          {mismatch && (
+            <p className="ui26-onboarding-validation" id="setup-password-mismatch-error">
+              Passwords don't match
+            </p>
+          )}
         </div>
 
-        {state.error && <Alert variant="destructive" className="animate-fade-in motion-reduce:animate-none"><AlertDescription>{state.error}</AlertDescription></Alert>}
+        {state.error && <Alert variant="destructive" className="ui26-onboarding-alert"><AlertDescription>{state.error}</AlertDescription></Alert>}
 
         <Button
-          className="h-auto w-full rounded-xl py-2.5 text-sm font-semibold motion-reduce:active:scale-100"
+          className="ui26-onboarding-primary-button"
+          data-onboarding-action="create-vault"
+          data-ui26-tone="primary"
           disabled={!ready}
           onClick={handleCreate}
           title="Create the encrypted local vault. Shortcut: Enter"
@@ -168,14 +211,14 @@ export function SetupPasswordStep({ onBack }: { onBack: () => void }) {
         </Button>
       </div>
 
-      <div className="mt-3 flex gap-2 rounded-2xl border border-warning/20 bg-warning/5 px-4 py-3">
-        <svg aria-hidden="true" className="mt-0.5 h-4 w-4 flex-none text-warning" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+      <aside className="ui26-onboarding-callout ui26-onboarding-callout--warning">
+        <svg aria-hidden="true" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" />
         </svg>
-        <p className="text-[11px] leading-relaxed text-muted-light">
+        <p>
           Vaultage cannot reset this password. Setup creates an offline Emergency Kit next; save it away from this Mac because Vaultage never receives a copy.
         </p>
-      </div>
+      </aside>
     </div>
   )
 }

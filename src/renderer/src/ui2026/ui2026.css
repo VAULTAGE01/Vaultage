@@ -16,8 +16,11 @@
   --ui26-border: rgba(255, 255, 255, 0.075);
   --ui26-border-strong: rgba(255, 255, 255, 0.13);
   --ui26-accent: #5730ea;
+  --ui26-accent-rgb: 87 48 234;
   --ui26-accent-hover: #6a45f2;
+  --ui26-accent-hover-rgb: 106 69 242;
   --ui26-accent-dim: #4019c0;
+  --ui26-accent-dim-rgb: 64 25 192;
   --ui26-accent-electric: #4412fd;
   --ui26-accent-wash: rgba(87, 48, 234, 0.18);
   --ui26-accent-text: #b6a5ff;
@@ -64,6 +67,7 @@
   --ui26-glass-card: rgba(18, 24, 21, 0.58);
   --ui26-shadow-rail: rgba(0, 0, 0, 0.18);
   --ui26-shadow-chip: rgba(0, 0, 0, 0.35);
+  --ui26-shadow-navigation: 0 var(--ui26-space-2) var(--ui26-radius-xl) var(--ui26-shadow-chip);
   --ui26-project-border: rgba(163, 124, 255, 0.22);
   --ui26-project-green-glow: rgba(83, 244, 126, 0.13);
   --ui26-project-violet-glow: rgba(137, 82, 236, 0.24);

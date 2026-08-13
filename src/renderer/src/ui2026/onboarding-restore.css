@@ -1,0 +1,38 @@
+.ui26-onboarding-restore-back {
+  margin-bottom: var(--ui26-space-2);
+  color: var(--ui26-text-secondary);
+}
+
+.ui26-onboarding-restore-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui26-space-3);
+  margin-top: var(--ui26-space-5);
+}
+
+.ui26-onboarding-field--wide {
+  grid-column: 1 / -1;
+}
+
+.ui26-onboarding-restore-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--ui26-space-4);
+}
+
+.ui26-onboarding-restore-submit {
+  min-height: var(--ui26-control-md);
+  border-radius: var(--ui26-radius-md);
+  font-size: var(--ui26-type-label);
+}
+
+@keyframes ui26-onboarding-enter {
+  from {
+    opacity: 0;
+    transform: translateY(var(--ui26-space-2));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

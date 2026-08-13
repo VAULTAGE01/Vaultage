@@ -20,7 +20,7 @@ const project = (overrides: Partial<EnvProject> = {}): EnvProject => ({
 
 describe('UI2026 Projects model', () => {
   it('summarizes local project readiness without introducing remote environments', () => {
-    const model = buildProjectsSurfaceModel([project()])
+    const model = buildProjectsSurfaceModel([project()], ['api'])
 
     expect(model).toMatchObject({
       projectCount: 1,
@@ -34,6 +34,20 @@ describe('UI2026 Projects model', () => {
       name: 'API service',
       status: '1/2 mappings ready',
     })
+    expect(model.pinnedProjects.map(item => item.id)).toEqual(['api'])
+    expect(model.needsAttentionProjects.map(item => item.id)).toEqual(['api'])
+    expect(model.activity).toEqual([])
+  })
+
+  it('keeps pinned project order and exposes export activity for the dashboard row', () => {
+    const projects = [
+      project({ id: 'api', lastExportAt: '2026-07-31T10:00:00.000Z' }),
+      project({ id: 'web', name: 'Web app', lastExportAt: '2026-07-30T10:00:00.000Z' }),
+    ]
+    const model = buildProjectsSurfaceModel(projects, ['web', 'missing', 'api'])
+
+    expect(model.pinnedProjects.map(item => item.id)).toEqual(['web', 'api'])
+    expect(model.activity.map(item => item.projectId)).toEqual(['api', 'web'])
   })
 
   it('filters project search entries by project name, path, and mapping key', () => {

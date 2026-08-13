@@ -83,7 +83,7 @@ export function buildMenuBarModel(state: MenuBarState): MenuBarModelItem[] {
 
     items.push({
       id: 'copy-agent-instructions',
-      label: 'Copy Agent Instructions',
+      label: 'Copy Safe MCP Guide',
       enabled: state.unlocked,
       action: 'copyAgentInstructions',
     })

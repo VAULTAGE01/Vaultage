@@ -6,6 +6,7 @@ import { useMode } from '../modeContext.open'
 import type { EnvProject } from '../types'
 import EnvProjectsModal from './EnvProjectsModal'
 import { ProjectsSurface } from '../ui2026/surfaces/ProjectsSurface.open'
+import { pinnedProjectIdsFromOrder } from '../ui2026/surfaces/projectsModel.open'
 import { Button } from '@/components/ui/button'
 import { AlertCircle, ArrowLeft, CheckCircle2, FolderKanban, KeyRound, Plus, RefreshCw, Settings2 } from 'lucide-react'
 
@@ -24,6 +25,9 @@ export default function ProjectsView() {
     startNew?: boolean
   } | null>(null)
   const projects = state.vault?.envProjects ?? []
+  const pinnedProjectIds = pinnedProjectIdsFromOrder(
+    state.vault?.preferences?.localDashboardPinnedOrder,
+  )
   const secrets = useMemo(() => state.vault ? flatSecrets(state.vault.root) : [], [state.vault])
   const secretLabels = useMemo(
     () => new Map(secrets.map(({ secret, folderPath }) => [secret.id, `${folderPath} / ${secret.name}`])),
@@ -83,6 +87,7 @@ export default function ProjectsView() {
         ) : (
           <ProjectsSurface
             projects={projects}
+            pinnedProjectIds={pinnedProjectIds}
             onOpenExistingWorkspace={(projectId) => setSelectedProjectId(projectId ?? null)}
             onOpenNewProject={() => openManager(null, true)}
             onOpenMappings={(projectId) => openManager(projectId)}

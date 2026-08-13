@@ -17,10 +17,13 @@ module.exports = {
         'card-hover':   '#1a2d25',
         border:         '#22342d',
         'border-light': '#365047',
-        accent:         '#00FF7F',
-        'accent-dim':   '#00cc62',
-        'accent-hover': '#34d399',
-        'accent-glow':  'rgba(0,255,127,0.16)',
+        // Legacy controls consume these aliases while UI2026 remains the
+        // canonical palette. Keeping the aliases token-backed prevents an
+        // older surface from reintroducing green as a primary action colour.
+        accent:         'rgb(var(--ui26-accent-rgb) / <alpha-value>)',
+        'accent-dim':   'rgb(var(--ui26-accent-dim-rgb) / <alpha-value>)',
+        'accent-hover': 'rgb(var(--ui26-accent-hover-rgb) / <alpha-value>)',
+        'accent-glow':  'rgb(var(--ui26-accent-rgb) / <alpha-value>)',
         text:           '#f5f5f5',
         'text-secondary': '#a0a0a0',
         muted:          '#7a7a7a',
@@ -59,8 +62,8 @@ module.exports = {
         ring:   'hsl(var(--ring))',
       },
       boxShadow: {
-        'glow-accent': '0 0 20px rgba(0,255,127,0.16), 0 0 40px rgba(0,255,127,0.07)',
-        'glow-sm':     '0 0 10px rgba(0,255,127,0.14)',
+        'glow-accent': '0 0 20px rgb(var(--ui26-accent-rgb) / 0.16), 0 0 40px rgb(var(--ui26-accent-rgb) / 0.07)',
+        'glow-sm':     '0 0 10px rgb(var(--ui26-accent-rgb) / 0.14)',
         'card':        '0 1px 3px rgba(0,0,0,0.35), 0 12px 36px rgba(0,0,0,0.24)',
         'modal':       '0 18px 70px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.45)',
         'inner-top':   'inset 0 1px 0 rgba(255,255,255,0.05)',

@@ -65,6 +65,9 @@
       "#commercial-account": [
         "src/renderer/src/commercialAccountContext.disabled.tsx"
       ],
+      "#commercial-setup-account": [
+        "src/renderer/src/commercialSetupAccount.disabled.ts"
+      ],
       "#commercial-account-settings": [
         "src/renderer/src/components/CommercialAccountSettings.disabled.tsx"
       ]

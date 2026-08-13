@@ -4,8 +4,11 @@
 
 @layer base {
   :root {
-    --accent:                 150 100% 50%;
-    --accent-foreground:      0 0% 0%;
+    /* Compatibility aliases for legacy controls. Their values intentionally
+       mirror the canonical UI2026 action/focus roles, while --success stays
+       reserved for status communication. */
+    --accent:                 254 82% 55%;
+    --accent-foreground:      0 0% 100%;
     --destructive:            350 90% 60%;    /* #f43f5e */
     --destructive-foreground: 0 0% 100%;
     --success:                142 71% 45%;
@@ -13,7 +16,7 @@
     --muted-foreground:      0 0% 48%;
     --border:                 0 0% 16%;
     --input:                  0 0% 9%;
-    --ring:                   150 100% 50%;
+    --ring:                   253 100% 77%;
     --radius:                 0.75rem;
     --liquid-bg:              rgba(2, 8, 6, 0.24);
     --liquid-sidebar:         rgba(3, 10, 7, 0.16);
@@ -205,6 +208,75 @@
     min-height: 0;
     flex: 1 1 0%;
     overflow: hidden;
+  }
+
+  .application-shell-navigation-toggle,
+  .application-shell-navigation-backdrop {
+    display: none;
+  }
+
+  @media (max-width: 859px) {
+    .application-shell-content {
+      box-sizing: border-box;
+      padding-top: calc(var(--ui26-control-dense) + var(--ui26-space-5));
+    }
+
+    .application-shell-navigation-toggle {
+      position: absolute;
+      z-index: 30;
+      display: inline-flex;
+      align-items: center;
+      gap: var(--ui26-space-2);
+      top: var(--ui26-space-3);
+      left: var(--ui26-space-3);
+      min-height: var(--ui26-control-dense);
+      padding: 0 var(--ui26-space-3);
+      border: 1px solid var(--ui26-border-strong);
+      border-radius: var(--ui26-radius-compact);
+      color: var(--ui26-text);
+      background: var(--ui26-surface-raised);
+      box-shadow: var(--ui26-shadow-navigation);
+    }
+
+    .application-shell-navigation-toggle:focus-visible {
+      outline: 2px solid var(--ui26-focus);
+      outline-offset: 2px;
+    }
+
+    .application-shell .application-shell-sidebar {
+      position: absolute;
+      z-index: 40;
+      top: 0;
+      bottom: 0;
+      left: 0;
+      width: min(var(--ui26-rail-width-compact), calc(100vw - var(--ui26-space-6)));
+      min-width: 0;
+      flex-basis: auto;
+      border-radius: 0 var(--ui26-radius-lg) var(--ui26-radius-lg) 0;
+      visibility: hidden;
+      pointer-events: none;
+      transform: translateX(-100%);
+      transition:
+        transform var(--ui26-motion-standard),
+        visibility 0s linear var(--ui26-motion-standard);
+      box-shadow: var(--ui26-space-4-5) 0 var(--ui26-space-10) var(--ui26-shadow-rail);
+    }
+
+    .application-shell-sidebar.is-compact-open {
+      visibility: visible;
+      pointer-events: auto;
+      transform: translateX(0);
+      transition: transform var(--ui26-motion-standard);
+    }
+
+    .application-shell-navigation-backdrop.is-compact-open {
+      position: absolute;
+      z-index: 35;
+      display: block;
+      inset: 0;
+      border: 0;
+      background: var(--ui26-scrim);
+    }
   }
 
   .liquid-noise {

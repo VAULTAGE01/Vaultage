@@ -10,6 +10,10 @@ const passwordStepSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/SetupPasswordStep.tsx'),
   'utf8',
 )
+const onboardingFoundationSource = readFileSync(
+  join(process.cwd(), 'src/renderer/src/ui2026/onboarding-foundation.css'),
+  'utf8',
+)
 const securityModelSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/SetupSecurityModel.tsx'),
   'utf8',
@@ -17,13 +21,17 @@ const securityModelSource = readFileSync(
 
 describe('SetupScreen foreground stacking', () => {
   it('keeps both setup steps above the absolute authentication backdrop', () => {
-    expect(setupScreenSource).toContain("'no-drag w-[440px] animate-scale-in relative z-10'")
-    expect(passwordStepSource).toContain("'no-drag w-[520px] max-w-[calc(100vw-32px)] animate-scale-in relative z-10'")
+    expect(setupScreenSource).toContain('ui26-onboarding-frame ui26-onboarding-frame--welcome')
+    expect(passwordStepSource).toContain('ui26-onboarding-frame ui26-onboarding-frame--password')
+
+    const frameRule = onboardingFoundationSource.match(/\.ui26-onboarding-frame\s*\{([^}]*)\}/u)?.[1] ?? ''
+    expect(frameRule).toMatch(/position:\s*relative;/u)
+    expect(frameRule).toMatch(/z-index:\s*1;/u)
   })
 
   it('keeps vault creation disabled until a non-empty password is valid and confirmed', () => {
-    expect(passwordStepSource).toContain(
-      'const ready    = pw.length > 0 && !policyError && pw === confirm && !loading',
+    expect(passwordStepSource).toMatch(
+      /const ready\s*=\s*pw\.length > 0 && !policyError && pw === confirm && !loading/u,
     )
   })
 

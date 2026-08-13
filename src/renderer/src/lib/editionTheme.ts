@@ -17,6 +17,14 @@ interface ClosedAuthBackdropContract {
   noiseClassName: string
 }
 
+interface OnboardingAuthBackdropContract {
+  gradientPalette: Extract<AuthBackdropPalette, 'darkGrey'>
+  gradientSpeed: number
+  gradientOpacity: number
+  gradientClassName: string
+  overlayClassName: string
+}
+
 export interface ShellBackgroundContract {
   readonly patternClassName: string
   readonly patternImages?: readonly string[]
@@ -45,6 +53,14 @@ export const CLOSED_AUTH_BACKDROP_CONTRACT = {
   overlayClassName: AUTH_BACKDROP_OVERLAY,
   noiseClassName: 'liquid-noise absolute inset-0 pointer-events-none opacity-30',
 } as const satisfies ClosedAuthBackdropContract
+
+export const ONBOARDING_AUTH_BACKDROP_CONTRACT = {
+  gradientPalette: 'darkGrey',
+  gradientSpeed: 0.14,
+  gradientOpacity: 0.68,
+  gradientClassName: 'ui26-onboarding-backdrop-gradient',
+  overlayClassName: 'ui26-onboarding-backdrop-overlay',
+} as const satisfies OnboardingAuthBackdropContract
 
 export const OPEN_SHELL_BACKGROUND_CONTRACT = {
   patternClassName: 'pointer-events-none absolute inset-0 opacity-35 mix-blend-screen',

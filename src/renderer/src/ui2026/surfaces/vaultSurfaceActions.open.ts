@@ -4,8 +4,6 @@ import type {
   VaultSurfaceSecret,
 } from './vaultSurfaceModel.open'
 
-export type VaultLegacyWorkspaceView = 'dashboard' | 'folders'
-
 export type VaultDetailTarget =
   | { readonly kind: 'secret'; readonly id: string }
   | { readonly kind: 'collection'; readonly id: string }
@@ -22,7 +20,6 @@ type VaultSurfaceActionContext = {
   readonly selectSecret: (id: string | null) => void
   readonly onOpenDetail: (target: VaultDetailTarget) => void
   readonly onOpenWorkflow: (workflow: VaultWorkflow) => void
-  readonly onOpenLegacyWorkspace?: (view: VaultLegacyWorkspaceView) => void
 }
 
 export function createVaultSurfaceActions({
@@ -30,7 +27,6 @@ export function createVaultSurfaceActions({
   selectSecret,
   onOpenDetail,
   onOpenWorkflow,
-  onOpenLegacyWorkspace,
 }: VaultSurfaceActionContext) {
   const openSecretSelection = (selection: VaultSecretSelection): void => {
     selectFolder(selection.folderId)
@@ -68,9 +64,6 @@ export function createVaultSurfaceActions({
     },
     openVaultSettings(): void {
       onOpenWorkflow('settings')
-    },
-    openWorkspace(): void {
-      onOpenLegacyWorkspace?.('dashboard')
     },
   }
 }

@@ -175,20 +175,37 @@ export type StubRendererWindow = {
   readonly document: StubDocument
   readonly navigator: { readonly userAgent: string }
   readonly location: { readonly protocol: string }
+  readonly getComputedStyle: (element: Element) => Pick<CSSStyleDeclaration, 'animationDelay' | 'animationDuration' | 'animationName' | 'display'>
   readonly setTimeout: typeof setTimeout
   readonly clearTimeout: typeof clearTimeout
+  readonly requestAnimationFrame: typeof requestAnimationFrame
+  readonly cancelAnimationFrame: typeof cancelAnimationFrame
   readonly HTMLIFrameElement: typeof StubElement
   vault?: unknown
 }
 
 export function installRendererDom(): { readonly window: StubRendererWindow; readonly root: StubElement } {
   const document = new StubDocument()
+  const getComputedStyle = (): Pick<CSSStyleDeclaration, 'animationDelay' | 'animationDuration' | 'animationName' | 'display'> => ({
+    animationDelay: '0s',
+    animationDuration: '0s',
+    animationName: 'none',
+    display: 'block',
+  })
+  const requestAnimationFrame: typeof globalThis.requestAnimationFrame = callback => {
+    callback(performance.now())
+    return 0
+  }
+  const cancelAnimationFrame: typeof globalThis.cancelAnimationFrame = () => undefined
   const window: StubRendererWindow = {
     document,
     navigator: { userAgent: 'vitest' },
     location: { protocol: 'http:' },
+    getComputedStyle,
     setTimeout,
     clearTimeout,
+    requestAnimationFrame,
+    cancelAnimationFrame,
     HTMLIFrameElement: StubElement,
   }
   document.defaultView = window
@@ -202,6 +219,9 @@ export function installRendererDom(): { readonly window: StubRendererWindow; rea
     SVGElement: StubElement,
     HTMLIFrameElement: StubElement,
     Text: StubText,
+    getComputedStyle,
+    requestAnimationFrame,
+    cancelAnimationFrame,
     IS_REACT_ACT_ENVIRONMENT: true,
   })
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: window.navigator })

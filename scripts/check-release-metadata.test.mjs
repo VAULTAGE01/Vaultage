@@ -258,6 +258,28 @@ mac:
     expect(result.stderr).toContain('must download only the named mac-dmg and mac-dmg-acceptance artifacts')
   })
 
+  it('rejects publishing customer binaries to the private source repository', () => {
+    const root = fixtureRoot()
+    installCanonicalReleaseWorkflow(root, workflow => workflow.replace(
+      'repository: VAULTAGE01/vaultage-releases',
+      'repository: VAULTAGE01/vaultage-private',
+    ))
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('publish exact assets to VAULTAGE01/vaultage-releases')
+  })
+
+  it('rejects publishing to the public repository without the scoped release credential', () => {
+    const root = fixtureRoot()
+    installCanonicalReleaseWorkflow(root, workflow => workflow.replace(
+      'token: ${{ secrets.VAULTAGE_PUBLIC_RELEASE_TOKEN }}',
+      'token: ${{ github.token }}',
+    ))
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('publish exact assets to VAULTAGE01/vaultage-releases')
+  })
+
   it('rejects missing canonical agent policy and writable or credential-persisting CI', () => {
     const root = fixtureRoot()
     write(root, 'AGENTS.md', '# Agent instructions without the canonical pointer\n')
@@ -293,6 +315,7 @@ jobs:
 `)
     write(root, '.github/workflows/release.yml', `jobs:
   release:
+    environment: production-release
     steps:
       - uses: softprops/action-gh-release@v3
 `)
@@ -626,6 +649,11 @@ function installCanonicalReleaseWorkflow(root, transform) {
           path: artifacts/mac-dmg-acceptance
       - uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228
         with:
+          repository: VAULTAGE01/vaultage-releases
+          token: \${{ secrets.VAULTAGE_PUBLIC_RELEASE_TOKEN }}
+          tag_name: \${{ github.ref_name }}
+          target_commitish: main
+          fail_on_unmatched_files: true
           files: artifacts/mac-dmg/*.dmg
 `
   write(root, '.github/workflows/release.yml', transform(workflow))
