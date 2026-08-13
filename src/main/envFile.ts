@@ -9,8 +9,10 @@ import {
   renameSync,
   unlinkSync,
 } from 'fs'
+import { execFile as execFileCallback } from 'child_process'
 import { randomUUID } from 'crypto'
 import { basename, dirname, join, resolve } from 'path'
+import { promisify } from 'util'
 import {
   type EnvValueEntry,
   serializeEnvFile,
@@ -19,6 +21,9 @@ import {
 } from './security'
 
 const MAX_GITIGNORE_BYTES = 1024 * 1024
+const GIT_QUERY_TIMEOUT_MS = 2_000
+const MAX_GIT_QUERY_OUTPUT_BYTES = 1_024
+const execFile = promisify(execFileCallback)
 
 export type EnvFileAction = 'created' | 'replaced' | 'not-written'
 export type GitignoreAction = 'created' | 'updated' | 'unchanged' | 'not-requested' | 'not-updated'
@@ -72,6 +77,7 @@ export async function writeProjectEnvFile(
 
   try {
     await assertAuthorized(options)
+    await assertDotenvIsNotGitTracked(targetFolder)
     const envPath = join(targetFolder, '.env')
     const envExisted = await regularFileExistsNoFollow(envPath)
     if (envExisted && options.overwriteExisting !== true) {
@@ -94,6 +100,43 @@ export async function writeProjectEnvFile(
     const message = error instanceof Error ? error.message : String(error)
     throw new ProjectEnvFileWriteError(message, { ...status }, { cause: error })
   }
+}
+
+/** `.gitignore` cannot protect a path that Git already tracks. */
+async function assertDotenvIsNotGitTracked(targetFolder: string): Promise<void> {
+  const repositoryStatus = await gitExitCode(targetFolder, ['rev-parse', '--is-inside-work-tree'])
+  if (repositoryStatus === 128) return
+  if (repositoryStatus !== 0) {
+    throw new Error('Could not verify whether .env is Git-tracked; use vaultage run instead')
+  }
+
+  const trackedStatus = await gitExitCode(targetFolder, ['ls-files', '--error-unmatch', '--', '.env'])
+  if (trackedStatus === 1) return
+  if (trackedStatus === 0) {
+    throw new Error('Refusing to write a Git-tracked .env; untrack it or use vaultage run instead')
+  }
+  throw new Error('Could not verify whether .env is Git-tracked; use vaultage run instead')
+}
+
+async function gitExitCode(targetFolder: string, args: readonly string[]): Promise<number> {
+  try {
+    await execFile('git', ['-C', targetFolder, ...args], {
+      timeout: GIT_QUERY_TIMEOUT_MS,
+      maxBuffer: MAX_GIT_QUERY_OUTPUT_BYTES,
+      windowsHide: true,
+    })
+    return 0
+  } catch (error) {
+    const exitCode = processExitCode(error)
+    if (exitCode !== null) return exitCode
+    throw new Error('Could not verify whether .env is Git-tracked; use vaultage run instead', { cause: error })
+  }
+}
+
+function processExitCode(error: unknown): number | null {
+  if (!error || typeof error !== 'object') return null
+  const code = Reflect.get(error, 'code')
+  return typeof code === 'number' && Number.isInteger(code) ? code : null
 }
 
 async function ensureDotenvIgnored(

@@ -49,6 +49,8 @@ vi.mock('#commercial-capabilities', () => ({
 
 import AddSecretModal, {
   authoredRevisionForSecretUpdate,
+  certificateMetadataForSecretForm,
+  certificateMetadataWithDate,
   captureSecretFormAuthorship,
   fieldsAfterSecretTypeChange,
   initialSecretAccessPolicy,
@@ -139,4 +141,26 @@ describe('AddSecretModal edit concurrency', () => {
       { key: 'URL', value: '', sensitive: false },
     ])
   })
+
+  it('creates the required PEM metadata when a certificate form is opened', () => {
+    expect(certificateMetadataForSecretForm('certificate')).toEqual({ format: 'PEM' })
+    expect(certificateMetadataForSecretForm('apiKey')).toBeUndefined()
+  })
+
+  it('normalizes certificate validity dates without embedding certificate material in metadata', () => {
+    const withStart = certificateMetadataWithDate({ format: 'PEM' }, 'notBefore', '2026-08-08')
+    const withWindow = certificateMetadataWithDate(withStart, 'notAfter', '2027-08-08')
+
+    expect(withWindow).toEqual({
+      format: 'PEM',
+      notBefore: '2026-08-08T00:00:00.000Z',
+      notAfter: '2027-08-08T00:00:00.000Z',
+    })
+    expect(certificateMetadataWithDate(withWindow, 'notAfter', '')).toMatchObject({
+      format: 'PEM',
+      notBefore: '2026-08-08T00:00:00.000Z',
+      notAfter: undefined,
+    })
+  })
+
 })

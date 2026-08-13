@@ -18,7 +18,9 @@ function MainContentDragStrip() {
   return <div aria-hidden className="main-content-drag-strip drag-region absolute left-0 right-0 top-0 z-10 h-3" />
 }
 
-export default function MainLayout() {
+export default function MainLayout(_props: {
+  readonly initialSetupDestination?: string
+}) {
   const { lock } = useVault()
   const { mode, setMode, setSelectedProjectId } = useMode()
   const [showSearch, setShowSearch] = useState(false)
@@ -70,7 +72,6 @@ export default function MainLayout() {
             <VaultSurface
               embedded
               onSurfaceChange={() => undefined}
-              onOpenLegacyWorkspace={setView}
             />
           </div>
         ) : mode === 'projects' ? (

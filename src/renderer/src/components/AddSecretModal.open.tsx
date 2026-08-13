@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useVault } from '../vaultContext'
-import type { SecretField, SecretType, VaultSecret } from '../types'
-import { SCOPE_PRESETS, SECRET_TEMPLATES, SECRET_TYPE_LABELS } from '../types'
+import type { CertificateMetadata, SecretField, SecretType, VaultSecret } from '../types'
+import CertificateImportPanel, { type ImportedCertificateMaterial } from './CertificateImportPanel'
+import { SCOPE_PRESETS, SECRET_TEMPLATES } from '../types'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -38,6 +39,7 @@ import {
   createDefaultSecretAccessPolicy,
   readSecretAccessPolicy,
 } from '../../../shared/secretAccessPolicy'
+import SecretTypeSelector from './SecretTypeSelector'
 
 export {
   authoredRevisionForSecretUpdate,
@@ -50,6 +52,27 @@ export function initialSecretAccessPolicy(existing?: VaultSecret) {
   return existing ? readSecretAccessPolicy(existing) : createDefaultSecretAccessPolicy()
 }
 
+/** Keeps certificate identity data value-free while the sensitive material stays in fields. */
+export function certificateMetadataForSecretForm(
+  type: SecretType,
+  existing?: VaultSecret,
+): CertificateMetadata | undefined {
+  if (type !== 'certificate') return undefined
+  return existing?.certificate ?? { format: 'PEM' }
+}
+
+function certificateDateInputValue(value: string | undefined): string {
+  return value?.slice(0, 10) ?? ''
+}
+
+export function certificateMetadataWithDate(
+  certificate: CertificateMetadata,
+  key: 'notBefore' | 'notAfter',
+  date: string,
+): CertificateMetadata {
+  return { ...certificate, [key]: date ? `${date}T00:00:00.000Z` : undefined }
+}
+
 export function fieldsAfterSecretTypeChange(
   fields: SecretField[],
   currentType: SecretType,
@@ -59,8 +82,6 @@ export function fieldsAfterSecretTypeChange(
   if (isEdit && currentType !== 'image' && nextType !== 'image') return fields
   return SECRET_TEMPLATES[nextType].map(field => ({ ...field }))
 }
-
-const TYPES: SecretType[] = ['password', 'apiKey', 'sshKey', 'secureNote', 'custom', 'image']
 
 function blankField(): SecretField {
   return { key: '', value: '', sensitive: true }
@@ -79,6 +100,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
   const isEdit = Boolean(existing)
   const authorshipRef = useRef(captureSecretFormAuthorship(existing, state.vault?.revision))
   const imageReadGateRef = useRef(new ImageReadAttemptGate())
+  const saveErrorRef = useRef<HTMLDivElement>(null)
   const initialType = existing?.type ?? defaultType ?? 'password'
   const [name, setName] = useState(existing?.name ?? '')
   const [type, setType] = useState<SecretType>(initialType)
@@ -93,6 +115,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
   const [tagsRaw, setTagsRaw] = useState((existing?.tags ?? []).join(', '))
   const [expiresAt, setExpiresAt] = useState(existing?.expiresAt ?? '')
   const [usedInRaw, setUsedInRaw] = useState((existing?.usedIn ?? []).join('\n'))
+  const [certificate, setCertificate] = useState(() => certificateMetadataForSecretForm(initialType, existing))
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
 
@@ -146,14 +169,36 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
     }
   }, [type])
 
+  useEffect(() => {
+    if (!saveError) return
+    const errorAlert = saveErrorRef.current
+    if (!errorAlert) return
+    if (typeof errorAlert.scrollIntoView === 'function') errorAlert.scrollIntoView({ block: 'nearest' })
+    errorAlert.focus()
+  }, [saveError])
+
   const changeType = (next: SecretType) => {
     imageReadGateRef.current.invalidate()
     setType(next)
     setFields(previous => fieldsAfterSecretTypeChange(previous, type, next, isEdit))
+    setCertificate(certificateMetadataForSecretForm(next, existing))
   }
 
   const updateField = (index: number, patch: Partial<SecretField>) => {
     setFields(prev => prev.map((field, i) => i === index ? { ...field, ...patch } : field))
+  }
+
+  const importCertificateMaterial = ({ metadata, storedValue }: ImportedCertificateMaterial) => {
+    setCertificate(metadata)
+    setFields(previous => {
+      const certificateIndex = previous.findIndex(field => field.key === 'Certificate')
+      if (certificateIndex === -1) {
+        return [...previous, { key: 'Certificate', value: storedValue, sensitive: true }]
+      }
+      return previous.map((field, index) => index === certificateIndex
+        ? { ...field, value: storedValue, sensitive: true }
+        : field)
+    })
   }
 
   const removeField = (index: number) => {
@@ -168,6 +213,10 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
       .filter(field => field.key)
     if (cleanFields.length === 0) return
     if (type === 'image' && !imageData && !hasHiddenStoredImage) return
+    if (certificate && ((certificate.notBefore === undefined) !== (certificate.notAfter === undefined))) {
+      setSaveError('Enter both certificate validity dates, or leave both blank.')
+      return
+    }
 
     setSaving(true)
     setSaveError(null)
@@ -184,11 +233,13 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
         tags: tags.length ? tags : undefined,
         expiresAt: expiresAt || undefined,
         usedIn: usedIn.length ? usedIn : undefined,
+        ...(certificate ? { certificate } : {}),
       }
 
       if (existing) {
         const authoredRevision = authoredRevisionForSecretUpdate(authorshipRef.current, existing.id)
-        await updateSecret(folderId, { ...existing, ...data }, authoredRevision)
+        const { certificate: _previousCertificate, ...existingWithoutCertificate } = existing
+        await updateSecret(folderId, { ...existingWithoutCertificate, ...data }, authoredRevision)
       }
       else await addSecret(folderId, data)
       onClose()
@@ -203,21 +254,23 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
 
   return (
     <Dialog open onOpenChange={open => { if (!open) onClose() }}>
-      <DialogContent className="max-h-[88vh] w-[640px] max-w-[calc(100vw-32px)] overflow-y-auto p-0 no-drag">
-        <DialogHeader className="border-b border-border px-6 py-4">
+      <DialogContent className="flex max-h-[calc(100dvh-2rem)] w-[640px] max-w-[calc(100vw-32px)] flex-col overflow-hidden p-0 no-drag">
+        <DialogHeader className="flex-none border-b border-border px-6 py-4">
           <DialogTitle>{isEdit ? 'Edit Secret' : 'New Secret'}</DialogTitle>
         </DialogHeader>
 
-        <div className="space-y-5 px-6 py-5">
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-6 py-5">
           {saveError && (
             <div
+              ref={saveErrorRef}
               role="alert"
+              tabIndex={-1}
               className="rounded-lg border border-danger/40 bg-danger/10 px-3 py-2 text-xs leading-relaxed text-danger"
             >
               {saveError}
             </div>
           )}
-          <div className="grid gap-4 sm:grid-cols-[1fr_180px]">
+          <div className="space-y-4">
             <div>
               <Label>Name</Label>
               <Input
@@ -229,20 +282,91 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
             </div>
             <div>
               <Label>Type</Label>
-              <Select value={type} onValueChange={value => changeType(value as SecretType)}>
-                <SelectTrigger className="mt-1">
+              <SecretTypeSelector value={type} onChange={changeType} />
+            </div>
+          </div>
+
+          {certificate && (
+            <div>
+              <Label htmlFor="certificate-format">Certificate format</Label>
+              <Select
+                value={certificate.format}
+                onValueChange={value => {
+                  if (value !== 'PEM' && value !== 'DER' && value !== 'PKCS12') return
+                  setCertificate(previous => previous ? { ...previous, format: value } : previous)
+                }}
+              >
+                <SelectTrigger id="certificate-format" className="mt-1">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {TYPES.map(secretType => (
-                    <SelectItem key={secretType} value={secretType}>
-                      {SECRET_TYPE_LABELS[secretType]}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="PEM">PEM</SelectItem>
+                  <SelectItem value="DER">DER</SelectItem>
+                  <SelectItem value="PKCS12">PKCS #12</SelectItem>
                 </SelectContent>
               </Select>
+              <p className="mt-1.5 text-[10px] leading-relaxed text-muted">
+                Certificate and private-key material stay encrypted in sensitive fields. Format and validity metadata remain value-free.
+              </p>
+              <CertificateImportPanel
+                onPreviewStart={() => setSaveError(null)}
+                onImported={importCertificateMaterial}
+                onImportError={setSaveError}
+              />
+              <div className="mt-4 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="certificate-subject">Subject</Label>
+                  <Input
+                    id="certificate-subject"
+                    className="mt-1"
+                    value={certificate.subject ?? ''}
+                    onChange={event => setCertificate(previous => previous ? {
+                      ...previous,
+                      subject: event.target.value || undefined,
+                    } : previous)}
+                    placeholder="CN=api.example.com"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="certificate-issuer">Issuer</Label>
+                  <Input
+                    id="certificate-issuer"
+                    className="mt-1"
+                    value={certificate.issuer ?? ''}
+                    onChange={event => setCertificate(previous => previous ? {
+                      ...previous,
+                      issuer: event.target.value || undefined,
+                    } : previous)}
+                    placeholder="CN=Example CA"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="certificate-not-before">Valid from</Label>
+                  <Input
+                    id="certificate-not-before"
+                    className="mt-1"
+                    type="date"
+                    value={certificateDateInputValue(certificate.notBefore)}
+                    onChange={event => setCertificate(previous => previous
+                      ? certificateMetadataWithDate(previous, 'notBefore', event.target.value)
+                      : previous)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="certificate-not-after">Valid until</Label>
+                  <Input
+                    id="certificate-not-after"
+                    className="mt-1"
+                    type="date"
+                    value={certificateDateInputValue(certificate.notAfter)}
+                    onChange={event => setCertificate(previous => previous
+                      ? certificateMetadataWithDate(previous, 'notAfter', event.target.value)
+                      : previous)}
+                  />
+                </div>
+              </div>
             </div>
-          </div>
+          )}
 
           {type === 'image' ? (
             <div>
@@ -395,7 +519,7 @@ export default function AddSecretModal({ folderId, existing, defaultScope, defau
           </div>
         </div>
 
-        <DialogFooter className="border-t border-border px-6 py-4">
+        <DialogFooter className="flex-none border-t border-border px-6 py-4">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={() => void save()} disabled={saving || !name.trim() || imageMissing}>
             {saving ? 'Saving...' : 'Save'}

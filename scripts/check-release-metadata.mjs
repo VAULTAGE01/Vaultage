@@ -202,8 +202,16 @@ if (!privateProductPackage && (productionBuilderConfig || pkg.scripts?.['dist:ma
     failures.push('Production Electron configuration must not package the Node host or development identity')
   }
 }
-if (privateProductPackage && (!pkg.scripts?.['dist:mac:production']?.includes('--config electron-builder.production.yml')
-  || !pkg.scripts?.['dist:mac:production']?.includes('build-extension-native-host.sh --production'))) {
+const productionCommand = pkg.scripts?.['dist:mac:production']
+const directProductionCommand = productionCommand?.includes('--config electron-builder.production.yml')
+  && productionCommand.includes('build-extension-native-host.sh --production')
+const productionWrapperPath = join(root, 'scripts/build-commercial-production.sh')
+const productionWrapper = existsSync(productionWrapperPath) ? readFileSync(productionWrapperPath, 'utf8') : ''
+const wrappedProductionCommand = productionCommand === 'bash scripts/build-commercial-production.sh'
+  && productionWrapper.includes('write-release-build-manifest.mjs')
+  && productionWrapper.includes('build-extension-native-host.sh --production')
+  && productionWrapper.includes('--config electron-builder.production.yml')
+if (privateProductPackage && !directProductionCommand && !wrappedProductionCommand) {
   failures.push('dist:mac:production must build the production Swift host and use the protected Electron configuration')
 }
 
@@ -357,7 +365,12 @@ if (existsSync(releaseWorkflowPath)) {
     ['downloaded DMG mount acceptance', 'Mount and accept the exact downloaded DMG'],
     ['downloaded DMG byte receipt', 'verify-downloaded-mac-artifact.mjs'],
     ['build-stage app and DMG digest record', 'record-packaged-mac-artifact.mjs'],
+    ['fail-closed production pre-package manifest', 'VAULTAGE_PREPACKAGE_BUILD_MANIFEST'],
+    ['retained pre-package build manifest', 'prepackage-build-manifest.json'],
+    ['post-package pre-package-manifest digest binding', '--prepackage-manifest'],
     ['downloaded DMG staple check', 'xcrun stapler validate "$DMG"'],
+    ['separate public binary release repository', 'repository: VAULTAGE01/vaultage-releases'],
+    ['scoped public-release credential', 'secrets.VAULTAGE_PUBLIC_RELEASE_TOKEN'],
     ['non-persisted release checkout credential', 'persist-credentials: false'],
   ]
   for (const [label, marker] of requiredWorkflowControls) {
@@ -397,6 +410,19 @@ function validateReleaseArtifactCustody(workflow) {
   }
 
   const releaseSteps = workflow.jobs?.release?.steps ?? []
+  const publicRelease = releaseSteps.find(step =>
+    String(step?.uses ?? '').startsWith('softprops/action-gh-release@')
+  )
+  if (
+    workflow.jobs?.release?.environment !== 'production-release'
+    || publicRelease?.with?.repository !== 'VAULTAGE01/vaultage-releases'
+    || publicRelease?.with?.token !== '${{ secrets.VAULTAGE_PUBLIC_RELEASE_TOKEN }}'
+    || publicRelease?.with?.tag_name !== '${{ github.ref_name }}'
+    || publicRelease?.with?.target_commitish !== 'main'
+    || publicRelease?.with?.fail_on_unmatched_files !== true
+  ) {
+    failures.push('Public release must use the protected production environment and publish exact assets to VAULTAGE01/vaultage-releases')
+  }
   const downloads = releaseSteps.filter(step => String(step?.uses ?? '').startsWith('actions/download-artifact@'))
   const exactDownloads = new Map([
     ['mac-dmg', 'artifacts/mac-dmg'],

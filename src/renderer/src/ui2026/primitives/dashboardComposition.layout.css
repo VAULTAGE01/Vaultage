@@ -1,0 +1,67 @@
+.ui26-dashboard-composition {
+  container-type: inline-size;
+  display: grid;
+  align-self: start;
+  min-width: 0;
+  min-height: 0;
+  gap: var(--ui26-space-5);
+}
+
+.ui26-dashboard-overview,
+.ui26-dashboard-issues-activity {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui26-space-5);
+}
+
+.ui26-dashboard-metrics-slot,
+.ui26-dashboard-pinned-slot {
+  min-width: 0;
+  min-height: 0;
+  min-block-size: calc((var(--ui26-control-sm) * 6) + var(--ui26-space-5));
+}
+
+.ui26-dashboard-quick-actions-slot,
+.ui26-dashboard-issues-slot,
+.ui26-dashboard-activity-slot {
+  min-width: 0;
+  min-height: 0;
+}
+
+.ui26-dashboard-quick-actions-slot {
+  display: grid;
+  min-block-size: calc(var(--ui26-control-sm) * 4);
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: var(--ui26-space-3);
+}
+
+.ui26-dashboard-issues-slot,
+.ui26-dashboard-activity-slot {
+  min-block-size: calc(var(--ui26-control-sm) * 5);
+}
+
+.ui26-dashboard-metrics-slot > .ui26-dashboard-panel,
+.ui26-dashboard-pinned-slot > .ui26-dashboard-panel,
+.ui26-dashboard-issues-slot > .ui26-dashboard-module,
+.ui26-dashboard-activity-slot > .ui26-dashboard-module {
+  height: 100%;
+}
+
+@container (max-width: 52rem) {
+  .ui26-dashboard-overview {
+    grid-template-columns: 1fr;
+  }
+}
+
+@container (max-width: 36rem) {
+  .ui26-dashboard-metrics-slot,
+  .ui26-dashboard-pinned-slot {
+    min-block-size: calc(var(--ui26-control-sm) * 8);
+  }
+
+  .ui26-dashboard-issues-activity {
+    grid-template-columns: 1fr;
+  }
+}

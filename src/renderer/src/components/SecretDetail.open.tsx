@@ -22,6 +22,7 @@ import {
   CommunityPinnedVaultLists,
 } from './PinnedVaultLists.open'
 import CommunitySecretContext from './CommunitySecretContext.open'
+import { CertificateExpiryStatusCard } from './CertificateExpiryStatusCard'
 import {
   readSecretAccessPolicy,
   writeSecretAccessPolicy,
@@ -258,6 +259,8 @@ export default function SecretDetail({ emptyState = 'dashboard' }: { emptyState?
             Project Mappings
           </Button>
         </section>
+
+        {secret.type === 'certificate' && <CertificateExpiryStatusCard certificate={secret.certificate} />}
 
         {secret.type === 'image' ? (
           <ImageField

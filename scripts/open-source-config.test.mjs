@@ -66,6 +66,12 @@ describe('Community source boundary configuration', () => {
       'src/main/projectIpc.test.ts',
       'src/shared/vaultIpcContracts.ts',
       'src/shared/vaultIpcContracts.test.ts',
+      'src/renderer/src/ui2026/onboarding.css',
+      'src/renderer/src/ui2026/onboarding-foundation.css',
+      'src/renderer/src/ui2026/onboarding-welcome.css',
+      'src/renderer/src/ui2026/onboarding-form.css',
+      'src/renderer/src/ui2026/onboarding-restore.css',
+      'src/renderer/src/ui2026/onboarding-responsive.css',
       'src/renderer/src/ui2026/ui2026.css',
     ]) {
       expect(isCommunityReconciliableSourcePath(path), path).toBe(true)
@@ -85,6 +91,10 @@ describe('Community source boundary configuration', () => {
   it('allows only explicitly reviewed disabled seams', () => {
     expect(isReviewedDisabledSeamPath('src/main/commercialRuntime.disabled.ts')).toBe(true)
     expect(isPrivateOverlaySourcePath('src/main/commercialRuntime.disabled.ts')).toBe(false)
+    expect(isReviewedDisabledSeamPath('src/renderer/src/commercialSetupAccount.disabled.ts'))
+      .toBe(true)
+    expect(isPrivateOverlaySourcePath('src/renderer/src/commercialSetupAccount.disabled.ts'))
+      .toBe(false)
 
     const disguisedPrivateImplementation = 'src/main/commercialCredentialBroker.disabled.ts'
     expect(isReviewedDisabledSeamPath(disguisedPrivateImplementation)).toBe(false)
@@ -122,6 +132,11 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('scripts/services-ui-e2e.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/services-provider-flow-visual-qa.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/product-onboarding-visual-qa.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/write-release-build-manifest.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/write-release-build-manifest.test.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/build-commercial-production.sh')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/commercial-production-release.test.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('release/hd0-200-ui-surface-selection.json')).toBe(true)
   })
 
   it('keeps closed UI2026 product-flow composition artifacts private', () => {
@@ -162,6 +177,17 @@ describe('Community source boundary configuration', () => {
       'src/renderer/src/ui2026/primitives.open.test.tsx',
       'src/renderer/src/ui2026/primitives.open.tsx',
       'src/renderer/src/ui2026/primitives/cards.open.tsx',
+      'src/renderer/src/ui2026/primitives/dashboard.tsx',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.css',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.layout.css',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.metrics.css',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.onboarding.css',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.panels.css',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.recovery.test.tsx',
+      'src/renderer/src/ui2026/primitives/dashboardComposition.tsx',
+      'src/renderer/src/ui2026/primitives/dashboardOnboarding.tsx',
+      'src/renderer/src/ui2026/primitives/dashboardOnboardingModel.test.ts',
+      'src/renderer/src/ui2026/primitives/dashboardOnboardingModel.ts',
       'src/renderer/src/ui2026/primitives/hero.tsx',
       'src/renderer/src/ui2026/primitives/rail.tsx',
       'src/renderer/src/ui2026/primitives/rows.tsx',
@@ -171,10 +197,12 @@ describe('Community source boundary configuration', () => {
       'src/renderer/src/ui2026/surfaceNavigation.test.tsx',
       'src/renderer/src/ui2026/surfaceNavigation.tsx',
       'src/renderer/src/ui2026/surfaceSearch.ts',
+      'src/renderer/src/ui2026/surfaces/ProjectsDashboardModules.open.tsx',
       'src/renderer/src/ui2026/surfaces/ProjectsSurface.open.test.tsx',
       'src/renderer/src/ui2026/surfaces/ProjectsSurface.open.tsx',
       'src/renderer/src/ui2026/surfaces/projectsModel.open.test.ts',
       'src/renderer/src/ui2026/surfaces/projectsModel.open.ts',
+      'src/renderer/src/ui2026/surfaces/projectsOnboarding.open.ts',
       'src/renderer/src/ui2026/surfaces/projectsSurface.open.css',
       'src/renderer/src/ui2026/surfaces/VaultDashboard.open.tsx',
       'src/renderer/src/ui2026/surfaces/VaultReferenceRail.open.tsx',
@@ -190,6 +218,12 @@ describe('Community source boundary configuration', () => {
       'src/renderer/src/ui2026/surfaces/vaultSurfaceActions.open.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.test.ts',
       'src/renderer/src/ui2026/surfaces/vaultSurfaceModel.open.ts',
+      'src/renderer/src/ui2026/onboarding.css',
+      'src/renderer/src/ui2026/onboarding-foundation.css',
+      'src/renderer/src/ui2026/onboarding-welcome.css',
+      'src/renderer/src/ui2026/onboarding-form.css',
+      'src/renderer/src/ui2026/onboarding-restore.css',
+      'src/renderer/src/ui2026/onboarding-responsive.css',
       'src/renderer/src/ui2026/ui2026.css',
     ]) {
       expect(isPrivateOverlaySourcePath(path), path).toBe(false)

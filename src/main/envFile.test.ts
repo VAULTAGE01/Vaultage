@@ -1,8 +1,12 @@
+import { execFile as execFileCallback } from 'child_process'
 import { mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
+import { promisify } from 'util'
 import { describe, expect, it } from 'vitest'
 import { projectEnvFilePartialResult, writeProjectEnvFile } from './envFile'
+
+const execFile = promisify(execFileCallback)
 
 describe('env file writer', () => {
   it('serializes env entries and creates a gitignore when requested', async () => {
@@ -101,6 +105,28 @@ describe('env file writer', () => {
       expect(replaced.status.envFile).toBe('replaced')
       expect(await readFile(join(dir, '.env'), 'utf8')).toContain('API_KEY=new')
       expect((await stat(join(dir, '.env'))).mode & 0o777).toBe(0o600)
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to write values into a Git-tracked .env even when it is ignored', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'vaultage-env-file-'))
+    try {
+      await execFile('git', ['init', '--quiet', dir])
+      await writeFile(join(dir, '.env'), 'EXISTING=keep\n')
+      await execFile('git', ['-C', dir, 'add', '--', '.env'])
+      await writeFile(join(dir, '.gitignore'), '.env\n')
+
+      await expect(writeProjectEnvFile({
+        projectPath: dir,
+        entries: [{ envKey: 'API_KEY', value: 'new-secret' }],
+        addToGitignore: true,
+        overwriteExisting: true,
+      })).rejects.toThrow('Git-tracked .env')
+
+      expect(await readFile(join(dir, '.env'), 'utf8')).toBe('EXISTING=keep\n')
+      expect(await readFile(join(dir, '.gitignore'), 'utf8')).toBe('.env\n')
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

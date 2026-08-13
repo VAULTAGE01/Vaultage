@@ -12,6 +12,11 @@ secure, tactile depth without decorative noise.
 The existing UI2026 stylesheet is the source of truth. Components use semantic
 tokens rather than raw color values.
 
+Legacy control aliases (`accent`, `accent-hover`, and focus/shadow variants)
+resolve to the matching UI2026 action tokens. They exist only to keep established
+workflow components visually compatible while those components are composed with
+UI2026 surfaces; they never repurpose the success green as a primary action.
+
 | Role | Token | Usage |
 |---|---|---|
 | Background | --ui26-bg | App canvas |
@@ -38,6 +43,45 @@ the bounded grid and scroll ownership declared by .ui26-shell,
 .ui26-workspace, and .ui26-main; the main region owns content overflow.
 
 ## 5. Components
+
+### Authentication and onboarding
+
+- Scope: clean-install welcome, local-vault password creation, Emergency Kit
+  restore entry, and the backdrop shared by those setup steps. Established
+  unlock and recovery screens remain on their existing auth contract until
+  they are migrated deliberately.
+- Primitives: `ui26-onboarding-shell`, `ui26-onboarding-frame`,
+  `ui26-onboarding-action-card`, `ui26-onboarding-security`,
+  `ui26-onboarding-form-panel`, `ui26-onboarding-field`,
+  `ui26-onboarding-strength-meter`, and `ui26-onboarding-callout`. Their
+  component tokens and states live in the ordered
+  `src/renderer/src/ui2026/onboarding*.css` family; onboarding components do
+  not carry inline visual styles or arbitrary color, type, radius, shadow, or
+  spacing values.
+- Color: violet `--ui26-accent*` is the primary action and
+  `--ui26-focus` is the keyboard focus role in both editions. Green
+  `--ui26-success` appears only when password strength reaches the genuine
+  success state. Warning, danger, and info use their matching semantic tokens.
+- Type and layout: step titles use the UI2026 title scale, controls and labels
+  use the label scale, and security/recovery explanations use the body scale.
+  The shell owns scrolling, setup frames use named width/inset tokens, and
+  security facts reflow from one column below 480px to three columns above it.
+- States: welcome rest/focus/press; password focus, policy error, mismatch,
+  valid, loading, and setup error; restore entry; Back/Escape return; normal
+  and reduced motion. Every raw onboarding button has an explicit 2px
+  `--ui26-focus` outline. Reduced motion removes entrances, transforms, and
+  progress transitions while keeping every control immediately usable.
+- Closed-edition welcome variants: the primary local-vault path and a quieter
+  account-directed path share the action-card primitive. The account path does
+  not weaken or bypass local encryption: it explains that the user creates the
+  local vault and mandatory Emergency Kit first, then opens Account & Plan in
+  the browser for account access. Community never renders this
+  commercial path. Returning Back and choosing local setup replaces the pending
+  destination so Account & Plan cannot open unexpectedly.
+- Accessibility: each step has one `h1`; security facts precede password
+  entry; secure inputs retain native semantics; invalid fields expose
+  `aria-invalid` and associated descriptions; stable `data-onboarding-*`
+  markers support behavior and visual QA without pinning customer prose.
 
 ### Marketing hero
 
@@ -154,6 +198,12 @@ the bounded grid and scroll ownership declared by .ui26-shell,
 - Variants: embedded and full shell; headerless workspace.
 - States: default and keyboard-focusable main landmark.
 - Accessibility: semantic aside, main, and skip link; no tab-panel role for navigation.
+- Compact legacy-workspace variant: the established navigation rail becomes an
+  explicit labelled drawer below the compact breakpoint. The main workspace
+  retains full inline width; the drawer and its scrim are separate controls so
+  navigation remains keyboard reachable without permanently constraining detail
+  content. The desktop window may shrink to the compact composition (640px
+  minimum inline size) rather than preventing that tested responsive state.
 
 ### Surface navigation
 
@@ -178,6 +228,20 @@ StatusMark, CountChip, ActionButton, EmptyFirst, QuickActionCard, ContextRail,
 RailSection, and RailStatSplit are reusable Vault/Projects building blocks.
 Their states are represented by the existing CSS classes and focused
 server-render tests.
+
+DashboardPanel is the universal module wrapper for Vault and Projects metrics,
+pinned content, issues/reminders, and general activity. Those four modules share
+the same header, count, body, state, border, radius, and surface tokens; content
+type changes inside the body rather than selecting a different outer shell.
+
+Services uses one persistent ServicesCommandBar across discovery, category,
+use-case, industry, provider overview, setup, and connected-service routes. It
+owns the route breadcrumb/back action, scoped search trigger, and Request a
+service CTA. Category navigation belongs to the context rail and must not be
+duplicated as a second landing-page category module. Services catalog sections
+reuse DashboardPanel, while provider and destination content reuse the same
+surface, border, radius, and tonal tokens as Vault/Projects and the standalone
+provider overview.
 
 ### Vault surface
 

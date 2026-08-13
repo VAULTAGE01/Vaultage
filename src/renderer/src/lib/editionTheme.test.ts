@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   CLOSED_AUTH_BACKDROP_CONTRACT,
   CLOSED_SHELL_BACKGROUND_CONTRACT,
+  ONBOARDING_AUTH_BACKDROP_CONTRACT,
   OPEN_AUTH_BACKDROP_CONTRACT,
   OPEN_SHELL_BACKGROUND_CONTRACT,
 } from './editionTheme'
@@ -28,6 +29,12 @@ describe('edition theme contracts', () => {
     )
     expect(CLOSED_AUTH_BACKDROP_CONTRACT.noiseClassName).toContain('liquid-noise')
     expect(CLOSED_AUTH_BACKDROP_CONTRACT.noiseClassName).toContain('opacity-30')
+  })
+
+  it('uses the shared neutral-violet backdrop for onboarding in both editions', () => {
+    expect(ONBOARDING_AUTH_BACKDROP_CONTRACT.gradientPalette).toBe('darkGrey')
+    expect(ONBOARDING_AUTH_BACKDROP_CONTRACT.gradientClassName).toBe('ui26-onboarding-backdrop-gradient')
+    expect(ONBOARDING_AUTH_BACKDROP_CONTRACT.overlayClassName).toBe('ui26-onboarding-backdrop-overlay')
   })
 
   it('keeps the open/community shell pattern neutral', () => {

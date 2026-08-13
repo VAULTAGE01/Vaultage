@@ -26,12 +26,13 @@ describe('ProjectsView Community Projects surface', () => {
 
     expect(html).toContain('class="ui26-shell is-embedded"')
     expect(html).toContain('Scan/import local project')
-    expect(html).toContain('No local projects yet')
+    expect(html).toContain('No pinned projects yet')
+    expect(html).toContain('Finish Projects setup')
     expect(html).not.toContain('Turn a local folder into a reviewed .env export')
     expect(html).not.toMatch(/Services|Agent|provider|billing|cloud environment/i)
   })
 
-  it('keeps saved projects and readiness rows inside the UI2026 modules', () => {
+  it('keeps project attention rows inside the same shared panels as metrics and pinned projects', () => {
     envProjects = Array.from({ length: 6 }, (_, index) => ({
       id: `project-${index}`,
       name: `Project ${index}`,
@@ -42,9 +43,11 @@ describe('ProjectsView Community Projects surface', () => {
 
     const html = renderToStaticMarkup(<ProjectsView />)
 
-    expect(html.match(/class="ui26-projects-module"/g)).toHaveLength(3)
-    expect(html.match(/Project \d/g)).toHaveLength(12)
-    expect(html).toContain('Saved projects')
-    expect(html).toContain('Needs attention')
+    expect(html.match(/class="ui26-dashboard-panel"/g)).toHaveLength(3)
+    expect(html).not.toContain('ui26-projects-module')
+    expect(html.match(/Project \d/g)).toHaveLength(6)
+    expect(html).toContain('Pinned projects')
+    expect(html).toContain('Issues / reminders')
+    expect(html).toContain('Needs a local folder')
   })
 })

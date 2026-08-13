@@ -69,6 +69,36 @@ describe('registerVaultIpc export IPC', () => {
     })
   })
 
+  it('rejects malformed certificate preview input without exposing submitted material', async () => {
+    const { handlers, ipcMain } = fakeIpcMain()
+    registerVaultIpc(ipcMain, {
+      getVaultKey: () => Buffer.alloc(32, 7),
+      readVault: storageMock.readVault,
+      beginSessionOperation: activeSessionOperation,
+      recordSecretUsage: vi.fn(),
+      decorateVaultSnapshot: value => value,
+      authorizeProjectPathMutation: async (_vault, command) => command,
+      getVaultRevision: () => 1,
+      setVaultRevision: vi.fn(),
+      lockVault: vi.fn(),
+      authController: {
+        confirmSecretReveal: vi.fn(),
+        forgetTouchID: vi.fn(),
+      } as unknown as AuthController,
+      recordAudit: vi.fn(),
+      recordAuditDurable: vi.fn(async () => undefined),
+    })
+
+    const submittedMaterial = 'not-a-certificate'
+    const result = await handlers.get('vault:preview-certificate-metadata')?.({}, {
+      format: 'PEM',
+      certificateBase64: Buffer.from(submittedMaterial).toString('base64'),
+    })
+
+    expect(result).toMatchObject({ success: false, code: 'invalid_certificate' })
+    expect(JSON.stringify(result)).not.toContain(submittedMaterial)
+  })
+
   it('keeps decrypted export values in an opaque main-owned import session', async () => {
     const { handlers, ipcMain } = fakeIpcMain()
     const auditEvents: { type: AuditEventType; details?: Record<string, unknown> }[] = []

@@ -1,6 +1,6 @@
 export const MAIN_WINDOW_GEOMETRY = {
   width: 1200,
   height: 800,
-  minWidth: 1200,
-  minHeight: 800,
+  minWidth: 640,
+  minHeight: 640,
 } as const

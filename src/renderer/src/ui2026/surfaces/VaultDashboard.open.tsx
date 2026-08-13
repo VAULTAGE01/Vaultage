@@ -1,14 +1,15 @@
 import {
+  Activity,
   Bell,
   Folder,
-  Globe2,
   KeyRound,
   Pin,
   Settings,
-  ShieldCheck,
   Upload,
+  Zap,
 } from 'lucide-react'
-import type { ReactElement, RefObject } from 'react'
+import type { ReactElement, ReactNode, RefObject } from 'react'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { formatRelativeDate } from '@/lib/date'
 import {
   CompactRow,
@@ -16,6 +17,13 @@ import {
   QuickActionCard,
   SurfaceSectionHeader,
 } from '../primitives.open'
+import {
+  DashboardComposition,
+  DashboardMetricGrid,
+  DashboardMetricItem,
+  DashboardPanel,
+  DashboardStatePanel,
+} from '../primitives/dashboardComposition'
 import type { createVaultSurfaceActions } from './vaultSurfaceActions.open'
 import type {
   filterVaultSurfaceModel,
@@ -31,15 +39,19 @@ type VaultActions = ReturnType<typeof createVaultSurfaceActions>
 function SecretRow({
   secret,
   onActivate,
+  reminder = false,
 }: {
   readonly secret: VaultSurfaceSecret
   readonly onActivate: () => void
+  readonly reminder?: boolean
 }): ReactElement {
   return (
     <CompactRow
       icon={<KeyRound size={16} aria-hidden />}
       title={secret.name}
-      meta={formatRelativeDate(secret.timestamp)}
+      meta={reminder && secret.reminderDueAt
+        ? `${secret.type === 'certificate' ? 'Certificate expires' : 'Expires'} ${new Date(secret.reminderDueAt).toLocaleDateString()}`
+        : formatRelativeDate(secret.timestamp)}
       onActivate={onActivate}
     />
   )
@@ -51,6 +63,7 @@ export function VaultDashboard({
   searchInput,
   searchResults,
   actions,
+  onboarding,
   onQueryChange,
   onSearchClose,
 }: {
@@ -59,18 +72,12 @@ export function VaultDashboard({
   readonly searchInput: RefObject<HTMLInputElement>
   readonly searchResults: VaultSearchResults
   readonly actions: VaultActions
+  readonly onboarding?: ReactNode
   readonly onQueryChange: (query: string) => void
   readonly onSearchClose: () => void
 }): ReactElement {
   const pinnedCollections = visible.collections.filter((collection) => collection.pinned)
-  const metrics = [
-    { label: 'Secrets', value: visible.totalSecrets, icon: <KeyRound size={20} /> },
-    { label: 'Collections', value: visible.collectionCount, icon: <Folder size={20} /> },
-    { label: 'Environments', value: visible.environments, icon: <Globe2 size={20} /> },
-    { label: 'Pinned', value: visible.pinnedSecrets.length, icon: <Pin size={20} /> },
-    { label: 'Reminders', value: visible.reminders.length, icon: <Bell size={20} /> },
-    { label: 'Storage', value: 'Local', icon: <ShieldCheck size={20} /> },
-  ] as const
+  const pinnedCount = visible.pinnedSecrets.length + pinnedCollections.length
 
   return (
     <div className='ui26-vault-layout'>
@@ -84,113 +91,104 @@ export function VaultDashboard({
           onClose={onSearchClose}
         />
       ) : null}
-      <section className='ui26-vault-summary' aria-label='Vault overview'>
-        <div className='ui26-vault-metrics' aria-label='Vault metrics'>
-          {metrics.map((metric) => (
-            <div className='ui26-vault-metric' key={metric.label}>
-              <i aria-hidden>{metric.icon}</i>
-              <strong>{metric.value}</strong>
-              <span>{metric.label}</span>
+      <DashboardComposition
+        surface='vault'
+        onboarding={onboarding}
+        metrics={(
+          <DashboardPanel title='Metrics' icon={<Activity size={15} />} count={visible.totalSecrets}>
+            <DashboardMetricGrid label='Vault metrics'>
+              <DashboardMetricItem label='Secrets' value={visible.totalSecrets} />
+              <DashboardMetricItem label='Collections' value={visible.collectionCount} />
+              <DashboardMetricItem label='Environments' value={visible.environments} />
+              <DashboardMetricItem
+                label='Reminders'
+                value={visible.reminders.length}
+                state={visible.reminders.length > 0 ? 'attention' : 'default'}
+              />
+            </DashboardMetricGrid>
+          </DashboardPanel>
+        )}
+        pinned={(
+          <DashboardPanel title='Pinned' icon={<Pin size={15} />} count={pinnedCount}>
+            <Tabs defaultValue='secrets' className='ui26-vault-pinned-tabs'>
+              <TabsList aria-label='Pinned Vault items'>
+                <TabsTrigger value='secrets'>
+                  Pinned secrets <span>{visible.pinnedSecrets.length}</span>
+                </TabsTrigger>
+                <TabsTrigger value='collections'>
+                  Pinned collections <span>{pinnedCollections.length}</span>
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value='secrets' className='ui26-vault-pinned-list'>
+                {visible.pinnedSecrets.length ? visible.pinnedSecrets.map((secret) => (
+                  <div className='ui26-vault-secret' key={secret.id}>
+                    <strong>{secret.name}</strong>
+                    <EnvBadge environment={secret.environment} compact />
+                    <button
+                      className='ui26-vault-row-action'
+                      type='button'
+                      aria-label={`Open ${secret.name}`}
+                      onClick={() => actions.openSecret(secret)}
+                    >
+                      Open
+                    </button>
+                  </div>
+                )) : <p className='ui26-muted'>No pinned secrets match this search.</p>}
+              </TabsContent>
+              <TabsContent value='collections' className='ui26-vault-pinned-list'>
+                {pinnedCollections.length ? pinnedCollections.map((collection) => (
+                  <button
+                    className='ui26-vault-collection'
+                    type='button'
+                    key={collection.id}
+                    onClick={() => actions.openCollection(collection)}
+                  >
+                    <strong>{collection.name}</strong>
+                    <span>{collection.count} secrets</span>
+                  </button>
+                )) : <p className='ui26-muted'>No pinned collections.</p>}
+              </TabsContent>
+            </Tabs>
+          </DashboardPanel>
+        )}
+        quickActions={(
+          <>
+            <SurfaceSectionHeader id='vault-quick-actions' title='Quick actions' icon={<Zap size={18} />} />
+            <div className='ui26-vault-actions'>
+              <QuickActionCard icon={<KeyRound size={24} aria-hidden />} title='Add secret' actionLabel='Add secret' tone='primary' onActivate={actions.openAddSecret} />
+              <QuickActionCard icon={<Upload size={24} aria-hidden />} title='Import or export' actionLabel='Choose transfer flow' onActivate={actions.openImportOrExport} />
+              <QuickActionCard icon={<Folder size={24} aria-hidden />} title='New collection' actionLabel='Create collection' onActivate={actions.openNewCollection} />
+              <QuickActionCard icon={<Settings size={24} aria-hidden />} title='Vault settings' actionLabel='Open settings' onActivate={actions.openVaultSettings} />
             </div>
-          ))}
-        </div>
-        <section className='ui26-vault-pinned'>
-          <div className='ui26-vault-pinned-heading'>
-            <h2><Pin size={15} aria-hidden /> Pinned secrets</h2>
-            <span>{visible.pinnedSecrets.length}</span>
-          </div>
-          <div className='ui26-vault-pinned-list'>
-            {visible.pinnedSecrets.length ? visible.pinnedSecrets.map((secret) => (
-              <div className='ui26-vault-secret' key={secret.id}>
-                <strong>{secret.name}</strong>
-                <EnvBadge environment={secret.environment} compact />
-                <button
-                  className='ui26-vault-row-action'
-                  type='button'
-                  onClick={() => actions.openSecret(secret)}
-                >
-                  Open
-                </button>
-              </div>
-            )) : <p className='ui26-muted'>No pinned secrets match this search.</p>}
-          </div>
-        </section>
-      </section>
-      <section className='ui26-vault-action-section' aria-labelledby='vault-quick-actions'>
-        <SurfaceSectionHeader id='vault-quick-actions' title='Quick actions' />
-        <div className='ui26-grid ui26-vault-actions'>
-          <QuickActionCard
-            icon={<KeyRound size={28} aria-hidden />}
-            title='Add secret'
-            actionLabel='Add secret'
-            tone='primary'
-            onActivate={actions.openAddSecret}
-          />
-          <QuickActionCard
-            icon={<Upload size={28} aria-hidden />}
-            title='Import or export'
-            actionLabel='Choose transfer flow'
-            onActivate={actions.openImportOrExport}
-          />
-          <QuickActionCard
-            icon={<Folder size={28} aria-hidden />}
-            title='New collection'
-            actionLabel='Create collection'
-            onActivate={actions.openNewCollection}
-          />
-          <QuickActionCard
-            icon={<Settings size={28} aria-hidden />}
-            title='Vault settings'
-            actionLabel='Open settings'
-            onActivate={actions.openVaultSettings}
-          />
-        </div>
-      </section>
-      <section className='ui26-vault-bottom' aria-label='Vault updates'>
-        <section className='ui26-vault-module'>
-          <header>
-            <h2><Bell size={15} aria-hidden /> Reminders</h2>
-            <span>{visible.reminders.length}</span>
-          </header>
-          {visible.reminders.length ? visible.reminders.map((item) => (
-            <SecretRow
-              key={item.id}
-              secret={item}
-              onActivate={() => actions.openSecret(item)}
-            />
-          )) : <p className='ui26-vault-empty-line'>Nothing needs attention.</p>}
-        </section>
-        <section className='ui26-vault-module'>
-          <header>
-            <h2><KeyRound size={15} aria-hidden /> Recent secrets</h2>
-            <span>{visible.recentSecrets.length}</span>
-          </header>
-          {visible.recentSecrets.length ? visible.recentSecrets.map((item) => (
-            <SecretRow
-              key={item.id}
-              secret={item}
-              onActivate={() => actions.openSecret(item)}
-            />
-          )) : <p className='ui26-vault-empty-line'>No recent secret updates.</p>}
-        </section>
-        <section className='ui26-vault-module'>
-          <header>
-            <h2><Folder size={15} aria-hidden /> Pinned collections</h2>
-            <span>{pinnedCollections.length}</span>
-          </header>
-          {pinnedCollections.length ? pinnedCollections.map((collection) => (
-            <button
-              className='ui26-vault-collection'
-              type='button'
-              key={collection.id}
-              onClick={() => actions.openCollection(collection)}
-            >
-              <strong>{collection.name}</strong>
-              <span>{collection.count} secrets</span>
-            </button>
-          )) : <p className='ui26-vault-empty-line'>No pinned collections.</p>}
-        </section>
-      </section>
+          </>
+        )}
+        issues={(
+          <DashboardStatePanel
+            title='Issues / reminders'
+            icon={<Bell size={15} />}
+            count={visible.reminders.length}
+            state={visible.reminders.length ? 'ready' : 'empty'}
+            emptyMessage='Nothing needs attention.'
+          >
+            {visible.reminders.map((item) => (
+              <SecretRow key={item.id} secret={item} reminder onActivate={() => actions.openSecret(item)} />
+            ))}
+          </DashboardStatePanel>
+        )}
+        activity={(
+          <DashboardStatePanel
+            title='General activity'
+            icon={<KeyRound size={15} />}
+            count={visible.recentSecrets.length}
+            state={visible.recentSecrets.length ? 'ready' : 'empty'}
+            emptyMessage='No recent secret updates.'
+          >
+            {visible.recentSecrets.map((item) => (
+              <SecretRow key={item.id} secret={item} onActivate={() => actions.openSecret(item)} />
+            ))}
+          </DashboardStatePanel>
+        )}
+      />
     </div>
   )
 }

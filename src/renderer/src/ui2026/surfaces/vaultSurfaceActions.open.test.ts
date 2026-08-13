@@ -9,7 +9,6 @@ describe('Community Vault UI2026 actions', () => {
       selectSecret: (id) => calls.push('secret:' + id),
       onOpenDetail: target => calls.push('detail:' + target.kind + ':' + target.id),
       onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
-      onOpenLegacyWorkspace: (view) => calls.push('workspace:' + view),
     })
 
     actions.openSecret({
@@ -36,7 +35,6 @@ describe('Community Vault UI2026 actions', () => {
       selectSecret: () => undefined,
       onOpenDetail: () => undefined,
       onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
-      onOpenLegacyWorkspace: view => calls.push('workspace:' + view),
     })
 
     actions.openAddSecret()
@@ -52,21 +50,6 @@ describe('Community Vault UI2026 actions', () => {
     ])
   })
 
-  it('keeps the deliberately labelled existing-workspace escape hatch separate', () => {
-    const calls: string[] = []
-    const actions = createVaultSurfaceActions({
-      selectFolder: () => undefined,
-      selectSecret: () => undefined,
-      onOpenDetail: () => undefined,
-      onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
-      onOpenLegacyWorkspace: view => calls.push('workspace:' + view),
-    })
-
-    actions.openWorkspace()
-
-    expect(calls).toEqual(['workspace:dashboard'])
-  })
-
   it('opens folder search results in UI2026 collection detail', () => {
     const calls: string[] = []
     const actions = createVaultSurfaceActions({
@@ -74,7 +57,6 @@ describe('Community Vault UI2026 actions', () => {
       selectSecret: (id) => calls.push('secret:' + id),
       onOpenDetail: target => calls.push('detail:' + target.kind + ':' + target.id),
       onOpenWorkflow: workflow => calls.push('workflow:' + workflow),
-      onOpenLegacyWorkspace: (view) => calls.push('workspace:' + view),
     })
 
     actions.openSearchResult({

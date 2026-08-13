@@ -1,0 +1,60 @@
+@media (min-width: 480px) {
+  .ui26-onboarding-security-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 479px) {
+  .ui26-onboarding-shell {
+    align-items: flex-start;
+    padding-block: var(--ui26-space-5);
+  }
+
+  .ui26-onboarding-frame {
+    padding: var(--ui26-space-5);
+  }
+
+  .ui26-onboarding-wordmark--welcome {
+    width: var(--ui26-onboarding-password-width);
+    max-width: 78%;
+    height: auto;
+  }
+
+  .ui26-onboarding-security-header {
+    align-items: flex-start;
+  }
+
+  .ui26-onboarding-restore-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .ui26-onboarding-field--wide {
+    grid-column: auto;
+  }
+}
+
+@media (max-height: 760px) {
+  .ui26-onboarding-shell {
+    align-items: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui26-onboarding-frame {
+    animation: none;
+  }
+
+  .ui26-onboarding-action-card,
+  .ui26-onboarding-action-arrow,
+  .ui26-onboarding-field-action,
+  .ui26-onboarding-icon-button,
+  .ui26-onboarding-link,
+  .ui26-onboarding-strength-meter span {
+    transition: none;
+  }
+
+  .ui26-onboarding-action-card:active,
+  .ui26-onboarding-action-card:hover .ui26-onboarding-action-arrow {
+    transform: none;
+  }
+}

@@ -65,6 +65,33 @@ describe('Community Vault UI2026 model', () => {
     }])
   })
 
+  it('surfaces certificates nearing their recorded validity end in reminders', () => {
+    const model = buildVaultSurfaceModel({
+      ...fixture,
+      root: {
+        ...fixture.root,
+        children: [],
+        secrets: [{
+          id: 'certificate-1',
+          name: 'Public gateway certificate',
+          type: 'certificate',
+          fields: [],
+          notes: '',
+          createdAt: '2026-07-01T10:00:00.000Z',
+          updatedAt: '2026-07-02T10:00:00.000Z',
+          certificate: {
+            format: 'PEM',
+            notBefore: '2026-01-01T00:00:00.000Z',
+            notAfter: '2026-08-10T00:00:00.000Z',
+          },
+        }],
+      },
+    }, Date.parse('2026-07-24T12:00:00.000Z'))
+
+    expect(model.reminders.map((secret) => secret.name))
+      .toEqual(['Public gateway certificate'])
+  })
+
   it('keeps local scope explicit and filters real values', () => {
     const model = buildVaultSurfaceModel({
       ...fixture,

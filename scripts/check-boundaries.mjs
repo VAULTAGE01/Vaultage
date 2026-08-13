@@ -56,10 +56,19 @@ const rules = [
   },
   {
     name: 'renderer does not receive the raw Agent API token',
-    files: ['src/preload/index.ts', 'src/renderer/src/env.d.ts', 'src/renderer/src/components/Sidebar.tsx'],
+    files: [
+      'src/preload/index.ts',
+      'src/renderer/src/env.d.ts',
+      'src/renderer/src/components/Sidebar.tsx',
+      'src/renderer/src/components/SettingsModal.tsx',
+      'src/main/agentIpc.ts',
+    ],
     forbidden: [
       /vault:agent-api-token/,
       /getAgentApiToken/,
+      /agentInstructionsSnippet/,
+      /clipboard\.writeText\([^)]*token/is,
+      /Authorization:\s*Bearer\s*\$\{/,
     ],
   },
   {
@@ -96,6 +105,16 @@ const rules = [
 ]
 
 const requiredRules = [
+  {
+    name: 'Agent client config uses private atomic write controls',
+    file: 'src/main/agentClientConfig.ts',
+    required: [/PRIVATE_FILE_MODE/, /before-config-commit/, /replacesClientId/],
+  },
+  {
+    name: 'Agent client rotation preserves a valid replacement across its crash window',
+    file: 'src/main/agentClientConnection.ts',
+    required: [/replacementInstalled/, /replacesClientId/, /priorCredentialRevoked/],
+  },
   {
     name: 'browser native-host registration stays private with capability-gated creation and ungated cleanup',
     file: 'src/main/index.ts',

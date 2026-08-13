@@ -1,0 +1,251 @@
+.ui26-dashboard-onboarding-card {
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.ui26-dashboard-onboarding {
+  --ui26-onboarding-tone: var(--ui26-success);
+  display: grid;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(min(14rem, 100%), 0.9fr);
+  grid-template-rows: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--ui26-space-3) var(--ui26-space-6);
+  overflow: hidden;
+  padding: var(--ui26-space-5) var(--ui26-space-6);
+  border: 1px solid color-mix(in srgb, var(--ui26-onboarding-tone) 34%, var(--ui26-border));
+  border-radius: var(--ui26-radius-lg);
+  color: var(--ui26-text);
+  background:
+    radial-gradient(
+      circle at 78% 12%,
+      color-mix(in srgb, var(--ui26-onboarding-tone) 16%, transparent),
+      transparent 34%
+    ),
+    color-mix(in srgb, var(--ui26-onboarding-tone) 12%, var(--ui26-surface-raised));
+  box-shadow:
+    inset 0 1px 0 color-mix(in srgb, var(--ui26-onboarding-tone) 12%, var(--ui26-border-strong)),
+    0 var(--ui26-space-4) var(--ui26-space-10) color-mix(in srgb, var(--ui26-onboarding-tone) 10%, var(--ui26-scrim));
+}
+
+.ui26-dashboard-onboarding[data-ui26-onboarding-tone='projects'] {
+  --ui26-onboarding-tone: var(--ui26-info);
+}
+
+.ui26-dashboard-onboarding-copy,
+.ui26-dashboard-onboarding-progress {
+  min-width: 0;
+}
+
+.ui26-dashboard-onboarding-copy {
+  align-self: center;
+}
+
+.ui26-dashboard-onboarding-copy h2,
+.ui26-dashboard-onboarding-copy p {
+  margin: 0;
+}
+
+.ui26-dashboard-onboarding-copy h2 {
+  max-width: 18ch;
+  font-size: var(--ui26-type-title-sm);
+  font-weight: var(--ui26-weight-bold);
+  line-height: var(--ui26-leading-tight);
+  letter-spacing: var(--ui26-tracking-tight);
+  text-wrap: balance;
+}
+
+.ui26-dashboard-onboarding-copy > p:last-child {
+  max-width: 42ch;
+  margin-top: var(--ui26-space-2);
+  color: var(--ui26-text-secondary);
+  font-size: var(--ui26-type-small);
+  line-height: var(--ui26-leading-copy);
+}
+
+.ui26-dashboard-onboarding-eyebrow {
+  margin-bottom: var(--ui26-space-2) !important;
+  color: color-mix(in srgb, var(--ui26-onboarding-tone) 82%, var(--ui26-text));
+  font-size: var(--ui26-type-overline);
+  font-weight: var(--ui26-weight-bold);
+  letter-spacing: var(--ui26-tracking-overline);
+  text-transform: uppercase;
+}
+
+.ui26-dashboard-onboarding-progress {
+  display: grid;
+  align-self: center;
+  gap: var(--ui26-space-3);
+}
+
+.ui26-dashboard-onboarding-summary {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: auto minmax(var(--ui26-space-12), 1fr);
+  align-items: center;
+  gap: var(--ui26-space-3);
+  color: var(--ui26-text-secondary);
+  font-size: var(--ui26-type-caption);
+  font-weight: var(--ui26-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.ui26-dashboard-onboarding-summary progress {
+  overflow: hidden;
+  width: 100%;
+  height: var(--ui26-space-1);
+  border: 0;
+  border-radius: var(--ui26-radius-pill);
+  appearance: none;
+  background: color-mix(in srgb, var(--ui26-onboarding-tone) 18%, var(--ui26-surface));
+  accent-color: var(--ui26-onboarding-tone);
+}
+
+.ui26-dashboard-onboarding-summary progress::-webkit-progress-bar {
+  border-radius: var(--ui26-radius-pill);
+  background: color-mix(in srgb, var(--ui26-onboarding-tone) 18%, var(--ui26-surface));
+}
+
+.ui26-dashboard-onboarding-summary progress::-webkit-progress-value {
+  border-radius: var(--ui26-radius-pill);
+  background: var(--ui26-onboarding-tone);
+}
+
+.ui26-dashboard-onboarding-summary progress::-moz-progress-bar {
+  border-radius: var(--ui26-radius-pill);
+  background: var(--ui26-onboarding-tone);
+}
+
+.ui26-dashboard-onboarding-checklist {
+  display: grid;
+  gap: var(--ui26-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ui26-dashboard-onboarding-checklist li {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: var(--ui26-space-7) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--ui26-space-2);
+}
+
+.ui26-dashboard-onboarding-step-mark {
+  display: inline-grid;
+  width: var(--ui26-space-7);
+  height: var(--ui26-space-7);
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--ui26-onboarding-tone) 34%, var(--ui26-border));
+  border-radius: var(--ui26-radius-pill);
+  color: color-mix(in srgb, var(--ui26-onboarding-tone) 82%, var(--ui26-text));
+  background: color-mix(in srgb, var(--ui26-onboarding-tone) 10%, var(--ui26-surface));
+}
+
+.ui26-dashboard-onboarding-checklist li[data-step-status='complete'] .ui26-dashboard-onboarding-step-mark {
+  color: var(--ui26-bg);
+  border-color: var(--ui26-onboarding-tone);
+  background: var(--ui26-onboarding-tone);
+}
+
+.ui26-dashboard-onboarding-step-copy {
+  display: grid;
+  min-width: 0;
+  gap: var(--ui26-space-0-5);
+}
+
+.ui26-dashboard-onboarding-step-copy strong,
+.ui26-dashboard-onboarding-step-copy small {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ui26-dashboard-onboarding-step-copy strong {
+  font-size: var(--ui26-type-small);
+  font-weight: var(--ui26-weight-semibold);
+}
+
+.ui26-dashboard-onboarding-step-copy small {
+  color: var(--ui26-text-secondary);
+  font-size: var(--ui26-type-caption);
+}
+
+.ui26-dashboard-onboarding-actions {
+  display: flex;
+  grid-column: 1 / -1;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--ui26-space-2);
+}
+
+.ui26-dashboard-onboarding-actions button {
+  min-height: var(--ui26-control-sm);
+  padding: 0 var(--ui26-space-4);
+  border: 1px solid color-mix(in srgb, var(--ui26-onboarding-tone) 32%, var(--ui26-border));
+  border-radius: var(--ui26-radius-md);
+  color: var(--ui26-text-secondary);
+  background: color-mix(in srgb, var(--ui26-onboarding-tone) 8%, var(--ui26-surface));
+  font: inherit;
+  font-size: var(--ui26-type-small);
+  font-weight: var(--ui26-weight-semibold);
+  transition:
+    transform var(--ui26-motion-fast) ease-out,
+    background-color var(--ui26-motion-standard) ease-in-out,
+    border-color var(--ui26-motion-standard) ease-in-out;
+}
+
+.ui26-dashboard-onboarding-actions .ui26-dashboard-onboarding-close {
+  color: var(--ui26-bg);
+  border-color: var(--ui26-onboarding-tone);
+  background: var(--ui26-onboarding-tone);
+}
+
+.ui26-dashboard-onboarding-actions button:hover {
+  border-color: color-mix(in srgb, var(--ui26-onboarding-tone) 68%, var(--ui26-border));
+  background: color-mix(in srgb, var(--ui26-onboarding-tone) 18%, var(--ui26-surface-hover));
+  transform: translateY(-1px);
+}
+
+.ui26-dashboard-onboarding-actions .ui26-dashboard-onboarding-close:hover {
+  background: color-mix(in srgb, var(--ui26-onboarding-tone) 88%, var(--ui26-on-accent));
+}
+
+.ui26-dashboard-onboarding-actions button:focus-visible {
+  outline: 2px solid var(--ui26-focus);
+  outline-offset: 2px;
+}
+
+.ui26-dashboard-onboarding-actions button:active {
+  transform: translateY(1px);
+}
+
+@container (max-width: 36rem) {
+  .ui26-dashboard-onboarding {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+    padding: var(--ui26-space-5);
+  }
+
+  .ui26-dashboard-onboarding-actions {
+    grid-column: 1;
+    justify-content: flex-start;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui26-dashboard-onboarding-actions button {
+    transition: none;
+  }
+
+  .ui26-dashboard-onboarding-actions button:hover,
+  .ui26-dashboard-onboarding-actions button:active {
+    transform: none;
+  }
+}

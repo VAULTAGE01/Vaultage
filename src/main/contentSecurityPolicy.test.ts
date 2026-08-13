@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { DEVELOPMENT_RENDERER_CSP, RENDERER_CSP } from './contentSecurityPolicy'
 
@@ -15,6 +17,7 @@ describe('renderer content security policy', () => {
   it('allows loopback web sockets only in the explicit development policy', () => {
     expect(DEVELOPMENT_RENDERER_CSP).toContain('ws://localhost:*')
     expect(DEVELOPMENT_RENDERER_CSP).toContain('ws://127.0.0.1:*')
-    expect(DEVELOPMENT_RENDERER_CSP).toContain('ws://[::1]:*')
+    expect(DEVELOPMENT_RENDERER_CSP).not.toContain('ws://[::1]:*')
+    expect(readFileSync(resolve('src/renderer/index.html'), 'utf8')).not.toContain('ws://[::1]:*')
   })
 })

@@ -1,6 +1,7 @@
 import { BrowserWindow, clipboard, dialog, nativeImage, type IpcMain } from 'electron'
 import { Buffer } from 'buffer'
 import { createHash } from 'crypto'
+import { CertificateImportError, parseCertificateMetadata } from './certificateImport'
 import { atomicWritePrivateFile } from './fileIO'
 import { assertSafeImageDimensions } from './imageDimensions'
 import {
@@ -33,6 +34,30 @@ import {
 
 export function registerVaultSecretIpc(ipcMain: IpcMain, deps: VaultIpcDeps): void {
   const vaultIpc = vaultIpcContracts
+
+  ipcMain.handle(vaultIpc.previewCertificateMetadata.channel, async (_, rawPayload: unknown) => {
+    const vaultKey = deps.getVaultKey()
+    if (!vaultKey) return { success: false, error: 'Not authenticated' }
+    const operation = deps.beginSessionOperation()
+    if (!operation) return { success: false, error: 'Not authenticated' }
+    try {
+      const payload = vaultIpc.previewCertificateMetadata.validate(rawPayload)
+      operation.assertCurrent()
+      const certificate = parseCertificateMetadata(
+        payload.format,
+        Buffer.from(payload.certificateBase64, 'base64'),
+      )
+      operation.assertCurrent()
+      return { success: true, certificate }
+    } catch (error) {
+      if (error instanceof CertificateImportError) {
+        return { success: false, code: error.code, error: error.message }
+      }
+      return { success: false, error: String(error) }
+    } finally {
+      operation.release()
+    }
+  })
 
   ipcMain.handle(vaultIpc.copySecretField.channel, async (_, rawPayload: unknown) => {
     const vaultKey = deps.getVaultKey()

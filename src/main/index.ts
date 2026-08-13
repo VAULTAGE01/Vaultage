@@ -15,7 +15,7 @@ import { AuthController } from './auth'
 import { installRendererCsp } from './contentSecurityPolicy'
 import { shouldUseWindowContentProtection } from './contentProtectionPolicy'
 import { createAuthorizedIpcMain } from './ipcAuthorization'
-import { addExtensionCandidateToVault } from '#extension-candidate-vault'
+import { prepareExtensionCandidateVaultUpdate } from '#extension-candidate-vault'
 import { IdleAutoLockController } from './idleAutoLock'
 import { registerAuthIpc } from './authIpc'
 import { registerAuditIpc } from './auditIpc'
@@ -299,22 +299,34 @@ const agentComposition = registerAgentComposition({
     if (!vaultKey) throw new Error('Not authenticated')
     const committed = await updateVault(vaultKey, (vault) => {
       assertNotCancelled()
-      const currentRevision = vaultRevisionFrom(vault, vaultRevision)
-      const saved = addExtensionCandidateToVault(vault, candidate, {
+      const saved = prepareExtensionCandidateVaultUpdate(vault, candidate, {
+        fallbackRevision: vaultRevisionFrom(vault, vaultRevision),
         secretId: randomUUID(),
+        fieldIds: {
+          service: randomUUID(),
+          value: randomUUID(),
+          origin: randomUUID(),
+        },
+        bundleFieldIds: candidate.bundle?.fields.map(() => randomUUID()),
       })
-      const snapshot = { ...saved.vault, revision: currentRevision + 1 }
       return {
-        json: validateVaultSaveJson(JSON.stringify(snapshot)),
-        result: { secretId: saved.secretId, revision: currentRevision + 1, snapshot },
+        json: validateVaultSaveJson(JSON.stringify(saved.snapshot)),
+        result: saved,
       }
-    }, { assertCurrent: () => { assertNotCancelled(); authorizeCommit?.() } })
-    vaultRevision = committed.revision
-    notifyVaultChanged({
-      revision: committed.revision,
-      data: redactVaultForRenderer(committed.snapshot),
-      source: 'browser-extension',
+    }, {
+      assertCurrent: assertNotCancelled,
+      assertCurrentAsync: async () => { authorizeCommit?.() },
     })
+    vaultRevision = committed.revision
+    try {
+      notifyVaultChanged({
+        revision: committed.revision,
+        data: redactVaultForRenderer(committed.snapshot),
+        source: 'browser-extension',
+      })
+    } catch (error) {
+      console.error('[extension] Vault save committed but renderer notification failed', error)
+    }
     return { secretId: committed.secretId }
   },
   recordAudit,

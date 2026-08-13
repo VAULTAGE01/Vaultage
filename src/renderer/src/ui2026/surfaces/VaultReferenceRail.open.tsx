@@ -9,12 +9,14 @@ type VisibleVault = ReturnType<typeof filterVaultSurfaceModel>
 
 export function VaultReferenceRail({
   visible,
-  workspaceAction,
+  primaryAction,
+  hasActiveSearch,
   onSearch,
   onSurfaceChange,
 }: {
   readonly visible: VisibleVault | null
-  readonly workspaceAction?: ActionSpec
+  readonly primaryAction: ActionSpec
+  readonly hasActiveSearch: boolean
   readonly onSearch: () => void
   readonly onSurfaceChange: (surface: Ui2026Surface) => void
 }): ReactElement {
@@ -29,7 +31,7 @@ export function VaultReferenceRail({
       <ContextRail
         title='My Vault'
         description='Encrypted local storage'
-        primaryAction={workspaceAction}
+        primaryAction={primaryAction}
         stats={visible
           ? [
               { label: 'Secrets', value: visible.totalSecrets },
@@ -54,11 +56,11 @@ export function VaultReferenceRail({
               ))}
             </div>
           ))
-        ) : (
+        ) : hasActiveSearch ? (
           <div className='ui26-vault-empty'>
             No types or environments match this search.
           </div>
-        )}
+        ) : null}
       </ContextRail>
     </ReferenceRail>
   )
