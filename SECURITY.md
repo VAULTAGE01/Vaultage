@@ -46,7 +46,7 @@ Vaultage is designed around a local-first trust boundary:
 - Closed Free Agent mode is local-only and must be explicitly enabled while the vault is unlocked.
 - Closed Free keeps unlimited local Vault storage and unlimited Projects plus that local Agent/CLI
   access. The sole released paid capability is Services/provider lifecycle;
-  the browser extension is deferred and unavailable.
+  the public Store v0.1.1 browser extension requires documented desktop prerequisites and eligible entitlement; v0.1.2 is not Store-published or clean-machine qualified.
 - Plaintext export paths require explicit confirmation and must be treated as sensitive.
 - Trial/Pro Services credentials are stored inside the encrypted vault and provider API calls run behind a worker-thread RPC boundary. ADR-024 keeps Agent and provider workflows out of the Community surface.
 - Sensitive main-process events are recorded in a redacted hash-chained local audit log foundation.
@@ -67,7 +67,7 @@ Vaultage is designed around a local-first trust boundary:
 - Paid-beta account, session-refresh, device-enrollment/revocation, billing,
   webhook, entitlement, recovery-notification, export, and deletion surfaces.
 - Commercial entitlement enforcement for Services lifecycle, including
-  offline/grace transitions. The browser extension remains deferred and unavailable.
+  offline/grace transitions. The public Store v0.1.1 browser extension remains separately entitlement-gated; v0.1.2 remains a local candidate only.
 - Cloudflare Worker service bindings, queues, D1/R2 lifecycle controls,
   rate limits, redacted operational logging, and deployable configuration
   defined for the paid-beta control plane in the private cloud repository.

@@ -105,6 +105,14 @@ const productionBuilderConfigPath = join(root, 'electron-builder.production.yml'
 const productionBuilderConfig = existsSync(productionBuilderConfigPath)
   ? readFileSync(productionBuilderConfigPath, 'utf8')
   : ''
+const productionFastTrackBuilderConfigPath = join(root, 'electron-builder.production-fast-track.yml')
+const productionFastTrackBuilderConfig = existsSync(productionFastTrackBuilderConfigPath)
+  ? readFileSync(productionFastTrackBuilderConfigPath, 'utf8')
+  : ''
+const commercialBetaBuilderConfigPath = join(root, 'electron-builder.commercial-beta.yml')
+const commercialBetaBuilderConfig = existsSync(commercialBetaBuilderConfigPath)
+  ? readFileSync(commercialBetaBuilderConfigPath, 'utf8')
+  : ''
 const privateProductPackage = pkg.name !== 'vaultage-open-local'
 let parsedBuilderConfig
 try {
@@ -168,17 +176,42 @@ if (/^(?:win|nsis):/m.test(builderConfig)) {
 if (/browser-extension\/native-host|vaultage-extension-native-host|provider-pages\.json/u.test(builderConfig)) {
   failures.push('ordinary Electron packages must remain extension-host-free')
 }
-if (!privateProductPackage && (productionBuilderConfig || pkg.scripts?.['dist:mac:production'])) {
+if (parsedBuilderConfig?.artifactBuildCompleted != null) {
+  failures.push('ordinary Electron packages must not run the production DMG notarization hook')
+}
+if (!privateProductPackage && (
+  productionBuilderConfig
+  || productionFastTrackBuilderConfig
+  || commercialBetaBuilderConfig
+  || pkg.scripts?.['dist:mac:production']
+  || pkg.scripts?.['dist:mac:production:fast-track']
+  || pkg.scripts?.['dist:mac:commercial-beta']
+)) {
   failures.push('Community packages must not carry private production extension packaging')
-} else if (privateProductPackage && !productionBuilderConfig) {
-  failures.push('protected production Electron configuration is missing')
+} else if (privateProductPackage && (
+  !productionBuilderConfig || !productionFastTrackBuilderConfig || !commercialBetaBuilderConfig
+)) {
+  failures.push('protected production and commercial-beta Electron configurations are missing')
 } else if (privateProductPackage) {
   let parsedProductionBuilder
+  let parsedProductionFastTrackBuilder
+  let parsedCommercialBetaBuilder
   try {
     parsedProductionBuilder = yaml.load(productionBuilderConfig)
   } catch (error) {
     failures.push(`Production Electron configuration must be valid YAML: ${error instanceof Error ? error.message : String(error)}`)
   }
+  try {
+    parsedProductionFastTrackBuilder = yaml.load(productionFastTrackBuilderConfig)
+  } catch (error) {
+    failures.push(`Fast-track Electron configuration must be valid YAML: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  try {
+    parsedCommercialBetaBuilder = yaml.load(commercialBetaBuilderConfig)
+  } catch (error) {
+    failures.push(`Commercial-beta Electron configuration must be valid YAML: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  const dmgNotarizationHook = 'scripts/notarize-release-dmg.cjs'
   if (parsedProductionBuilder) {
     const resources = parsedProductionBuilder.mac?.extraResources ?? []
     const exactResource = (from, to) => resources.some(value => value?.from === from && value?.to === to)
@@ -187,6 +220,12 @@ if (!privateProductPackage && (productionBuilderConfig || pkg.scripts?.['dist:ma
     }
     if (Object.hasOwn(parsedProductionBuilder, 'appId') || Object.hasOwn(parsedProductionBuilder, 'publish')) {
       failures.push('Production Electron configuration must not override the reviewed official app identity or fail-closed publish channel')
+    }
+    if (
+      Object.hasOwn(parsedProductionBuilder, 'artifactBuildCompleted')
+      || parsedProductionBuilder.dmg?.writeUpdateInfo === false
+    ) {
+      failures.push('Tagged production Electron configuration must retain its existing updater-metadata pipeline')
     }
     if (!exactResource('resources/vaultage-extension-native-host', 'vaultage-extension-native-host')) {
       failures.push('Production Electron configuration must nest only the compiled Swift extension host at its fixed Resources path')
@@ -197,6 +236,25 @@ if (!privateProductPackage && (productionBuilderConfig || pkg.scripts?.['dist:ma
     if (!parsedProductionBuilder.mac?.binaries?.includes('Contents/Resources/vaultage-extension-native-host')) {
       failures.push('Production Electron configuration must sign the Swift extension host as an additional binary')
     }
+  }
+  if (
+    parsedProductionFastTrackBuilder?.extends !== 'electron-builder.production.yml'
+    || parsedProductionFastTrackBuilder?.artifactBuildCompleted !== dmgNotarizationHook
+    || parsedProductionFastTrackBuilder?.dmg?.writeUpdateInfo !== false
+    || Object.hasOwn(parsedProductionFastTrackBuilder ?? {}, 'appId')
+    || Object.hasOwn(parsedProductionFastTrackBuilder ?? {}, 'publish')
+    || !existsSync(join(root, dmgNotarizationHook))
+  ) {
+    failures.push('Fast-track Electron configuration must notarize and validate the final DMG without stale updater metadata')
+  }
+  if (
+    parsedCommercialBetaBuilder?.extends !== 'electron-builder.yml'
+    || parsedCommercialBetaBuilder?.artifactBuildCompleted !== dmgNotarizationHook
+    || parsedCommercialBetaBuilder?.dmg?.writeUpdateInfo !== false
+    || parsedCommercialBetaBuilder?.mac?.forceCodeSigning !== true
+    || parsedCommercialBetaBuilder?.mac?.notarize !== true
+  ) {
+    failures.push('Commercial-beta Electron configuration must sign the app and notarize and validate only the final DMG without stale update metadata')
   }
   if (/browser-extension\/native-host(?:\/|\b)|vaultage-native-host\.mjs|install-chrome-host\.mjs|development-extension-identity/u.test(productionBuilderConfig)) {
     failures.push('Production Electron configuration must not package the Node host or development identity')
@@ -210,9 +268,19 @@ const productionWrapper = existsSync(productionWrapperPath) ? readFileSync(produ
 const wrappedProductionCommand = productionCommand === 'bash scripts/build-commercial-production.sh'
   && productionWrapper.includes('write-release-build-manifest.mjs')
   && productionWrapper.includes('build-extension-native-host.sh --production')
-  && productionWrapper.includes('--config electron-builder.production.yml')
+  && productionWrapper.includes('builder_config=electron-builder.production.yml')
+  && productionWrapper.includes('--config "$builder_config"')
 if (privateProductPackage && !directProductionCommand && !wrappedProductionCommand) {
   failures.push('dist:mac:production must build the production Swift host and use the protected Electron configuration')
+}
+const fastTrackProductionCommand = pkg.scripts?.['dist:mac:production:fast-track']
+const directFastTrackProductionCommand = fastTrackProductionCommand
+  ?.includes('--config electron-builder.production-fast-track.yml')
+const wrappedFastTrackProductionCommand = fastTrackProductionCommand
+  === 'bash scripts/build-commercial-production.sh --fast-track'
+  && productionWrapper.includes('builder_config=electron-builder.production-fast-track.yml')
+if (privateProductPackage && !directFastTrackProductionCommand && !wrappedFastTrackProductionCommand) {
+  failures.push('dist:mac:production:fast-track must use only the reviewed fast-track Electron configuration')
 }
 
 for (const candidate of ['.env', '.env.local', '.env.signing']) {
