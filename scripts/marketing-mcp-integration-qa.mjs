@@ -21,10 +21,24 @@ const clients = [
   { id: 'cursor' },
   { id: 'claude-desktop' },
 ]
-const viewports = [
+const journeys = [
+  { id: 'retrieve', label: 'Retrieve' },
+  { id: 'provision', label: 'Provision' },
+  { id: 'manage', label: 'Manage' },
+  { id: 'browser-fill', label: 'Fill in browser' },
+  { id: 'browser-save', label: 'Save from browser' },
+]
+const allViewports = [
   { name: 'desktop', width: 1280, height: 900 },
+  { name: 'tablet', width: 768, height: 900 },
   { name: 'compact', width: 375, height: 812 },
 ]
+const requestedViewport = process.env.MARKETING_QA_VIEWPORT
+const viewports = requestedViewport
+  ? allViewports.filter(viewport => viewport.name === requestedViewport)
+  : allViewports
+
+if (viewports.length === 0) throw new Error(`Unknown MARKETING_QA_VIEWPORT: ${requestedViewport}`)
 
 function startServer() {
   const server = spawn(process.execPath, [
@@ -35,6 +49,7 @@ function startServer() {
     '--strictPort',
   ], {
     cwd: marketingRoot,
+    env: { ...process.env, VITE_DISABLE_REACT_DEVTOOLS: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let output = ''
@@ -69,25 +84,42 @@ async function stopServer(server) {
   }
 }
 
-async function captureState(page, viewport, state, selection, receipts) {
-  const module = page.locator('[data-marketing-connect]')
+async function captureState(page, viewport, state, selection, receipts, selector) {
+  const module = page.locator(selector)
   await module.scrollIntoViewIfNeeded()
+  await module.evaluate(element => {
+    const top = element.getBoundingClientRect().top
+    window.scrollBy({ top: top - 80, behavior: 'instant' })
+  })
   const layout = await module.evaluate(element => ({
     documentHorizontalOverflow: document.documentElement.scrollWidth > document.documentElement.clientWidth,
     moduleHorizontalOverflow: element.scrollWidth > element.clientWidth,
+    hiddenDescendantOverflow: [...element.querySelectorAll('*')].some(child => child.scrollWidth > child.clientWidth + 1 && getComputedStyle(child).overflowX === 'hidden'),
   }))
   assert.equal(layout.documentHorizontalOverflow, false)
   assert.equal(layout.moduleHorizontalOverflow, false)
+  assert.equal(layout.hiddenDescendantOverflow, false)
   await page.evaluate(async () => {
     await new Promise(requestAnimationFrame)
     await new Promise(requestAnimationFrame)
   })
   const screenshotPath = resolve(evidenceRoot, `${viewport.name}-${state}.png`)
   const screenshot = await page.screenshot({ path: screenshotPath })
+  assert.deepEqual([...screenshot.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], 'capture must be PNG')
+  assert.equal(screenshot.readUInt32BE(16), viewport.width, 'capture width must match viewport')
+  assert.equal(screenshot.readUInt32BE(20), viewport.height, 'capture height must match viewport')
+  const modulePath = resolve(evidenceRoot, `${viewport.name}-${state}-module.png`)
+  const moduleCapture = await module.screenshot({ path: modulePath })
+  if (moduleCapture) assert.deepEqual([...moduleCapture.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], 'module capture must be PNG')
   receipts.push({
     ...layout,
     ...selection,
     file: basename(screenshotPath),
+    ...(moduleCapture && modulePath ? {
+      moduleFile: basename(modulePath),
+      moduleHeight: moduleCapture.readUInt32BE(20),
+      moduleWidth: moduleCapture.readUInt32BE(16),
+    } : {}),
     sha256: createHash('sha256').update(screenshot).digest('hex'),
     state,
     viewport,
@@ -135,7 +167,7 @@ async function verifyViewport(browser, viewport, receipts) {
         assert.equal(await page.locator('[data-marketing-connect-client]').count(), 0)
         await captureState(page, viewport, transport, {
           transport,
-        }, receipts)
+        }, receipts, '[data-marketing-connect]')
         continue
       }
 
@@ -150,9 +182,40 @@ async function verifyViewport(browser, viewport, receipts) {
         await captureState(page, viewport, `${transport}-${client.id}`, {
           client: client.id,
           transport,
-        }, receipts)
+        }, receipts, '[data-marketing-connect]')
       }
     }
+
+    const journeyTabs = page.locator('[role="tab"][aria-controls="journey-workspace"]')
+    assert.equal(await journeyTabs.count(), journeys.length)
+    for (const journey of journeys) {
+      const tab = page.getByRole('tab', { name: new RegExp(journey.label) })
+      await tab.click()
+      assert.equal(await tab.getAttribute('aria-selected'), 'true')
+      assert.equal(await page.locator(`[data-journey-product="${journey.id}"]`).count(), 1)
+      await captureState(page, viewport, `journey-${journey.id}`, {
+        journey: journey.id,
+      }, receipts, '.mh-journeys')
+    }
+
+    const keyboardTarget = page.getByRole('tab', { name: /Save from browser/ })
+    await keyboardTarget.focus()
+    await keyboardTarget.press('Home')
+    const retrieveTab = page.getByRole('tab', { name: /Retrieve/ })
+    assert.equal(await retrieveTab.getAttribute('aria-selected'), 'true')
+    assert.equal(await retrieveTab.evaluate(element => document.activeElement === element), true)
+    await page.locator('[data-marketing-connect-transport="mcp"]').click()
+    const codexTab = page.locator('[data-marketing-connect-client="codex"]')
+    await codexTab.focus()
+    await codexTab.press('Home')
+    const claudeCodeTab = page.locator('[data-marketing-connect-client="claude-code"]')
+    assert.equal(await claudeCodeTab.evaluate(element => document.activeElement === element), true)
+    const mcpTransport = page.locator('[data-marketing-connect-transport="mcp"]')
+    await mcpTransport.focus()
+    await mcpTransport.press('End')
+    const cliTransport = page.locator('[data-marketing-connect-transport="cli"]')
+    assert.equal(await cliTransport.evaluate(element => document.activeElement === element), true)
+    assert.equal(await page.evaluate(() => matchMedia('(prefers-reduced-motion: reduce)').matches), true)
     assert.deepEqual(errors, [])
   } finally {
     await context.close()
@@ -177,9 +240,15 @@ try {
   for (const viewport of viewports) await verifyViewport(browser, viewport, receipts)
   await writeFile(
     resolve(evidenceRoot, 'receipt.json'),
-    `${JSON.stringify({ baseUrl, states: receipts }, null, 2)}\n`,
+    `${JSON.stringify({ baseUrl, requestedViewport: requestedViewport ?? 'all', states: receipts }, null, 2)}\n`,
   )
   process.stdout.write(`marketing MCP QA passed: ${receipts.length} captures in ${evidenceRoot}\n`)
+} catch (error) {
+  await writeFile(
+    resolve(evidenceRoot, 'failure.json'),
+    `${JSON.stringify({ error: error instanceof Error ? error.stack : String(error), states: receipts }, null, 2)}\n`,
+  )
+  throw error
 } finally {
   await browser.close()
   await stopServer(server)

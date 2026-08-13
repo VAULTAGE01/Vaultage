@@ -24,6 +24,25 @@ describe('release metadata policy', () => {
     expect(check(root).status).toBe(0)
   })
 
+  it('does not leak ambient release ancestry enforcement into ordinary fixtures', () => {
+    const root = fixtureRoot()
+    const previous = process.env.VAULTAGE_REQUIRE_RELEASE_MAIN_ANCESTRY
+    process.env.VAULTAGE_REQUIRE_RELEASE_MAIN_ANCESTRY = '1'
+    try {
+      expect(check(root).status).toBe(0)
+    } finally {
+      if (previous === undefined) delete process.env.VAULTAGE_REQUIRE_RELEASE_MAIN_ANCESTRY
+      else process.env.VAULTAGE_REQUIRE_RELEASE_MAIN_ANCESTRY = previous
+    }
+  })
+
+  it('preserves explicit release ancestry enforcement for dedicated fixture cases', () => {
+    const root = fixtureRoot()
+    const result = check(root, { VAULTAGE_REQUIRE_RELEASE_MAIN_ANCESTRY: '1' })
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Release ancestry validation requires a full git checkout')
+  })
+
   it('rejects additional Community workflows', () => {
     const root = fixtureRoot({ community: true })
     write(root, '.github/workflows/release.yml', 'jobs: {}\n')
@@ -188,6 +207,49 @@ mac:
       expect(result.status).toBe(1)
       expect(result.stderr).toContain('must not override the reviewed official app identity')
     }
+  })
+
+  it('rejects adding final-DMG mutation to the tagged updater configuration', () => {
+    const root = fixtureRoot()
+    const production = readFileSync(join(root, 'electron-builder.production.yml'), 'utf8')
+    write(root, 'electron-builder.production.yml', `${production}artifactBuildCompleted: scripts/notarize-release-dmg.cjs\n`)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('must retain its existing updater-metadata pipeline')
+  })
+
+  it('rejects pre-notarization fast-track update metadata', () => {
+    const root = fixtureRoot()
+    const production = readFileSync(join(root, 'electron-builder.production-fast-track.yml'), 'utf8')
+      .replace('writeUpdateInfo: false', 'writeUpdateInfo: true')
+    write(root, 'electron-builder.production-fast-track.yml', production)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('must notarize and validate the final DMG')
+  })
+
+  it('rejects a fast-track package without final-DMG notarization', () => {
+    const root = fixtureRoot()
+    const production = readFileSync(join(root, 'electron-builder.production-fast-track.yml'), 'utf8')
+      .replace('artifactBuildCompleted: scripts/notarize-release-dmg.cjs\n', '')
+    write(root, 'electron-builder.production-fast-track.yml', production)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('must notarize and validate the final DMG')
+  })
+
+  it('rejects a commercial-beta package without final-DMG notarization', () => {
+    const root = fixtureRoot()
+    const commercialBeta = readFileSync(join(root, 'electron-builder.commercial-beta.yml'), 'utf8')
+      .replace('artifactBuildCompleted: scripts/notarize-release-dmg.cjs\n', '')
+    write(root, 'electron-builder.commercial-beta.yml', commercialBeta)
+
+    const result = check(root)
+    expect(result.status).toBe(1)
+    expect(result.stderr).toContain('Commercial-beta Electron configuration must sign the app')
   })
 
   it('rejects packaging the development native host', () => {
@@ -535,6 +597,8 @@ function fixtureRoot(options = {}) {
     engines: { node: '>=22.12.0' },
     scripts: options.scripts ?? (options.community ? {} : {
       'dist:mac:production': 'node scripts/build-full.mjs && bash scripts/build-extension-native-host.sh --production && electron-builder --config electron-builder.production.yml --mac --universal',
+      'dist:mac:production:fast-track': 'node scripts/build-full.mjs && bash scripts/build-extension-native-host.sh --production && electron-builder --config electron-builder.production-fast-track.yml --mac --universal',
+      'dist:mac:commercial-beta': 'node scripts/build-full.mjs && electron-builder --config electron-builder.commercial-beta.yml --mac --universal',
     }),
     devDependencies: { electron: options.electron ?? '^43.1.0' },
   }
@@ -601,6 +665,20 @@ mac:
   binaries:
     - Contents/Resources/vaultage-extension-native-host
 `)
+  if (!options.community) write(root, 'electron-builder.production-fast-track.yml', `extends: electron-builder.production.yml
+artifactBuildCompleted: scripts/notarize-release-dmg.cjs
+dmg:
+  writeUpdateInfo: false
+`)
+  if (!options.community) write(root, 'electron-builder.commercial-beta.yml', `extends: electron-builder.yml
+artifactBuildCompleted: scripts/notarize-release-dmg.cjs
+dmg:
+  writeUpdateInfo: false
+mac:
+  forceCodeSigning: true
+  notarize: true
+`)
+  if (!options.community) write(root, 'scripts/notarize-release-dmg.cjs', 'module.exports = async () => {}\n')
   write(root, '.github/workflows/ci.yml', options.community
     ? communitySourceCiWorkflow()
     : privateSourceCiWorkflow())
@@ -660,9 +738,11 @@ function installCanonicalReleaseWorkflow(root, transform) {
 }
 
 function check(root, extraEnv = {}) {
+  const env = { ...process.env }
+  delete env.VAULTAGE_REQUIRE_RELEASE_MAIN_ANCESTRY
   return spawnSync(process.execPath, [checker], {
     cwd: root,
     encoding: 'utf8',
-    env: { ...process.env, ...extraEnv },
+    env: { ...env, ...extraEnv },
   })
 }

@@ -80,13 +80,40 @@ function requireCurrentTierSemantics(path, source) {
     /(?:sole|only)[\s\S]{0,120}(?:released\s+)?paid capability[\s\S]{0,140}(?:Services|pro\.services)|Pro(?:\s+activation)?\s+adds[^\n]{0,100}Services[^\n]{0,40}only/iu,
     'must state that Services is the only released paid capability',
   )
+  forbidCurrentTierContradictions(path, source)
+}
+
+function requireBrowserStoreBoundary(path, source) {
   requireMatch(
     path,
     source,
-    /browser[- ]extension[\s\S]{0,160}(?:deferred|unavailable)|(?:deferred|unavailable)[\s\S]{0,160}browser[- ]extension/iu,
-    'must state that the browser extension is deferred or unavailable',
+    /(?:public(?:ly)?\s+)?Store[\s\S]{0,80}v0\.1\.1|v0\.1\.1[\s\S]{0,140}(?:public(?:ly)?|available)/iu,
+    'must state that Store-delivered browser extension v0.1.1 is publicly available',
   )
-  forbidCurrentTierContradictions(path, source)
+  requireMatch(
+    path,
+    source,
+    /v0\.1\.2[\s\S]{0,220}(?:accepted local candidate|not Store-published|not clean-machine qualified)/iu,
+    'must distinguish v0.1.2 as a non-Store-published, non-clean-machine-qualified local candidate',
+  )
+  forbid(
+    path,
+    source,
+    /v0\.1\.2[\s\S]{0,240}(?:browser[- ]extension[\s\S]{0,80})?(?:is |remains )?deferred (?:and )?unavailable/iu,
+    'must not retain the superseded deferred/unavailable extension claim beside the v0.1.2 candidate boundary',
+  )
+  forbid(
+    path,
+    source,
+    /browser[- ]extension(?![\s\S]{0,32}v0\.1\.2)[\s\S]{0,120}\b(?:is |remains )?deferred\b/iu,
+    'must not describe the publicly available extension as deferred without the v0.1.2 qualification',
+  )
+  forbid(
+    path,
+    source,
+    /browser[- ]extension(?![\s\S]{0,32}v0\.1\.2)[\s\S]{0,120}\bunavailable\b/iu,
+    'must not describe the publicly available extension as unavailable without the v0.1.2 qualification',
+  )
 }
 
 // These documents are current release-contract documentation. Historical
@@ -142,6 +169,8 @@ if (privateTree) {
   const repositoryStructure = read('docs/repo-structure.md')
   const currentState = read('docs/current-state.md')
   const governance = read('docs/governance.md')
+  const openCoreLaunchRunbook = read('docs/open-core-launch-runbook.md')
+  const paidBetaOnboardingDoc = read('docs/paid-beta-onboarding.md')
   const policy = read('src/shared/commercialPolicy.ts')
   const projectContracts = read('src/shared/projectIpcContracts.ts')
   const projectIpc = read('src/main/projectIpc.ts')
@@ -152,6 +181,7 @@ if (privateTree) {
   const auth = read('src/main/auth.ts')
   const communityRuntime = read('src/main/commercialRuntime.disabled.ts')
   const marketing = read('marketing-web/src/App.tsx')
+  const browserExtensionStoreListing = read('docs/browser-extension-store-listing.md')
   const setupScreen = read('src/renderer/src/components/SetupScreen.tsx')
   const accountSettings = read('src/renderer/src/components/CommercialAccountSettings.tsx')
   const commercialCapabilities = read('src/renderer/src/lib/CommercialFeatureCapabilities.ts')
@@ -178,9 +208,14 @@ if (privateTree) {
     ['docs/repo-structure.md', repositoryStructure],
     ['docs/current-state.md', currentState],
     ['docs/governance.md', governance],
+    ['docs/open-core-launch-runbook.md', openCoreLaunchRunbook],
+    ['docs/paid-beta-onboarding.md', paidBetaOnboardingDoc],
     ['docs/decisions.md', decisions],
     ['marketing-web/src/App.tsx', marketing],
   ])
+
+  requireBrowserStoreBoundary('marketing-web/src/App.tsx', marketing)
+  requireBrowserStoreBoundary('docs/browser-extension-store-listing.md', browserExtensionStoreListing)
 
   for (const [path, source] of [
     ['docs/product.md', product],
@@ -190,6 +225,19 @@ if (privateTree) {
   ]) {
     requireCurrentTierSemantics(path, source)
   }
+  for (const [path, source] of [
+    ['PLAN.md', plan],
+    ['README.md', readme],
+    ['SECURITY.md', security],
+    ['docs/product.md', product],
+    ['docs/foundation.md', foundation],
+    ['docs/features.md', features],
+    ['docs/backend-paid-beta-profile.md', backendProfile],
+    ['docs/repo-structure.md', repositoryStructure],
+    ['docs/current-state.md', currentState],
+    ['docs/open-core-launch-runbook.md', openCoreLaunchRunbook],
+    ['docs/paid-beta-onboarding.md', paidBetaOnboardingDoc],
+  ]) requireBrowserStoreBoundary(path, source)
   for (const [path, source] of [
     ['docs/backend-paid-beta-profile.md', backendProfile],
     ['docs/current-state.md', currentState],
@@ -202,19 +250,9 @@ if (privateTree) {
       /(?:sole|only)[\s\S]{0,120}(?:released\s+)?paid capability[\s\S]{0,140}(?:Services|pro\.services)/iu,
       'must retain Services as the only released paid capability',
     )
-    requireMatch(
-      path,
-      source,
-      /browser[- ]extension[\s\S]{0,160}(?:deferred|unavailable)|(?:deferred|unavailable)[\s\S]{0,160}browser[- ]extension/iu,
-      'must retain the browser extension as deferred or unavailable',
-    )
+    requireBrowserStoreBoundary(path, source)
   }
-  requireMatch(
-    'docs/architecture.md',
-    architecture,
-    /browser-extension transport is deferred and\s+unavailable in released builds/iu,
-    'must identify the extension transport as unavailable in released builds',
-  )
+  requireBrowserStoreBoundary('docs/architecture.md', architecture)
   forbid(
     'docs/architecture.md',
     architecture,
