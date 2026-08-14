@@ -58,6 +58,27 @@ Vaultage is designed around a local-first trust boundary:
   export, deletion, and recovery notifications. It does not receive vault
   plaintext, vault root keys, master passwords, or local project values.
 
+### Trust boundary limitations
+
+The local-first model has two consequences that are explicit boundaries, not
+defects. Users and reviewers should treat them as documented trade-offs:
+
+- Biometric unlock bounds at-rest confidentiality by the macOS account, not by
+  the master password. When Touch ID unlock is enabled, the vault key lives in
+  a this-device-only Keychain item released on local user presence — Touch ID
+  or the macOS account password. An attacker who can satisfy either (for
+  example, an already-unlocked Mac or a known login password) can recover the
+  key and decrypt the vault regardless of the master password. For the
+  strongest at-rest posture, leave Touch ID storage disabled and unlock with
+  the master password only.
+- Biometric protection depends on an authentic, signed build. Official releases
+  run under the macOS hardened runtime and store the key under a user-presence
+  access-control policy. Unsigned or ad-hoc local builds cannot create that
+  policy and fall back to a device-only Keychain item that is readable while the
+  account is unlocked without a per-read presence check. Treat only official
+  signed releases as biometrically protected; unlock a self-built binary with
+  the master password only.
+
 ## In Scope
 
 - Desktop app main/preload/renderer code.
