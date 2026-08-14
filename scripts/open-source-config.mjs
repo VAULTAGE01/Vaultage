@@ -13,6 +13,8 @@ const privateOverlaySourcePatterns = [
   /^release\/hd0-200-ui-surface-selection\.json$/,
   /^scripts\/services-ui-e2e\.mjs$/,
   /^scripts\/services-provider-flow-visual-qa\.mjs$/,
+  /^scripts\/marketing-mcp-integration-qa\.mjs$/,
+  /^scripts\/screen-share-guard-visual-qa\.mjs$/,
   /^scripts\/product-onboarding-visual-qa\.mjs$/,
   /^scripts\/product-flow-composition\.test\.ts$/,
   /^scripts\/check-browser-extension-pairing(?:\.test)?\.mjs$/,
@@ -36,6 +38,8 @@ const privateOverlaySourcePatterns = [
   /^src\/renderer\/.*\/(?:agent|commercial|extension|integration|provider|service)[^/]*\.[cm]?[jt]sx?$/i,
   /^src\/renderer\/.*\/(?:PaidBeta|paidBeta)[^/]*\.[cm]?[jt]sx?$/,
   /^src\/renderer\/src\/components\/SettingsModal\.tsx$/,
+  /^src\/renderer\/src\/components\/settingsInitialTab(?:\.test)?\.ts$/,
+  /^src\/renderer\/src\/lib\/mainWindowNavigation(?:\.test)?\.ts$/,
   /^src\/renderer\/src\/components\/ModalLayoutContracts\.test\.mjs$/,
   /^src\/renderer\/src\/components\/MainLayout\.ui2026LaunchTransitions\.test\.tsx$/,
 ]

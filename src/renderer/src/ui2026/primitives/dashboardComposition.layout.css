@@ -42,11 +42,31 @@
   min-block-size: calc(var(--ui26-control-sm) * 5);
 }
 
+.ui26-dashboard-issues-activity[data-ui26-dashboard-row='issues-activity'] {
+  block-size: calc(var(--ui26-control-sm) * 5);
+  overflow: hidden;
+}
+
 .ui26-dashboard-metrics-slot > .ui26-dashboard-panel,
 .ui26-dashboard-pinned-slot > .ui26-dashboard-panel,
-.ui26-dashboard-issues-slot > .ui26-dashboard-module,
-.ui26-dashboard-activity-slot > .ui26-dashboard-module {
+.ui26-dashboard-issues-slot > .ui26-dashboard-panel,
+.ui26-dashboard-activity-slot > .ui26-dashboard-panel {
   height: 100%;
+}
+
+@media (min-width: 1180px) and (min-height: 700px) {
+  .ui26-dashboard-composition {
+    height: 100%;
+    align-self: stretch;
+    grid-template-rows: minmax(0, 1fr) minmax(0, calc(var(--ui26-control-sm) * 4)) auto;
+    gap: var(--ui26-space-3);
+    overflow: hidden;
+  }
+
+  .ui26-dashboard-overview,
+  .ui26-dashboard-quick-actions-slot {
+    min-block-size: 0;
+  }
 }
 
 @container (max-width: 52rem) {

@@ -83,6 +83,7 @@ export function ProjectIssuesModule({
       count={projects.length}
       state={projects.length ? 'ready' : 'empty'}
       emptyMessage='Everything is ready. No project issues need attention.'
+      viewAll
     >
       {projects.map(project => (
         <CompactRow key={project.id} icon={<AlertCircle size={16} />} title={project.name} detail={project.status} status={{ kind: 'attention', label: 'Review' }} onActivate={() => onOpenProject(project.id)} />
@@ -107,6 +108,7 @@ export function ProjectActivityModule({
       count={activity.length}
       state={activity.length ? 'ready' : 'empty'}
       emptyMessage='No recent project activity.'
+      viewAll
     >
       {activity.map(item => (
         <CompactRow key={item.id} icon={<Upload size={16} />} title={item.title} detail={item.detail} onActivate={() => onOpenProject(item.projectId)} />

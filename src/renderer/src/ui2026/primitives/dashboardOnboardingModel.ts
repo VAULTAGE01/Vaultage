@@ -5,7 +5,7 @@ export const VAULT_ONBOARDING_MILESTONES = [
 
 export const PROJECTS_ONBOARDING_MILESTONES = [
   { id: 'project-scanned-or-imported', label: 'Project scanned or imported' },
-  { id: 'vault-secrets-linked', label: 'Link vault secrets' },
+  { id: 'vault-secrets-linked', label: 'Manage mapping' },
 ] as const
 
 export type DashboardSurface = 'vault' | 'projects'

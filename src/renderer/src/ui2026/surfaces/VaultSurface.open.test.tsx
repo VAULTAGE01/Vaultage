@@ -85,6 +85,7 @@ describe('Community UI2026 Vault surface', () => {
     expect(html).toContain('data-ui26-dashboard-surface="vault"')
     expect(html).toContain('data-ui26-dashboard-slot-state="onboarding"')
     expect(html).toContain('Quick actions')
+    expect(html.match(/class="ui26-quick-action/g)).toHaveLength(4)
     expect(html).toContain('Local API key')
     expect(html).toContain('Gateway certificate')
     expect(html).toContain('Certificate expires')
@@ -109,5 +110,18 @@ describe('Community UI2026 Vault surface', () => {
     expect(html.match(/class="ui26-dashboard-panel"/g)).toHaveLength(3)
     expect(html).not.toContain('class="ui26-dashboard-module"')
     expect(html).not.toContain('Start your secure vault')
+  })
+
+  it('places pinned tabs in the module header instead of nesting another framed panel', () => {
+    const html = renderToStaticMarkup(<VaultSurface embedded onSurfaceChange={vi.fn()} />)
+    const pinnedPanel = html.indexOf('data-ui26-dashboard-panel="pinned"')
+    const panelHeader = html.indexOf('class="ui26-dashboard-panel-header"', pinnedPanel)
+    const tabList = html.indexOf('role="tablist"', pinnedPanel)
+    const panelBody = html.indexOf('class="ui26-dashboard-panel-body"', pinnedPanel)
+
+    expect(pinnedPanel).toBeGreaterThan(-1)
+    expect(tabList).toBeGreaterThan(panelHeader)
+    expect(tabList).toBeLessThan(panelBody)
+    expect(html).not.toContain('ui26-vault-pinned-tabs')
   })
 })

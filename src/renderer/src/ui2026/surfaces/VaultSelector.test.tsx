@@ -41,7 +41,7 @@ const collection: VaultCollectionSnapshot = {
   vaults: [
     {
       id: 'vault-personal',
-      name: 'Personal',
+      name: 'Default',
       createdAt: '2026-08-02T12:00:00.000Z',
       updatedAt: '2026-08-02T12:00:00.000Z',
       archived: false,
@@ -88,6 +88,9 @@ describe('VaultSelectorList', () => {
     expect(activeTreeStart).toBeLessThan(workNodeStart)
     expect(html).toContain('data-vault-content-for="vault-personal"')
     expect(html).not.toContain('Manage vaults')
+    expect(html).toContain('Default Vault')
+    expect(html).toContain('data-vault-icon="true"')
+    expect(html).not.toContain('>Active<')
   })
 
   it('renders active and archived states with bounded management actions', () => {
@@ -235,7 +238,7 @@ describe('VaultSelector', () => {
       await Promise.resolve()
       await Promise.resolve()
     })
-    expect(rootElement.textContent).toContain('Personal')
+    expect(rootElement.textContent).toContain('Default Vault')
 
     vaultState.collection = {
       ...collection,
@@ -288,6 +291,32 @@ describe('VaultSelector', () => {
     })
 
     expect(vaultActions.createVault).toHaveBeenCalledWith('New vault')
+    expect(requestTextInput).toHaveBeenCalledWith(expect.objectContaining({
+      initialValue: 'Unnamed Vault 01',
+    }))
+  })
+
+  it('increments the suggested unnamed vault without reusing an existing number', async () => {
+    vaultState.collection = {
+      ...collection,
+      vaults: [
+        ...collection.vaults,
+        { ...collection.vaults[1], id: 'vault-unnamed', name: 'Unnamed Vault 01' },
+      ],
+    }
+    root = createRoot(rootElement as unknown as Element)
+    await act(async () => {
+      root?.render(createElement(VaultSelector))
+      await Promise.resolve()
+    })
+    await act(async () => {
+      click(rootElement, requireElement(findByAttribute(rootElement, 'data-vault-action', 'create')))
+      await Promise.resolve()
+    })
+
+    expect(requestTextInput).toHaveBeenCalledWith(expect.objectContaining({
+      initialValue: 'Unnamed Vault 02',
+    }))
   })
 })
 

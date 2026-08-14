@@ -1,4 +1,4 @@
-import { Archive, Pencil, Plus, RotateCcw, Trash2 } from 'lucide-react'
+import { Archive, Pencil, Plus, RotateCcw, Trash2, Vault } from 'lucide-react'
 import type { DragEvent, ReactElement, ReactNode } from 'react'
 import type { VaultCollectionSnapshot } from '../../../../shared/vaultIpcContracts'
 
@@ -61,6 +61,7 @@ export function VaultSelectorList({
       </header>
       <div className='grid min-w-0 gap-0.5'>
         {collection.vaults.map(vault => {
+          const displayName = vault.name === 'Default' ? 'Default Vault' : vault.name
           const active = collection.activeVaultId === vault.id
           const canArchive = !active
           const canDelete = vault.archived && !active && collection.vaults.length > 1
@@ -71,7 +72,7 @@ export function VaultSelectorList({
               <div className='flex min-w-0 items-center gap-1'>
                 <button
                   type='button'
-                  className={`flex h-8 min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 text-left text-xs text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent aria-[current=true]:bg-white/10 aria-[current=true]:text-text disabled:cursor-not-allowed disabled:opacity-60 ${active && activeVaultRoot?.dropInside ? 'ring-1 ring-white/[0.14]' : ''}`}
+                  className={`flex h-8 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left text-xs text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent aria-[current=true]:bg-white/10 aria-[current=true]:text-text disabled:cursor-not-allowed disabled:opacity-60 ${active && activeVaultRoot?.dropInside ? 'ring-1 ring-white/[0.14]' : ''}`}
                   data-vault-action='switch'
                   data-vault-id={vault.id}
                   aria-current={active ? 'true' : undefined}
@@ -86,15 +87,15 @@ export function VaultSelectorList({
                   data-vault-root-drop={active && activeVaultRoot?.canAcceptDrop ? 'enabled' : undefined}
                   data-vault-root-drop-active={active && activeVaultRoot?.dropInside ? 'true' : undefined}
                 >
-                  <span className='min-w-0 flex-1 truncate'>{vault.name}</span>
-                  <small className='shrink-0 text-[10px] text-muted'>
-                    {active ? 'Active' : vault.archived ? 'Archived' : 'Switch'}
-                  </small>
+                  <span className='grid h-4 w-4 shrink-0 place-items-center' data-vault-icon='true' aria-hidden>
+                    <Vault size={14} />
+                  </span>
+                  <span className='min-w-0 flex-1 truncate'>{displayName}</span>
                 </button>
-                <div className='flex shrink-0 items-center gap-0.5' aria-label={`${vault.name} actions`}>
+                <div className='flex shrink-0 items-center gap-0.5' aria-label={`${displayName} actions`}>
                   <button
                     type='button'
-                    aria-label={`Rename ${vault.name}`}
+                    aria-label={`Rename ${displayName}`}
                     data-vault-action='rename'
                     disabled={pendingVaultId !== null}
                     onClick={() => onRename(vault)}
@@ -105,7 +106,7 @@ export function VaultSelectorList({
                   {canArchive ? (
                     <button
                       type='button'
-                      aria-label={vault.archived ? `Restore ${vault.name}` : `Archive ${vault.name}`}
+                      aria-label={vault.archived ? `Restore ${displayName}` : `Archive ${displayName}`}
                       data-vault-action={vault.archived ? 'restore' : 'archive'}
                       disabled={pendingVaultId !== null}
                       onClick={() => onSetArchived(vault, !vault.archived)}
@@ -119,7 +120,7 @@ export function VaultSelectorList({
                   {canDelete ? (
                     <button
                       type='button'
-                      aria-label={`Delete ${vault.name}`}
+                      aria-label={`Delete ${displayName}`}
                       data-vault-action='delete'
                       disabled={pendingVaultId !== null}
                       onClick={() => onDelete(vault)}

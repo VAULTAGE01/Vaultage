@@ -54,4 +54,15 @@ describe('DashboardComposition recovery', () => {
     expect(loading).toContain('aria-busy="true"')
     expect(error).toContain('Could not load issues. Try again.')
   })
+
+  it('offers a larger view for bounded activity modules', () => {
+    const html = renderToStaticMarkup(
+      <DashboardStatePanel title='General activity' state='ready' viewAll>
+        <p>Recent activity</p>
+      </DashboardStatePanel>,
+    )
+
+    expect(html).toContain('data-ui26-dashboard-view-all="General activity"')
+    expect(html).toContain('View all')
+  })
 })

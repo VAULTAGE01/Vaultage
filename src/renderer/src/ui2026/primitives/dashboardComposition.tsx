@@ -1,4 +1,10 @@
-import type { ReactElement, ReactNode } from 'react'
+import { useState, type ReactElement, type ReactNode } from 'react'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '../../components/ui/dialog'
 import {
   renderDashboardModuleState,
   type DashboardModuleProps,
@@ -23,11 +29,14 @@ export type DashboardPanelProps = {
   readonly icon?: ReactNode
   readonly count?: number
   readonly controls?: ReactNode
+  readonly panelId?: string
   readonly children: ReactNode
   readonly state?: DashboardModuleState
 }
 
-export type DashboardStatePanelProps = Omit<DashboardModuleProps, 'className'>
+export type DashboardStatePanelProps = Omit<DashboardModuleProps, 'className'> & {
+  readonly viewAll?: boolean
+}
 
 export type DashboardMetricGridProps = {
   readonly label: string
@@ -48,12 +57,14 @@ export function DashboardPanel({
   icon,
   count,
   controls,
+  panelId,
   children,
   state = 'ready',
 }: DashboardPanelProps): ReactElement {
   return (
     <section
       className={`ui26-dashboard-panel${className ? ` ${className}` : ''}`}
+      data-ui26-dashboard-panel={panelId}
       data-ui26-dashboard-panel-state={state}
     >
       <header className='ui26-dashboard-panel-header'>
@@ -85,11 +96,41 @@ export function DashboardStatePanel({
   emptyMessage = 'Nothing to show yet.',
   error,
   children,
+  viewAll = false,
 }: DashboardStatePanelProps): ReactElement {
+  const [expanded, setExpanded] = useState(false)
+  const content = renderDashboardModuleState(state, title, emptyMessage, error, children)
   return (
-    <DashboardPanel title={title} icon={icon} count={count} state={state}>
-      {renderDashboardModuleState(state, title, emptyMessage, error, children)}
-    </DashboardPanel>
+    <>
+      <DashboardPanel
+        title={title}
+        icon={icon}
+        count={count}
+        state={state}
+        controls={viewAll ? (
+          <button
+            type='button'
+            className='ui26-dashboard-view-all'
+            data-ui26-dashboard-view-all={title}
+            onClick={() => setExpanded(true)}
+          >
+            View all
+          </button>
+        ) : undefined}
+      >
+        {content}
+      </DashboardPanel>
+      {viewAll ? (
+        <Dialog open={expanded} onOpenChange={setExpanded}>
+          <DialogContent className='ui26-dashboard-view-all-dialog'>
+            <DialogHeader>
+              <DialogTitle>{title}</DialogTitle>
+            </DialogHeader>
+            <div className='ui26-dashboard-view-all-content'>{content}</div>
+          </DialogContent>
+        </Dialog>
+      ) : null}
+    </>
   )
 }
 

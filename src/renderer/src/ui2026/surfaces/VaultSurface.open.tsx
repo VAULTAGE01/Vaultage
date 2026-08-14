@@ -47,6 +47,14 @@ export type VaultSurfaceProps = {
   readonly embedded?: boolean
   readonly renderSecretDetail?: () => ReactNode
   readonly addSecretModal?: ComponentType<{ readonly folderId: string, readonly onClose: () => void }>
+  readonly additionalQuickAction?: VaultQuickAction
+}
+
+export type VaultQuickAction = {
+  readonly icon: ReactNode
+  readonly title: string
+  readonly actionLabel: string
+  readonly onActivate: () => void
 }
 
 export function VaultSurface({
@@ -55,6 +63,7 @@ export function VaultSurface({
   rail: railOverride,
   embedded = false,
   addSecretModal,
+  additionalQuickAction,
 }: VaultSurfaceProps): ReactElement {
   const { state, selectFolder, selectSecret } = useVault()
   const [query, setQuery] = useState('')
@@ -182,6 +191,7 @@ export function VaultSurface({
       searchInput={searchInput}
       searchResults={searchResults}
       actions={actions}
+      additionalQuickAction={additionalQuickAction}
       onboarding={onboardingHidden ? null : (
         <DashboardOnboarding
           state={onboardingState}

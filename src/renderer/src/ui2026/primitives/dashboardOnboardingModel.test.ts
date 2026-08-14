@@ -46,6 +46,17 @@ describe('dashboard onboarding model', () => {
     expect(
       resolveDashboardOnboardingProgress({
         surface: 'projects',
+        completed: ['project-scanned-or-imported'],
+      }).nextStep,
+    ).toEqual({
+      id: 'vault-secrets-linked',
+      label: 'Manage mapping',
+      completed: false,
+    })
+
+    expect(
+      resolveDashboardOnboardingProgress({
+        surface: 'projects',
         completed: ['project-scanned-or-imported', 'vault-secrets-linked'],
       }).nextStep,
     ).toBeNull()
