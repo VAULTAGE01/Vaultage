@@ -46,10 +46,11 @@ the bounded grid and scroll ownership declared by .ui26-shell,
 
 ### Authentication and onboarding
 
-- Scope: clean-install welcome, local-vault password creation, Emergency Kit
-  restore entry, and the backdrop shared by those setup steps. Established
-  unlock and recovery screens remain on their existing auth contract until
-  they are migrated deliberately.
+- Scope: clean-install welcome, local-vault password creation, returning-vault
+  unlock, Emergency Kit restore entry, and the backdrop shared by those steps.
+  Returning unlock uses the tokenized `ui26-auth-*` panel, field, primary
+  action, alert, and recovery-link primitives; it does not carry legacy liquid
+  card styling or inline visual values.
 - Primitives: `ui26-onboarding-shell`, `ui26-onboarding-frame`,
   `ui26-onboarding-action-card`, `ui26-onboarding-security`,
   `ui26-onboarding-form-panel`, `ui26-onboarding-field`,
@@ -78,6 +79,13 @@ the bounded grid and scroll ownership declared by .ui26-shell,
   the browser for account access. Community never renders this
   commercial path. Returning Back and choosing local setup replaces the pending
   destination so Account & Plan cannot open unexpectedly.
+- Dashboard composition: Vault and Projects expose at most four quick actions
+  in one desktop row. Their metrics/pinned and issues/activity modules share
+  one wrapper; issues and activity own bounded internal scrolling plus a
+  `View all` dialog. Vault pinned filters live in the module header, and the
+  vault hierarchy uses the same nested-row anatomy as folders. The legacy
+  `Default` label is presented as `Default Vault`; suggested new names are
+  sequential `Unnamed Vault 01`, `Unnamed Vault 02`, and so on.
 - Accessibility: each step has one `h1`; security facts precede password
   entry; secure inputs retain native semantics; invalid fields expose
   `aria-invalid` and associated descriptions; stable `data-onboarding-*`

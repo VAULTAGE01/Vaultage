@@ -193,6 +193,11 @@
 }
 
 @media (min-width: 1180px) and (min-height: 700px) {
+  .ui26-projects-layout {
+    overflow: hidden;
+    padding-right: 0;
+  }
+
   .ui26-projects-actions {
     height: 100%;
     min-height: 0;

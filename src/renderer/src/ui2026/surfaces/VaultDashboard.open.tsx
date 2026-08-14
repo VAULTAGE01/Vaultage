@@ -30,6 +30,7 @@ import type {
   searchVaultSurface,
   VaultSurfaceSecret,
 } from './vaultSurfaceModel.open'
+import type { VaultQuickAction } from './VaultSurface.open'
 import { VaultSearchPanel } from './VaultSearchPanel.open'
 
 type VisibleVault = ReturnType<typeof filterVaultSurfaceModel>
@@ -63,6 +64,7 @@ export function VaultDashboard({
   searchInput,
   searchResults,
   actions,
+  additionalQuickAction,
   onboarding,
   onQueryChange,
   onSearchClose,
@@ -72,6 +74,7 @@ export function VaultDashboard({
   readonly searchInput: RefObject<HTMLInputElement>
   readonly searchResults: VaultSearchResults
   readonly actions: VaultActions
+  readonly additionalQuickAction?: VaultQuickAction
   readonly onboarding?: ReactNode
   readonly onQueryChange: (query: string) => void
   readonly onSearchClose: () => void
@@ -109,16 +112,23 @@ export function VaultDashboard({
           </DashboardPanel>
         )}
         pinned={(
-          <DashboardPanel title='Pinned' icon={<Pin size={15} />} count={pinnedCount}>
-            <Tabs defaultValue='secrets' className='ui26-vault-pinned-tabs'>
-              <TabsList aria-label='Pinned Vault items'>
-                <TabsTrigger value='secrets'>
-                  Pinned secrets <span>{visible.pinnedSecrets.length}</span>
-                </TabsTrigger>
-                <TabsTrigger value='collections'>
-                  Pinned collections <span>{pinnedCollections.length}</span>
-                </TabsTrigger>
-              </TabsList>
+          <Tabs defaultValue='secrets' className='ui26-vault-pinned-module'>
+            <DashboardPanel
+              panelId='pinned'
+              title='Pinned'
+              icon={<Pin size={15} />}
+              count={pinnedCount}
+              controls={(
+                <TabsList className='ui26-vault-pinned-tablist' aria-label='Pinned Vault items'>
+                  <TabsTrigger value='secrets'>
+                    Pinned secrets <span>{visible.pinnedSecrets.length}</span>
+                  </TabsTrigger>
+                  <TabsTrigger value='collections'>
+                    Pinned collections <span>{pinnedCollections.length}</span>
+                  </TabsTrigger>
+                </TabsList>
+              )}
+            >
               <TabsContent value='secrets' className='ui26-vault-pinned-list'>
                 {visible.pinnedSecrets.length ? visible.pinnedSecrets.map((secret) => (
                   <div className='ui26-vault-secret' key={secret.id}>
@@ -148,8 +158,8 @@ export function VaultDashboard({
                   </button>
                 )) : <p className='ui26-muted'>No pinned collections.</p>}
               </TabsContent>
-            </Tabs>
-          </DashboardPanel>
+            </DashboardPanel>
+          </Tabs>
         )}
         quickActions={(
           <>
@@ -158,7 +168,16 @@ export function VaultDashboard({
               <QuickActionCard icon={<KeyRound size={24} aria-hidden />} title='Add secret' actionLabel='Add secret' tone='primary' onActivate={actions.openAddSecret} />
               <QuickActionCard icon={<Upload size={24} aria-hidden />} title='Import or export' actionLabel='Choose transfer flow' onActivate={actions.openImportOrExport} />
               <QuickActionCard icon={<Folder size={24} aria-hidden />} title='New collection' actionLabel='Create collection' onActivate={actions.openNewCollection} />
-              <QuickActionCard icon={<Settings size={24} aria-hidden />} title='Vault settings' actionLabel='Open settings' onActivate={actions.openVaultSettings} />
+              {additionalQuickAction ? (
+                <QuickActionCard
+                  icon={additionalQuickAction.icon}
+                  title={additionalQuickAction.title}
+                  actionLabel={additionalQuickAction.actionLabel}
+                  onActivate={additionalQuickAction.onActivate}
+                />
+              ) : (
+                <QuickActionCard icon={<Settings size={24} aria-hidden />} title='Vault settings' actionLabel='Open settings' onActivate={actions.openVaultSettings} />
+              )}
             </div>
           </>
         )}
@@ -169,6 +188,7 @@ export function VaultDashboard({
             count={visible.reminders.length}
             state={visible.reminders.length ? 'ready' : 'empty'}
             emptyMessage='Nothing needs attention.'
+            viewAll
           >
             {visible.reminders.map((item) => (
               <SecretRow key={item.id} secret={item} reminder onActivate={() => actions.openSecret(item)} />
@@ -182,6 +202,7 @@ export function VaultDashboard({
             count={visible.recentSecrets.length}
             state={visible.recentSecrets.length ? 'ready' : 'empty'}
             emptyMessage='No recent secret updates.'
+            viewAll
           >
             {visible.recentSecrets.map((item) => (
               <SecretRow key={item.id} secret={item} onActivate={() => actions.openSecret(item)} />

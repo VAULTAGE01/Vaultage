@@ -24,6 +24,13 @@ function messageFromError(error: unknown): string {
   return error instanceof Error ? error.message : 'Could not update vaults'
 }
 
+export function nextUnnamedVaultName(vaultNames: readonly string[]): string {
+  const existing = new Set(vaultNames)
+  let sequence = 1
+  while (existing.has(`Unnamed Vault ${String(sequence).padStart(2, '0')}`)) sequence += 1
+  return `Unnamed Vault ${String(sequence).padStart(2, '0')}`
+}
+
 export function VaultSelector({
   activeContent,
   activeVaultRoot,
@@ -77,12 +84,16 @@ export function VaultSelector({
   }
 
   const handleCreate = async (): Promise<void> => {
+    const suggestedName = nextUnnamedVaultName(
+      state.vaultCollection?.vaults.map(vault => vault.name) ?? [],
+    )
     const name = await requestTextInput({
       title: 'New vault',
       description: 'Create another encrypted local vault.',
       label: 'Vault name',
       confirmLabel: 'Create vault',
-      placeholder: 'Vault name',
+      placeholder: suggestedName,
+      initialValue: suggestedName,
       validation: { kind: 'non-empty' },
     })
     const trimmedName = name?.trim()

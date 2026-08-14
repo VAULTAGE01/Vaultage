@@ -131,6 +131,8 @@ describe('Community source boundary configuration', () => {
     expect(isPrivateOverlaySourcePath('scripts/check-browser-extension-pairing.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/services-ui-e2e.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/services-provider-flow-visual-qa.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/marketing-mcp-integration-qa.mjs')).toBe(true)
+    expect(isPrivateOverlaySourcePath('scripts/screen-share-guard-visual-qa.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/product-onboarding-visual-qa.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/write-release-build-manifest.mjs')).toBe(true)
     expect(isPrivateOverlaySourcePath('scripts/write-release-build-manifest.test.mjs')).toBe(true)
@@ -144,15 +146,13 @@ describe('Community source boundary configuration', () => {
       'scripts/product-flow-composition.test.ts',
       'src/renderer/src/components/CommercialAccountSettingsContent.tsx',
       'src/renderer/src/components/MainLayout.ui2026LaunchTransitions.test.tsx',
+      'src/renderer/src/components/settingsInitialTab.ts',
+      'src/renderer/src/components/settingsInitialTab.test.ts',
+      'src/renderer/src/lib/mainWindowNavigation.ts',
+      'src/renderer/src/lib/mainWindowNavigation.test.ts',
     ]) {
       expect(isPrivateOverlaySourcePath(path), path).toBe(true)
     }
-
-    const publicSettingsSource = readFileSync(
-      resolve(import.meta.dirname, '..', 'src/renderer/src/components/settingsInitialTab.ts'),
-      'utf8',
-    )
-    expect(publicSettingsSource).not.toContain('settingsTabForAccountPlanRequest')
   })
 
   it('allows only the reviewed Projects visual primitives from UI2026', () => {

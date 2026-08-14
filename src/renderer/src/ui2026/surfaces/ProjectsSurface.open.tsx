@@ -1,4 +1,4 @@
-import { FolderSearch, Link2, Plus, Search, Settings2, Upload, Zap } from 'lucide-react'
+import { FolderSearch, Plus, Search, Settings2, Zap } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react'
 import {
   QuickActionCard,
@@ -56,7 +56,6 @@ export function ProjectsSurface({
   onOpenExistingWorkspace,
   onOpenNewProject,
   onOpenMappings,
-  onOpenExport,
 }: ProjectsSurfaceProps): ReactElement {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -76,15 +75,10 @@ export function ProjectsSurface({
     [projects, searchQuery],
   )
   const selectedProject = model.projects[0]?.id
-  const openProjectWorkspace = (): void => {
-    if (selectedProject) onOpenExistingWorkspace(selectedProject)
-    else onOpenNewProject()
-  }
   const openMappings = (): void => {
     if (selectedProject) onOpenMappings(selectedProject)
     else onOpenNewProject()
   }
-  const openExport = (): void => onOpenExport(selectedProject)
   const openSearch = (): void => {
     if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
       searchReturnFocusRef.current = document.activeElement
@@ -159,7 +153,6 @@ export function ProjectsSurface({
           onSearch={openSearch}
           actions={[
             { label: 'New Project', onActivate: onOpenNewProject, icon: <Plus size={16} /> },
-            { label: 'Manage mappings', onActivate: openMappings, variant: 'secondary', icon: <Settings2 size={16} /> },
           ]}
         />
       )}
@@ -189,9 +182,7 @@ export function ProjectsSurface({
                     onActivate={additionalQuickAction.onActivate}
                   />
                 ) : null}
-                <QuickActionCard icon={<Settings2 size={24} />} title='Manage mapping' actionLabel='Open project' onActivate={openProjectWorkspace} />
-                <QuickActionCard icon={<Upload size={24} />} title='Review export' actionLabel='Review export' onActivate={openExport} disabledReason={model.projectCount === 0 ? 'Add a project before exporting.' : undefined} tone='warning' />
-                <QuickActionCard icon={<Link2 size={24} />} title='Link vault secrets' actionLabel='Choose secrets' onActivate={openMappings} />
+                <QuickActionCard icon={<Settings2 size={24} />} title='Manage mapping' actionLabel='Open mappings' onActivate={openMappings} />
               </div>
             </>
           )}
