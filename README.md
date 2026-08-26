@@ -25,6 +25,14 @@ local projects without an account or hosted sync.
 > customer-ready. Follow the exact release label and notes; macOS may require
 > **right-click Open** on first launch.
 
+> **Native vNext transition:** this branch is the clean public migration line
+> for the Swift macOS app and its iOS fast-follow. The current Electron
+> Community implementation remains on `main`; `legacy/electron` preserves the
+> exact pre-pivot baseline. Native source will arrive here only through the
+> reviewed public export boundary described in
+> [docs/native-vnext.md](./docs/native-vnext.md). This branch is not yet a
+> customer release or a replacement for the current production app.
+
 ## What is Vaultage?
 
 Vaultage Community is a complete local tool for organizing developer
