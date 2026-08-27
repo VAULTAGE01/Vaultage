@@ -30,6 +30,8 @@
     "check:release-metadata": "node scripts/check-release-metadata.mjs",
     "check:script-targets": "node scripts/check-script-targets.mjs",
     "check:source-drop-secrets": "node scripts/check-source-drop-secrets.mjs",
+    "check:native-vnext-export": "node scripts/check-native-vnext-export.mjs",
+    "check:native-vnext-provenance": "node scripts/check-native-vnext-export.mjs --require-source",
     "check:schemas": "node scripts/check-schemas.mjs",
     "check:product-truth": "node scripts/check-product-truth.mjs",
     "publish:check": "node scripts/publish-readiness.mjs",

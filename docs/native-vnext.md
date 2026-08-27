@@ -49,6 +49,44 @@ Every export must reject:
   repository;
 - paths not present in the explicit export manifest.
 
+## First reviewed export
+
+The first source increment is the platform-neutral Swift package at
+`shared/VaultageCore`. It is bound by `native-export-manifest.json` to exact
+private implementation revision `5aecda6eabb1e934fdde8412d9100c40ca50f39d`
+and contains only local-vault compatibility, credential projection/update,
+password collection-key unlock, passkey primitives, and TOTP primitives.
+
+This increment deliberately excludes the commercial account-status model and
+all macOS App/Broker composition, iOS app/extension composition, provider
+operations, release scripts, signing configuration, and private evidence.
+Those surfaces require their own reviewed allowlist increments; their absence
+does not weaken or silently broaden the Community boundary.
+
+Verify the exact export manifest on any platform with Node.js:
+
+```sh
+pnpm check:native-vnext-export
+```
+
+That public check verifies the committed maintainer attestation, the complete
+allowlist, and every exported file digest. The private implementation Git
+object is intentionally not copied into this repository. A maintainer with an
+authorized private checkout must additionally verify the claimed revision,
+tree, paths, and Git-object bytes before committing an export:
+
+```sh
+VAULTAGE_NATIVE_SOURCE_ROOT=/path/to/authorized/Vaultage-Native \
+  pnpm check:native-vnext-provenance
+```
+
+On macOS with full Xcode installed, also compile and test the Swift package:
+
+```sh
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer \
+  xcrun swift test --package-path shared/VaultageCore
+```
+
 The initial public layout will mirror the native product boundaries rather
 than the historical Electron process tree:
 

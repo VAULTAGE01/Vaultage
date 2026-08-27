@@ -14,6 +14,7 @@ const checks = [
   ['pnpm', ['run', 'check:schemas']],
   ['pnpm', ['run', 'check:product-truth']],
   ['pnpm', ['run', 'check:source-drop-secrets']],
+  ['pnpm', ['run', 'check:native-vnext-export']],
   ['pnpm', ['run', 'publish:check']],
   ['pnpm', ['audit', '--prod']],
   ['pnpm', ['audit', '--dev']],
