@@ -55,7 +55,7 @@
     "ajv": "^8.20.0",
     "ajv-formats": "^3.0.1",
     "autoprefixer": "^10.5.2",
-    "electron": "^43.1.0",
+    "electron": "^43.8.1",
     "electron-builder": "^26.15.6",
     "electron-builder-squirrel-windows": "^26.15.6",
     "electron-vite": "^5.0.0",
